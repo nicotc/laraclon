@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="clon-token" content="{{.Token}}">
+  <title>clon</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>clon</h1>
+    <div class="actions">
+      <button data-action="start">Iniciar todo</button>
+      <button data-action="stop" class="secondary">Detener todo</button>
+      <button data-action="rescan" class="secondary">Buscar sitios</button>
+    </div>
+  </header>
+
+  <section id="alerts"></section>
+
+  <section class="cards">
+    <div class="card">
+      <h2>PHP global</h2>
+      <select id="php"></select>
+      <p class="muted">Afecta a la web, la terminal, Composer y Artisan.</p>
+    </div>
+    <div class="card">
+      <h2>Node</h2>
+      <p id="node" class="big">—</p>
+      <p class="muted">Con npm y npx. Cambia con <code>clon node use</code>.</p>
+    </div>
+    <div class="card">
+      <h2>Servicios</h2>
+      <ul id="services" class="plain"></ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sitios <span id="site-count" class="muted"></span></h2>
+    <input id="filter" type="search" placeholder="Filtrar sitios…">
+    <table>
+      <thead><tr><th>Sitio</th><th>Tipo</th><th>Carpeta</th><th>Puerto interno</th></tr></thead>
+      <tbody id="sites"></tbody>
+    </table>
+  </section>
+
+  <footer class="muted" id="footer"></footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

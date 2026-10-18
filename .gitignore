@@ -1,0 +1,5 @@
+# Build output
+/dist/
+
+# Local test installation (binaries, data, certificates)
+/home-dev/
