@@ -193,7 +193,8 @@ Step 'Archivo hosts (clon hosts sync)' {
     "$how`n" + ($lines -join "`n")
 }
 
-Step 'Arrancar clon con la bandeja (clon run)' {
+# Starts clon with its tray icon and waits until Apache, MySQL and the PHP pool are up.
+function Start-Clon {
     Invoke-Tool $clon 'run' 180 | Out-Null
     $deadline = (Get-Date).AddSeconds(240)
     $st = ''
@@ -205,6 +206,8 @@ Step 'Arrancar clon con la bandeja (clon run)' {
     if (-not $ready) { throw $st }
     $st
 }
+
+Step 'Arrancar clon con la bandeja (clon run)' { Start-Clon }
 
 Step 'Base de datos y migraciones de Laravel en MySQL' {
     Invoke-Tool "$shims\mysql.exe" '-e "CREATE DATABASE IF NOT EXISTS laravel_demo"' 60 | Out-Null
@@ -301,9 +304,27 @@ foreach ($s in $report) { $md += "| $($s.paso) | $(if ($s.ok) { 'OK' } else { 'F
 foreach ($s in $report) { $md += "`n## $($s.paso)`n`n``````text`n$($s.detalle)`n```````n" }
 [IO.File]::WriteAllText("$R\report.md", $md, $utf8)
 [IO.File]::WriteAllText("$R\done.json", (@{ ok = $ok; fallos = $bad; fin = (Get-Date -Format o) } | ConvertTo-Json), $utf8)
+
+# The last step closed clon to check that nothing was left behind; whoever looks at the sandbox
+# should find it running, so it starts again with the Laravel project and the panel open.
+$demo = 'clon sigue arrancado para que lo pruebes: su icono está junto al reloj (quizá bajo ^), y Edge tiene abiertos el proyecto Laravel y el panel.'
+try {
+    Start-Clon | Out-Null
+    $edgePolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge'
+    New-Item -Path $edgePolicy -Force | Out-Null
+    New-ItemProperty -Path $edgePolicy -Name HideFirstRunExperience -Value 1 -PropertyType DWord -Force | Out-Null
+    # Through Explorer, like a double click, so they do not depend on this window.
+    Start-Process explorer.exe 'https://laravel-demo.test/'
+    Start-Sleep -Seconds 3
+    Start-Process explorer.exe "$H\clonw.exe" # a second start opens the panel of the running clon
+} catch {
+    $demo = "No se pudo dejar clon arrancado: $($_.Exception.Message)"
+}
 Stop-Transcript | Out-Null
 
-$Host.UI.RawUI.WindowTitle = 'clon - prueba terminada: ya puedes cerrar el sandbox'
+$Host.UI.RawUI.WindowTitle = 'clon - prueba terminada'
 Write-Host ''
-Write-Host "Prueba terminada: $ok pasos bien, $bad con fallo. Ya puedes cerrar el sandbox (todo lo de dentro se descarta)." -ForegroundColor Cyan
-[void][Console]::ReadLine()
+Write-Host "Prueba terminada: $ok pasos bien, $bad con fallo." -ForegroundColor Cyan
+Write-Host $demo -ForegroundColor Cyan
+Write-Host 'Al cerrar el sandbox se descarta todo lo de dentro.' -ForegroundColor Cyan
+while ($true) { Start-Sleep -Seconds 3600 } # keeps this message on screen

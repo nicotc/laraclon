@@ -106,4 +106,5 @@ while (-not (Test-Path $done) -and (Get-Date) -lt $deadline) {
 }
 if (-not (Test-Path $done)) { throw "la prueba no terminó en $TimeoutMin minutos; mira $results" }
 Write-Host "Resultados: $results"
+Write-Host 'En el sandbox, clon queda arrancado con el proyecto Laravel y el panel abiertos en Edge; ciérralo cuando acabes.'
 Get-Content $done -Raw
