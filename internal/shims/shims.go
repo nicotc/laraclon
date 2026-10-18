@@ -17,12 +17,14 @@ import (
 
 // Target says what a shim name runs. Env values are set only when the caller has not set them;
 // ForceEnv values always win (PHPRC must point to clon's php.ini so that child PHP processes
-// started by Composer or Artisan load the same configuration).
+// started by Composer or Artisan load the same configuration). PathPrepend goes first in the
+// child's PATH, so scripts it runs (npm run, composer scripts) find clon's node, php and composer.
 type Target struct {
-	Exe      string            `json:"exe"`
-	Args     []string          `json:"args,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
-	ForceEnv map[string]string `json:"force_env,omitempty"`
+	Exe         string            `json:"exe"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	ForceEnv    map[string]string `json:"force_env,omitempty"`
+	PathPrepend []string          `json:"path_prepend,omitempty"`
 }
 
 // TargetsFile is read by clon-shim.exe at every invocation.

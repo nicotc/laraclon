@@ -15,13 +15,15 @@ import (
 	"github.com/nicotc/laraclon/internal/hosts"
 	"github.com/nicotc/laraclon/internal/install"
 	"github.com/nicotc/laraclon/internal/laragon"
+	"github.com/nicotc/laraclon/internal/vcredist"
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
 const usage = `clon: entorno de desarrollo local para Windows
 
 Uso:
-  clon setup                        primera configuración (importa Laragon, Node LTS, Composer)
+  clon setup                        primera configuración (Visual C++, Laragon, Node LTS, Composer)
+  clon vcredist status | install    runtime de Visual C++ que necesitan PHP, Apache y MySQL
   clon import laragon [ruta]        usa las versiones y carpetas de proyectos de Laragon
   clon versions                     lista todo lo instalado
 
@@ -98,12 +100,24 @@ func run(ctx context.Context, args []string) error {
 		return cmdComposer(ctx, env, args[1:])
 	case "shims":
 		return refreshShims(env)
+	case "vcredist":
+		return cmdVCRedist(ctx, env, args[1:])
 	}
 	return fmt.Errorf("comando desconocido %q (usa 'clon help')", args[0])
 }
 
 func cmdSetup(ctx context.Context, env *app.Env) error {
-	if _, err := os.Stat(laragon.DefaultRoot); err == nil && len(env.Reg.Items) == 0 {
+	// PHP, Apache and MySQL cannot even start without the Visual C++ runtime, so it goes first.
+	if missing := vcredist.Missing(); len(missing) > 0 {
+		fmt.Printf("Falta el runtime de Visual C++ 2015-2022 x64 (%s), necesario para PHP, Apache y MySQL.\n", strings.Join(missing, ", "))
+		fmt.Println("Instalando la versión oficial de Microsoft (Windows pedirá permiso de administrador)…")
+		if err := vcredist.Install(ctx, env.Home, "", printProgress(), vcStatus(true)); err != nil {
+			fmt.Println()
+			return err
+		}
+		fmt.Println("\nRuntime de Visual C++ instalado:", vcredist.Version())
+	}
+	if _, err := os.Stat(laragon.DefaultRoot); err == nil && len(env.Reg.List(versions.PHP)) == 0 {
 		fmt.Println("Laragon encontrado en", laragon.DefaultRoot)
 		if err := cmdImport(env, []string{"laragon"}); err != nil {
 			return err
@@ -171,6 +185,10 @@ func cmdImport(env *app.Env, args []string) error {
 	}
 	for _, s := range rep.Skipped {
 		fmt.Println("  omitido:", s)
+	}
+	if rep.MissingRuntime {
+		fmt.Println("\nPHP, Apache y MySQL necesitan el runtime de Visual C++ 2015-2022 x64, que falta en este equipo.")
+		fmt.Println("Instálalo con 'clon vcredist install' y vuelve a ejecutar 'clon import laragon'.")
 	}
 	return nil
 }

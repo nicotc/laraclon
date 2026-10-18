@@ -10,12 +10,18 @@ $report = New-Object System.Collections.ArrayList
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $Host.UI.RawUI.WindowTitle = 'clon - prueba en Windows Sandbox'
 Start-Transcript -Path (Join-Path $R 'transcript.txt') -Force | Out-Null
+# Closing the sandbox window discards the machine; a run was lost that way halfway through.
+Write-Host 'Prueba automática de clon: tarda unos 15-20 minutos.' -ForegroundColor Yellow
+Write-Host 'No cierres esta ventana ni el sandbox hasta que aparezca "Prueba terminada".' -ForegroundColor Yellow
+$stepNo = 0
 
 function Save-Report {
     [IO.File]::WriteAllText((Join-Path $R 'report.json'), ($report | ConvertTo-Json -Depth 4), $utf8)
 }
 
 function Step([string]$name, [scriptblock]$body) {
+    $script:stepNo++
+    $Host.UI.RawUI.WindowTitle = "clon - paso $($script:stepNo): $name - NO CIERRES EL SANDBOX"
     Write-Host ''
     Write-Host "=== $name ===" -ForegroundColor Cyan
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -46,7 +52,8 @@ function Invoke-Tool([string]$exe, [string]$arguments, [int]$seconds = 300, [str
     return $text
 }
 
-function Curl([string]$arguments) {
+# Not named Curl: in Windows PowerShell 5.1 the alias curl (Invoke-WebRequest) wins over functions.
+function Invoke-Curl([string]$arguments) {
     $text = & curl.exe -s --ssl-no-revoke --max-time 60 @($arguments -split ' ') 2>&1 | Out-String
     return $text.Trim()
 }
@@ -70,14 +77,8 @@ if (-not $script:vcBefore) {
     Step 'Importar Laragon sin runtime de Visual C++ (cómo lo informa clon)' {
         Invoke-Tool $clon 'import laragon' 180
     }
-    Step 'Instalar Visual C++ 2015-2022 x64 (descarga oficial de Microsoft)' {
-        $vc = Join-Path $env:TEMP 'vc_redist.x64.exe'
-        Invoke-WebRequest 'https://aka.ms/vs/17/release/vc_redist.x64.exe' -OutFile $vc -UseBasicParsing
-        $p = Start-Process $vc -ArgumentList '/install /quiet /norestart' -PassThru
-        $null = $p.Handle
-        $p.WaitForExit()
-        if (@(0, 1638, 3010) -notcontains $p.ExitCode) { throw "vc_redist terminó con código $($p.ExitCode)" }
-        "instalado (código $($p.ExitCode))"
+    Step 'clon vcredist install (instalador oficial de Microsoft, firma comprobada)' {
+        (Invoke-Tool $clon 'vcredist install C:\clon-dist\vc_redist.x64.exe' 900) + "`n" + (Invoke-Tool $clon 'vcredist status' 60)
     }
 }
 
@@ -136,7 +137,10 @@ echo json_encode(['php' => PHP_VERSION, 'https' => $_SERVER['HTTPS'] ?? null, 'h
     'mysql' => $mysql, 'php_ini' => php_ini_loaded_file()], JSON_UNESCAPED_SLASHES);
 '@
     [IO.File]::WriteAllText('C:\www\demo\public\index.php', $php, $utf8)
-    'C:\www\demo\public\index.php'
+    # Plain HTML for the browser check (Edge shows JSON through its own viewer).
+    $html = '<!doctype html><title>clon</title><p id="https"><?= $_SERVER[''HTTPS''] ?? ''off'' ?></p>'
+    [IO.File]::WriteAllText('C:\www\demo\public\estado.php', $html, $utf8)
+    'C:\www\demo\public\index.php y estado.php'
 }
 
 Step 'Proyecto Laravel nuevo (composer create-project laravel/laravel)' {
@@ -208,7 +212,7 @@ Step 'Base de datos y migraciones de Laravel en MySQL' {
 }
 
 Step 'https://demo.test con el hosts y la CA de Windows (sin --resolve ni --cacert)' {
-    $raw = Curl 'https://demo.test/'
+    $raw = Invoke-Curl 'https://demo.test/'
     $j = $raw | ConvertFrom-Json
     if ($j.https -ne 'on') { throw "PHP no ve HTTPS: $raw" }
     if ("$($j.mysql)" -notmatch '^\d') { throw "sin MySQL: $raw" }
@@ -216,16 +220,16 @@ Step 'https://demo.test con el hosts y la CA de Windows (sin --resolve ni --cace
 }
 
 Step 'http://demo.test redirige a https' {
-    $r = Curl '-o NUL -w %{http_code}->%{redirect_url} http://demo.test/hola'
+    $r = Invoke-Curl '-o NUL -w %{http_code}->%{redirect_url} http://demo.test/hola'
     if ($r -ne '301->https://demo.test/hola') { throw $r }
     $r
 }
 
 Step 'Laravel por HTTPS: https://laravel-demo.test' {
-    $code = Curl "-o $R\laravel-inicio.html -w %{http_code} https://laravel-demo.test/"
+    $code = Invoke-Curl "-o $R\laravel-inicio.html -w %{http_code} https://laravel-demo.test/"
     $html = Get-Content "$R\laravel-inicio.html" -Raw -Encoding UTF8
     if ($code -ne '200' -or $html -notmatch 'Laravel') { throw "HTTP $code" }
-    $up = Curl '-o NUL -w %{http_code} https://laravel-demo.test/up'
+    $up = Invoke-Curl '-o NUL -w %{http_code} https://laravel-demo.test/up'
     if ($up -ne '200') { throw "/up respondió $up" }
     "página de inicio: HTTP $code (guardada en laravel-inicio.html) · /up: HTTP $up"
 }
@@ -234,11 +238,12 @@ Step 'Edge abre https://demo.test sin aviso de certificado' {
     $edge = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
     if (-not (Test-Path $edge)) { throw 'Edge no está en el sandbox' }
     $dom = Join-Path $env:TEMP 'edge-dom.html'
-    $p = Start-Process $edge -ArgumentList '--headless=new --disable-gpu --no-first-run --user-data-dir=C:\edge-prueba --dump-dom https://demo.test/' `
+    $p = Start-Process $edge -ArgumentList '--headless=new --disable-gpu --no-first-run --user-data-dir=C:\edge-prueba --dump-dom https://demo.test/estado.php' `
         -NoNewWindow -PassThru -RedirectStandardOutput $dom
+    $null = $p.Handle
     if (-not $p.WaitForExit(120000)) { try { $p.Kill() } catch {}; throw 'Edge tardó demasiado' }
     $text = "$(Get-Content $dom -Raw -Encoding UTF8)"
-    if ($text -notmatch '"https":\s*"on"') { throw "Edge no mostró la página: $($text.Substring(0, [Math]::Min(300, $text.Length)))" }
+    if ($text -notmatch 'id="https">on<') { throw "Edge no mostró la página: $($text.Substring(0, [Math]::Min(300, $text.Length)))" }
     'Edge cargó la página por HTTPS confiando en la CA de clon'
 }
 
@@ -246,7 +251,7 @@ Step 'Cambio de PHP en caliente (8.4 -> 8.3 -> 8.4)' {
     $lines = @()
     foreach ($v in '8.3', '8.4') {
         Invoke-Tool $clon "php use $v" 120 | Out-Null
-        $j = (Curl 'https://demo.test/') | ConvertFrom-Json
+        $j = (Invoke-Curl 'https://demo.test/') | ConvertFrom-Json
         if (-not $j.php.StartsWith($v)) { throw "tras 'php use $v' la web responde PHP $($j.php)" }
         $lines += "php use $v -> la web responde PHP $($j.php)"
     }
@@ -254,17 +259,18 @@ Step 'Cambio de PHP en caliente (8.4 -> 8.3 -> 8.4)' {
 }
 
 Step 'Node, npm, npx, Composer y PHP desde shims\' {
+    # Invoke-Tool, not &: Composer writes to stderr, which Windows PowerShell 5.1 turns into errors.
     @(
-        "node $(& "$shims\node.exe" -v)",
-        "npm $(& "$shims\npm.exe" -v)",
-        "npx $(& "$shims\npx.exe" --version)",
-        "$((& "$shims\composer.exe" --version 2>$null) | Select-Object -First 1)",
-        "$((& "$shims\php.exe" -v) | Select-Object -First 1)"
+        "node $(Invoke-Tool "$shims\node.exe" '-v' 60)",
+        "npm $(Invoke-Tool "$shims\npm.exe" '-v' 120)",
+        "npx $(Invoke-Tool "$shims\npx.exe" '--version' 120)",
+        ((Invoke-Tool "$shims\composer.exe" '--version' 120) -split "`n" | Select-Object -First 1),
+        ((Invoke-Tool "$shims\php.exe" '-v' 60) -split "`n" | Select-Object -First 1)
     ) -join "`n"
 }
 
 Step 'Panel en https://localhost' {
-    $code = Curl '-o NUL -w %{http_code} https://localhost/'
+    $code = Invoke-Curl '-o NUL -w %{http_code} https://localhost/'
     if ($code -ne '200') { throw "HTTP $code" }
     "HTTP $code"
 }
@@ -297,6 +303,7 @@ foreach ($s in $report) { $md += "`n## $($s.paso)`n`n``````text`n$($s.detalle)`n
 [IO.File]::WriteAllText("$R\done.json", (@{ ok = $ok; fallos = $bad; fin = (Get-Date -Format o) } | ConvertTo-Json), $utf8)
 Stop-Transcript | Out-Null
 
+$Host.UI.RawUI.WindowTitle = 'clon - prueba terminada: ya puedes cerrar el sandbox'
 Write-Host ''
 Write-Host "Prueba terminada: $ok pasos bien, $bad con fallo. Ya puedes cerrar el sandbox (todo lo de dentro se descarta)." -ForegroundColor Cyan
 [void][Console]::ReadLine()

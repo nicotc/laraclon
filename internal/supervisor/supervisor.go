@@ -20,6 +20,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/nicotc/laraclon/internal/procutil"
 )
 
 // Spec describes one service process.
@@ -367,6 +369,9 @@ func (p *proc) setFailed(err error) {
 func describeExit(err error) string {
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
+		if hint := procutil.ExitHint(ee.ExitCode()); hint != "" {
+			return hint
+		}
 		return fmt.Sprintf("código de salida %d", ee.ExitCode())
 	}
 	if err != nil {

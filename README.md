@@ -2,7 +2,7 @@
 
 Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e inspirado en Laragon. Escrito en Go. No está afiliado a Laragon ni a sus autores.
 
-**Estado:** fase 1 (núcleo) funcionando, probada en Windows 11 junto a una instalación de Laragon.
+**Estado:** fase 1 (núcleo) funcionando, probada en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
 
 ## Qué hace hoy
 
@@ -23,7 +23,7 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
 ## Requisitos
 
 - **Windows 10 u 11 de 64 bits.**
-- **Runtime de Visual C++ 2015–2022 x64 de Microsoft.** Lo necesitan los binarios de PHP, Apache y MySQL para Windows.
+- **Runtime de Visual C++ 2015–2022 x64 de Microsoft.** Lo necesitan los binarios de PHP, Apache y MySQL para Windows. Si falta, `clon setup` (o `clon vcredist install`) instala la versión oficial de Microsoft tras comprobar su firma; Windows pide permiso de administrador. En un Windows recién instalado, el instalador de Microsoft tarda unos 4 minutos.
 - **Go 1.27 o posterior,** solo para compilar.
 - **PHP, Node y Composer:** clon los descarga solo.
 - **Apache y MySQL:** por ahora salen de una instalación de Laragon (`clon import laragon`). La descarga directa está en la hoja de ruta.
@@ -85,6 +85,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon php list` · `remote` · `install 8.4` · `use 8.3` | Versiones de PHP |
 | `clon node list` · `remote` · `install lts` · `use 24` | Versiones de Node (con npm y npx) |
 | `clon composer install` | Descarga o actualiza Composer |
+| `clon vcredist status` · `install [instalador.exe]` | Runtime de Visual C++ que necesitan PHP, Apache y MySQL |
 | `clon import laragon [ruta]` | Importa versiones y carpetas de Laragon |
 | `clon mysql laragon-data` · `own-data` | Elige la carpeta de datos de MySQL |
 | `clon ca status` · `trust` · `untrust` | CA local para HTTPS |
@@ -107,7 +108,7 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - Proyecto Laravel nuevo con MySQL y `npm run build`.
 - Edge sin avisos, cambio de PHP y cierre.
 
-El informe queda en `dist\sandbox\<fecha>\resultados\report.md`. Al cerrar la ventana del sandbox se descarta todo lo de dentro.
+Tarda unos 10 minutos. No cierres la ventana del sandbox hasta que diga «Prueba terminada»: al cerrarla se descarta todo lo de dentro. El informe queda en `dist\sandbox\<fecha>\resultados\report.md`. El instalador de Visual C++ se descarga en el equipo anfitrión (`dist\cache`) y se comparte con el sandbox, porque dentro su descarga resultó poco fiable.
 
 ## Estructura
 
@@ -122,7 +123,9 @@ internal/mysql   my.ini, datos y control      internal/install     descargas ofi
 internal/laragon importación de Laragon       internal/versions    catálogo de versiones
 ```
 
-## Probado (octubre de 2026, junto a Laragon y en puertos alternativos)
+## Probado (octubre de 2026)
+
+En Windows 11, junto a Laragon y en puertos alternativos:
 
 - **PHP:**
   - 8.4, 8.3 y 7.2 por HTTPS, con rutas tipo Laravel a través del `.htaccess`, `HTTPS=on` y las URLs correctas.
@@ -135,11 +138,17 @@ internal/laragon importación de Laragon       internal/versions    catálogo de
 - **Laragon:** clon se niega a abrir los datos de MySQL de Laragon mientras Laragon los usa.
 - **Node y atajos:** Node 24 LTS descargado y verificado; `npm`, `npx`, `php` y `composer` funcionan desde `shims\`.
 
+En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 24 pasos de `probar-en-sandbox.ps1`:
+
+- Instalación del runtime de Visual C++ y PHP descargado de windows.php.net.
+- Proyecto Laravel 13 nuevo con MySQL, migraciones y `npm run build`.
+- Archivo `hosts` y CA local de confianza: Edge abre los sitios sin avisos de certificado.
+- Cambio de PHP en caliente, panel, atajos y cierre sin procesos sueltos.
+
 ## Hoja de ruta
 
 - **Fase 1 (núcleo), pendiente:**
   - Descarga directa de Apache y MySQL.
-  - Avisar e instalar el runtime de Visual C++ cuando falta.
   - Probar MariaDB.
 - **Fase 2:**
   - Nginx y FrankenPHP por sitio.

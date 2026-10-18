@@ -27,6 +27,7 @@ import (
 	"github.com/nicotc/laraclon/internal/proxy"
 	"github.com/nicotc/laraclon/internal/sites"
 	"github.com/nicotc/laraclon/internal/supervisor"
+	"github.com/nicotc/laraclon/internal/vcredist"
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
@@ -170,6 +171,11 @@ func (d *Daemon) Shutdown() {
 // StartAll starts MySQL, the PHP pool, Apache and the front proxy, collecting problems instead of
 // stopping at the first one.
 func (d *Daemon) StartAll() {
+	if missing := vcredist.Missing(); len(missing) > 0 {
+		d.setProblem("visual-c++", fmt.Errorf("falta el runtime de Visual C++ 2015-2022 x64 (%s): sin él no arrancan PHP, Apache ni MySQL. Instálalo con 'clon vcredist install' y luego 'clon import laragon'", strings.Join(missing, ", ")))
+	} else {
+		d.setProblem("visual-c++", nil)
+	}
 	if err := d.Rescan(); err != nil {
 		d.setProblem("sitios", err)
 	}

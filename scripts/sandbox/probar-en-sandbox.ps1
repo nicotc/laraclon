@@ -31,7 +31,21 @@ Write-Host "Compilando en $stage…"
 & $go -C $repo build -o "$stage\clon-shim.exe" ./cmd/clon-shim
 & $go -C $repo build -ldflags '-H=windowsgui' -o "$stage\clonw.exe" ./cmd/clonw
 if ($LASTEXITCODE -ne 0) { throw 'la compilación falló' }
-Copy-Item (Join-Path $PSScriptRoot 'dentro-del-sandbox.ps1') $stage
+# With a BOM: Windows PowerShell 5.1 reads a .ps1 without one as ANSI and garbles the accents.
+$inner = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'dentro-del-sandbox.ps1'), [Text.Encoding]::UTF8)
+[IO.File]::WriteAllText((Join-Path $stage 'dentro-del-sandbox.ps1'), $inner, (New-Object System.Text.UTF8Encoding $true))
+
+# A clean Windows lacks the Visual C++ runtime; downloading it inside the sandbox proved unreliable,
+# so the official installer is fetched here (cached) and shared read-only. clon checks its signature.
+$cache = Join-Path $repo 'dist\cache'
+$vc = Join-Path $cache 'vc_redist.x64.exe'
+if (-not (Test-Path $vc)) {
+    New-Item -ItemType Directory -Force $cache | Out-Null
+    Write-Host 'Descargando el runtime de Visual C++ de Microsoft…'
+    & curl.exe -sSL --fail -o $vc 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
+    if ($LASTEXITCODE -ne 0) { Remove-Item $vc -ErrorAction SilentlyContinue; throw 'no se pudo descargar vc_redist.x64.exe' }
+}
+Copy-Item $vc $stage
 
 $wsb = @"
 <Configuration>
@@ -63,8 +77,17 @@ $wsb = @"
 $wsbPath = Join-Path $run 'clon.wsb'
 [IO.File]::WriteAllText($wsbPath, $wsb, (New-Object System.Text.UTF8Encoding $false))
 
-Write-Host 'Abriendo Windows Sandbox…'
-Start-Process -FilePath $sandboxExe -ArgumentList "`"$wsbPath`""
+Write-Host 'Abriendo Windows Sandbox (no cierres su ventana hasta que diga "Prueba terminada")…'
+# Opened through Explorer, as a double click would, so the sandbox is not a child of this script:
+# if whoever runs the script stops it, the test inside still finishes and leaves its results.
+$sandboxProcs = 'WindowsSandbox', 'WindowsSandboxClient', 'WindowsSandboxRemoteSession'
+Start-Process -FilePath (Join-Path $env:SystemRoot 'explorer.exe') -ArgumentList "`"$wsbPath`""
+$openBy = (Get-Date).AddSeconds(45)
+while (-not (Get-Process $sandboxProcs -ErrorAction SilentlyContinue) -and (Get-Date) -lt $openBy) { Start-Sleep -Seconds 1 }
+if (-not (Get-Process $sandboxProcs -ErrorAction SilentlyContinue)) {
+    Write-Host 'Explorer no abrió el sandbox; lo abro directamente.'
+    Start-Process -FilePath $sandboxExe -ArgumentList "`"$wsbPath`""
+}
 
 $done = Join-Path $results 'done.json'
 $deadline = (Get-Date).AddMinutes($TimeoutMin)

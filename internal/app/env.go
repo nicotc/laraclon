@@ -169,6 +169,13 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 		}
 	}
 
+	// Every launcher puts clon's tools first in its child's PATH: npm scripts call `node`, Composer
+	// scripts call `php`, and on a machine where the user's PATH lacks them they would fail.
+	for name, t := range targets {
+		t.PathPrepend = []string{e.Home.Shims(), e.NPMPrefix()}
+		targets[name] = t
+	}
+
 	if !fileExists(e.ShimTemplate()) {
 		return targets, fmt.Errorf("falta %s (compila cmd/clon-shim)", e.ShimTemplate())
 	}

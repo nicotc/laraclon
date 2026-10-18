@@ -4,15 +4,15 @@
 package hosts
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	"unsafe"
 
-	"golang.org/x/sys/windows"
+	"github.com/nicotc/laraclon/internal/winx"
 )
 
 const (
@@ -141,56 +141,15 @@ func Apply(namesFile string) error {
 // RequestElevated asks Windows (UAC prompt) to run `exe hosts-apply namesFile` as administrator
 // and waits for it.
 func RequestElevated(exe, namesFile string) error {
-	verb, _ := windows.UTF16PtrFromString("runas")
-	file, _ := windows.UTF16PtrFromString(exe)
-	params, _ := windows.UTF16PtrFromString(`hosts-apply "` + namesFile + `"`)
-	info := shellExecuteInfo{
-		fMask:        seeMaskNoCloseProcess | seeMaskNoAsync,
-		lpVerb:       verb,
-		lpFile:       file,
-		lpParameters: params,
-		nShow:        windows.SW_HIDE,
+	code, err := winx.RunElevated(exe, `hosts-apply "`+namesFile+`"`, false)
+	if errors.Is(err, winx.ErrElevationCancelled) {
+		return fmt.Errorf("se canceló el permiso de administrador; el archivo hosts no se modificó")
 	}
-	info.cbSize = uint32(unsafe.Sizeof(info))
-	r, _, callErr := procShellExecuteEx.Call(uintptr(unsafe.Pointer(&info)))
-	if r == 0 {
-		if callErr == windows.ERROR_CANCELLED {
-			return fmt.Errorf("se canceló el permiso de administrador; el archivo hosts no se modificó")
-		}
-		return fmt.Errorf("no se pudo pedir permiso de administrador: %w", callErr)
+	if err != nil {
+		return fmt.Errorf("no se pudo pedir permiso de administrador: %w", err)
 	}
-	defer windows.CloseHandle(info.hProcess)
-	windows.WaitForSingleObject(info.hProcess, windows.INFINITE)
-	var code uint32
-	windows.GetExitCodeProcess(info.hProcess, &code)
 	if code != 0 {
 		return fmt.Errorf("el ayudante de hosts terminó con código %d", code)
 	}
 	return nil
-}
-
-const (
-	seeMaskNoCloseProcess = 0x00000040
-	seeMaskNoAsync        = 0x00000100
-)
-
-var procShellExecuteEx = windows.NewLazySystemDLL("shell32.dll").NewProc("ShellExecuteExW")
-
-// shellExecuteInfo mirrors SHELLEXECUTEINFOW.
-type shellExecuteInfo struct {
-	cbSize         uint32
-	fMask          uint32
-	hwnd           uintptr
-	lpVerb         *uint16
-	lpFile         *uint16
-	lpParameters   *uint16
-	lpDirectory    *uint16
-	nShow          int32
-	hInstApp       uintptr
-	lpIDList       uintptr
-	lpClass        *uint16
-	hkeyClass      uintptr
-	dwHotKey       uint32
-	hIconOrMonitor uintptr
-	hProcess       windows.Handle
 }

@@ -4,12 +4,14 @@ package laragon
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/nicotc/laraclon/internal/config"
+	"github.com/nicotc/laraclon/internal/procutil"
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
@@ -22,6 +24,8 @@ type Report struct {
 	Roots    []string
 	Skipped  []string
 	Defaults map[versions.Component]string
+	// MissingRuntime is set when some programs could not start for lack of the Visual C++ runtime.
+	MissingRuntime bool
 }
 
 // ini is a minimal reader for laragon.ini (sections and key=value lines).
@@ -78,7 +82,12 @@ func Import(root string, reg *versions.Registry, cfg *config.Config) (Report, er
 			dir := filepath.Join(root, "bin", folder, e.Name())
 			v, err := versions.Detect(comp, dir)
 			if err != nil {
-				rep.Skipped = append(rep.Skipped, fmt.Sprintf("%s: %v", dir, err))
+				if errors.Is(err, procutil.ErrMissingDLL) {
+					rep.MissingRuntime = true
+					rep.Skipped = append(rep.Skipped, dir+": necesita el runtime de Visual C++")
+				} else {
+					rep.Skipped = append(rep.Skipped, fmt.Sprintf("%s: %v", dir, err))
+				}
 				continue
 			}
 			v.Source = "laragon"

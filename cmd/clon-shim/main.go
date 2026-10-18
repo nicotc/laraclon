@@ -17,10 +17,11 @@ import (
 )
 
 type target struct {
-	Exe      string            `json:"exe"`
-	Args     []string          `json:"args"`
-	Env      map[string]string `json:"env"`
-	ForceEnv map[string]string `json:"force_env"`
+	Exe         string            `json:"exe"`
+	Args        []string          `json:"args"`
+	Env         map[string]string `json:"env"`
+	ForceEnv    map[string]string `json:"force_env"`
+	PathPrepend []string          `json:"path_prepend"`
 }
 
 func main() {
@@ -62,6 +63,11 @@ func main() {
 	for k, v := range t.ForceEnv {
 		cmd.Env = append(cmd.Env, k+"="+v) // later entries win in exec on Windows
 	}
+	if len(t.PathPrepend) > 0 {
+		// Scripts started by the child (npm run, composer scripts, artisan) then find the same
+		// node, php and composer even when the user's PATH does not include clon.
+		cmd.Env = append(cmd.Env, "PATH="+prependPath(t.PathPrepend, os.Getenv("PATH")))
+	}
 
 	// Ctrl+C reaches the child through the shared console; the shim just waits for it to finish.
 	signal.Ignore(os.Interrupt)
@@ -73,6 +79,27 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+}
+
+// prependPath puts dirs first in a PATH value, dropping earlier copies so nested shims don't grow it.
+func prependPath(dirs []string, current string) string {
+	out := append([]string{}, dirs...)
+	for _, entry := range strings.Split(current, ";") {
+		if entry == "" {
+			continue
+		}
+		dup := false
+		for _, d := range dirs {
+			if strings.EqualFold(strings.TrimRight(entry, `\`), strings.TrimRight(d, `\`)) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			out = append(out, entry)
+		}
+	}
+	return strings.Join(out, ";")
 }
 
 // argsTail returns the raw command line after the program name, following the

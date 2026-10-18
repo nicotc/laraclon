@@ -5,6 +5,7 @@ package procutil
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -13,6 +14,26 @@ import (
 
 	"golang.org/x/sys/windows"
 )
+
+// ErrMissingDLL means a program could not start because a DLL it needs is missing; for PHP,
+// Apache and MySQL that is almost always the Visual C++ 2015-2022 runtime.
+var ErrMissingDLL = errors.New("falta el runtime de Visual C++ 2015-2022 x64 (instálalo con 'clon vcredist install')")
+
+const (
+	statusDLLNotFound        = 0xC0000135
+	statusInvalidImageFormat = 0xC000007B
+)
+
+// ExitHint explains Windows loader failures hidden behind odd exit codes, or returns "".
+func ExitHint(code int) string {
+	switch uint32(code) {
+	case statusDLLNotFound:
+		return ErrMissingDLL.Error()
+	case statusInvalidImageFormat:
+		return "el programa o una de sus DLL es de otra arquitectura (32/64 bits) o está dañado"
+	}
+	return ""
+}
 
 // Output runs exe with args, waits up to timeout and returns combined stdout and stderr.
 func Output(timeout time.Duration, dir, exe string, args ...string) (string, error) {
@@ -29,10 +50,25 @@ func Output(timeout time.Duration, dir, exe string, args ...string) (string, err
 	if ctx.Err() == context.DeadlineExceeded {
 		return text, fmt.Errorf("%s tardó más de %s", exe, timeout)
 	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && uint32(exitErr.ExitCode()) == statusDLLNotFound {
+		return text, fmt.Errorf("%s no puede arrancar: %w", exe, ErrMissingDLL)
+	}
 	if err != nil {
+		if hint := exitHintOf(err); hint != "" {
+			return text, fmt.Errorf("%s no puede arrancar: %s", exe, hint)
+		}
 		return text, fmt.Errorf("%s: %w: %s", exe, err, LastLines(text, 5))
 	}
 	return text, nil
+}
+
+func exitHintOf(err error) string {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return ExitHint(exitErr.ExitCode())
+	}
+	return ""
 }
 
 // LastLines returns at most n trailing lines of text.
