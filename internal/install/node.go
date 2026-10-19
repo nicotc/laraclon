@@ -126,10 +126,21 @@ func checksumFor(listing, file string) string {
 // unpackFresh extracts into dest, replacing a previous partial attempt. The final rename is retried:
 // antivirus scanners briefly hold freshly written executables open, and Windows then refuses to
 // move the folder that contains them.
-func unpackFresh(zipPath, dest string) error {
+func unpackFresh(zipPath, dest string) error { return unpackFreshSkip(zipPath, dest, nil) }
+
+// unpackFreshSkip is unpackFresh leaving out the folders in skip ("pgAdmin 4/").
+func unpackFreshSkip(zipPath, dest string, skip []string) error {
 	tmp := dest + ".unpack"
 	os.RemoveAll(tmp)
-	if err := download.ExtractZip(zipPath, tmp, true); err != nil {
+	keep := func(name string) bool {
+		for _, s := range skip {
+			if strings.HasPrefix(name, s) {
+				return false
+			}
+		}
+		return true
+	}
+	if err := download.ExtractZipFilter(zipPath, tmp, true, keep); err != nil {
 		os.RemoveAll(tmp)
 		return err
 	}

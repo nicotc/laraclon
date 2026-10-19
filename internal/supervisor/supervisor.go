@@ -36,6 +36,9 @@ type Spec struct {
 	Restart     bool                // restart when it exits on its own
 	Stop        func(pid int) error // optional graceful stop request; the job is terminated after StopTimeout
 	StopTimeout time.Duration
+	// Unprivileged runs the process without administrator rights even when clon has them: some
+	// servers (PostgreSQL) refuse to run as an administrator.
+	Unprivileged bool
 }
 
 type State string
@@ -130,6 +133,16 @@ func (s *Supervisor) launch(p *proc) error {
 	cmd.Stderr = logf
 	// Created suspended so it can join its job object before it starts children of its own.
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_SUSPENDED | windows.CREATE_NO_WINDOW}
+	if p.spec.Unprivileged {
+		token, err := unprivilegedToken()
+		if err != nil {
+			logf.Close()
+			p.setFailed(err)
+			return fmt.Errorf("%s: no se pudo preparar una sesión sin permisos de administrador: %w", p.spec.Name, err)
+		}
+		defer token.Close()
+		cmd.SysProcAttr.Token = syscall.Token(token)
+	}
 	if err := cmd.Start(); err != nil {
 		logf.Close()
 		p.setFailed(err)
@@ -404,6 +417,35 @@ func attachJob(pid int) (windows.Handle, error) {
 		return 0, err
 	}
 	return job, nil
+}
+
+var procCreateRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
+
+// unprivilegedToken is clon's own token with the Administrators and Power Users groups turned into
+// deny-only groups and the privileges removed: the way PostgreSQL's pg_ctl starts the server.
+func unprivilegedToken() (windows.Token, error) {
+	var current windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_DUPLICATE|windows.TOKEN_ASSIGN_PRIMARY|windows.TOKEN_QUERY, &current); err != nil {
+		return 0, err
+	}
+	defer current.Close()
+	admins, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
+	if err != nil {
+		return 0, err
+	}
+	powerUsers, err := windows.CreateWellKnownSid(windows.WinBuiltinPowerUsersSid)
+	if err != nil {
+		return 0, err
+	}
+	disable := []windows.SIDAndAttributes{{Sid: admins}, {Sid: powerUsers}}
+	const disableMaxPrivilege = 0x1
+	var restricted windows.Token
+	r, _, callErr := procCreateRestrictedToken.Call(uintptr(current), disableMaxPrivilege,
+		uintptr(len(disable)), uintptr(unsafe.Pointer(&disable[0])), 0, 0, 0, 0, uintptr(unsafe.Pointer(&restricted)))
+	if r == 0 {
+		return 0, callErr
+	}
+	return restricted, nil
 }
 
 // resume starts the threads of a process created with CREATE_SUSPENDED.

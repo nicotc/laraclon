@@ -144,6 +144,62 @@ func TestPickMongoDB(t *testing.T) {
 	}
 }
 
+// ghAsset is the (unnamed) asset type of githubRelease.
+type ghAsset = struct {
+	Name   string `json:"name"`
+	URL    string `json:"browser_download_url"`
+	Digest string `json:"digest"`
+	Size   int64  `json:"size"`
+}
+
+func asset(name, digest string) ghAsset {
+	return ghAsset{Name: name, URL: "https://example.test/" + name, Digest: digest}
+}
+
+func TestGitHubCatalogsPickTheRightAssets(t *testing.T) {
+	sum := "sha256:" + strings.Repeat("c", 64)
+	redis := []githubRelease{
+		{Tag: "8.10.2", Assets: []ghAsset{asset("Redis-8.10.2-Windows-x64-cygwin.zip", sum), asset("Redis-8.10.2-Windows-x64-msys2.zip", sum), asset("Redis-8.10.2-Windows-x64-msys2-with-Service.zip", sum)}},
+		{Tag: "8.8.3", Assets: []ghAsset{asset("Redis-8.8.3-Windows-x64-msys2.zip", sum)}},
+		{Tag: "8.6.7", Assets: []ghAsset{asset("Redis-8.6.7-Windows-x64-msys2.zip", sum)}},
+	}
+	got := pickGitHub(redis, versions.Redis, "x", redisAsset)
+	if len(got) != 2 || got[0].Version != "8.10.2" || !strings.HasSuffix(got[0].URL, "-msys2.zip") || got[1].Version != "8.8.3" {
+		t.Fatalf("redis: %+v", got)
+	}
+	meili := []githubRelease{
+		{Tag: "v1.56.0-rc.1", Prerelease: true, Assets: []ghAsset{asset("meilisearch-windows-amd64.exe", sum)}},
+		{Tag: "v1.55.0", Assets: []ghAsset{asset("meilisearch-enterprise-windows-amd64.exe", sum), asset("meilisearch-windows-amd64.exe", sum)}},
+		{Tag: "v1.54.3", Assets: []ghAsset{asset("meilisearch-windows-amd64.exe", sum)}},
+		{Tag: "v1.54.2", Assets: []ghAsset{asset("meilisearch-windows-amd64.exe", "sha256:short")}},
+	}
+	got = pickGitHub(meili, versions.Meilisearch, "x", tagAsset("meilisearch-windows-amd64.exe"))
+	if len(got) != 2 || got[0].Version != "1.55.0" || strings.Contains(got[0].URL, "enterprise") || got[1].Version != "1.54.3" {
+		t.Fatalf("meilisearch: %+v", got)
+	}
+}
+
+func TestSupportedPostgres(t *testing.T) {
+	var all []pgVersion
+	doc := `[{"major":"6.3","latestMinor":"2","supported":false,"eolDate":"2003-03-01"},
+	  {"major":14,"latestMinor":24,"supported":true,"eolDate":"2026-11-12"},
+	  {"major":"15","latestMinor":19,"supported":true,"eolDate":"2027-11-11"},
+	  {"major":"16","latestMinor":"15","supported":true,"eolDate":"2028-11-09"},
+	  {"major":"17","latestMinor":11,"supported":true,"eolDate":"2029-11-08"},
+	  {"major":"18","latestMinor":6,"supported":true,"eolDate":"2030-11-14"},
+	  {"major":"13","latestMinor":23,"supported":true,"eolDate":"2025-11-13"}]`
+	if err := json.Unmarshal([]byte(doc), &all); err != nil {
+		t.Fatal(err)
+	}
+	var majors []string
+	for _, m := range supportedPostgres(all, time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)) {
+		majors = append(majors, m.Major.String()+"."+m.LatestMinor.String())
+	}
+	if want := []string{"18.6", "17.11", "16.15", "15.19"}; !reflect.DeepEqual(majors, want) {
+		t.Fatalf("got %v, want %v (numbers as text or numbers, nothing past its end of life)", majors, want)
+	}
+}
+
 func TestFindRelease(t *testing.T) {
 	list := []Release{{Kind: versions.MySQL, Series: "8.4", Version: "8.4.11"}, {Kind: versions.MySQL, Series: "8.0", Version: "8.0.46"}}
 	if r, err := FindRelease(list, "8.0"); err != nil || r.Version != "8.0.46" {

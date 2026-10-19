@@ -25,7 +25,11 @@ type serviceKind struct {
 var serviceKinds = []serviceKind{
 	{versions.MySQL, 3306, 3399, true},
 	{versions.MariaDB, 3306, 3399, true},
+	{versions.PostgreSQL, 5432, 5499, false},
 	{versions.MongoDB, 27017, 27099, false},
+	{versions.Redis, 6379, 6399, false},
+	{versions.Mailpit, 1025, 1099, false},
+	{versions.Meilisearch, 7700, 7799, false},
 }
 
 // ServiceKinds are the services clon runs as instances, in the order the panel shows them.
@@ -222,10 +226,19 @@ func (e *Env) ensureInstances() bool {
 			continue
 		}
 		svc := e.Cfg.Service(string(k.kind))
-		if svc.Default == "" && len(svc.Instances) == 0 {
-			if newest, _ := e.Reg.Find(k.kind, series[0]); k.autoDefault || newest.Source == "download" {
-				svc.Default = series[0]
-				changed = true
+		switch {
+		case svc.Default != "":
+		case k.autoDefault && len(svc.Instances) == 0:
+			svc.Default = series[0]
+			changed = true
+		case !k.autoDefault:
+			// The newest series installed through clon (not imported) becomes the default.
+			for _, s := range series {
+				if v, _ := e.Reg.Find(k.kind, s); v.Source == "download" {
+					svc.Default = s
+					changed = true
+					break
+				}
 			}
 		}
 		// The default goes first so it can claim the standard port.

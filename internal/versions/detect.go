@@ -168,6 +168,63 @@ func DetectMongoDB(dir string) (Version, error) {
 	return Version{Component: MongoDB, Version: m[1], Path: dir, Arch: "x64"}, nil
 }
 
+var postgresRe = regexp.MustCompile(`\(PostgreSQL\) (\d+\.\d+)`)
+
+// DetectPostgreSQL reads "postgres --version" ("postgres (PostgreSQL) 18.6").
+func DetectPostgreSQL(dir string) (Version, error) {
+	exe := filepath.Join(dir, "bin", "postgres.exe")
+	if !exists(exe) {
+		return Version{}, fmt.Errorf("no hay bin\\postgres.exe en %s", dir)
+	}
+	out, err := procutil.Output(probeTimeout, dir, exe, "--version")
+	if err != nil {
+		return Version{}, err
+	}
+	m := postgresRe.FindStringSubmatch(out)
+	if m == nil {
+		return Version{}, fmt.Errorf("versión de PostgreSQL no reconocida: %q", out)
+	}
+	return Version{Component: PostgreSQL, Version: m[1], Path: dir, Arch: "x64"}, nil
+}
+
+var mailpitRe = regexp.MustCompile(`v(\d+\.\d+\.\d+) compiled with`)
+
+// DetectMailpit reads "mailpit version" ("…\mailpit.exe v1.31.6 compiled with go1.27.2 …").
+func DetectMailpit(dir string) (Version, error) {
+	exe := filepath.Join(dir, "mailpit.exe")
+	if !exists(exe) {
+		return Version{}, fmt.Errorf("no hay mailpit.exe en %s", dir)
+	}
+	out, err := procutil.Output(probeTimeout, dir, exe, "version")
+	if err != nil {
+		return Version{}, err
+	}
+	m := mailpitRe.FindStringSubmatch(out)
+	if m == nil {
+		return Version{}, fmt.Errorf("versión de Mailpit no reconocida: %q", out)
+	}
+	return Version{Component: Mailpit, Version: m[1], Path: dir, Arch: "x64"}, nil
+}
+
+var meiliRe = regexp.MustCompile(`meilisearch v?(\d+\.\d+\.\d+)`)
+
+// DetectMeilisearch reads "meilisearch --version" ("meilisearch 1.55.0").
+func DetectMeilisearch(dir string) (Version, error) {
+	exe := filepath.Join(dir, "meilisearch.exe")
+	if !exists(exe) {
+		return Version{}, fmt.Errorf("no hay meilisearch.exe en %s", dir)
+	}
+	out, err := procutil.Output(probeTimeout, dir, exe, "--version")
+	if err != nil {
+		return Version{}, err
+	}
+	m := meiliRe.FindStringSubmatch(out)
+	if m == nil {
+		return Version{}, fmt.Errorf("versión de Meilisearch no reconocida: %q", out)
+	}
+	return Version{Component: Meilisearch, Version: m[1], Path: dir, Arch: "x64"}, nil
+}
+
 var frankenRe = regexp.MustCompile(`FrankenPHP v?(\d+\.\d+\.\d+)\s+PHP (\d+\.\d+\.\d+)`)
 
 // DetectFrankenPHP reads "frankenphp version" ("FrankenPHP 1.13.1 PHP 8.5.11 Caddy v2.11.7 …").
@@ -206,6 +263,12 @@ func Detect(c Component, dir string) (Version, error) {
 		return DetectFrankenPHP(dir)
 	case MongoDB:
 		return DetectMongoDB(dir)
+	case PostgreSQL:
+		return DetectPostgreSQL(dir)
+	case Mailpit:
+		return DetectMailpit(dir)
+	case Meilisearch:
+		return DetectMeilisearch(dir)
 	}
 	return Version{}, fmt.Errorf("componente desconocido: %s", c)
 }

@@ -143,6 +143,12 @@ func File(ctx context.Context, url, dest, wantSHA256 string, progress Progress) 
 // ExtractZip unpacks zipPath into destDir. With stripTop, a single top-level folder shared by every
 // entry (node-v24.11.0-win-x64\…) is removed from the paths.
 func ExtractZip(zipPath, destDir string, stripTop bool) error {
+	return ExtractZipFilter(zipPath, destDir, stripTop, nil)
+}
+
+// ExtractZipFilter is ExtractZip that only unpacks the entries keep accepts (paths with forward
+// slashes, after the top folder is removed); a nil keep unpacks everything.
+func ExtractZipFilter(zipPath, destDir string, stripTop bool, keep func(name string) bool) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return err
@@ -159,7 +165,7 @@ func ExtractZip(zipPath, destDir string, stripTop bool) error {
 	}
 	for _, zf := range r.File {
 		name := strings.TrimPrefix(strings.ReplaceAll(zf.Name, "\\", "/"), prefix)
-		if name == "" {
+		if name == "" || (keep != nil && !keep(name)) {
 			continue
 		}
 		target := filepath.Join(absDest, filepath.FromSlash(name))

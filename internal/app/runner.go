@@ -3,11 +3,26 @@ package app
 import (
 	"fmt"
 
+	"github.com/nicotc/laraclon/internal/mailpit"
+	"github.com/nicotc/laraclon/internal/meilisearch"
 	"github.com/nicotc/laraclon/internal/mongodb"
 	"github.com/nicotc/laraclon/internal/mysql"
+	"github.com/nicotc/laraclon/internal/postgres"
+	"github.com/nicotc/laraclon/internal/redis"
 	"github.com/nicotc/laraclon/internal/supervisor"
 	"github.com/nicotc/laraclon/internal/versions"
 )
+
+// webURL is the address of a service's own web page ("" when it has none).
+func webURL(kind versions.Component, port int) string {
+	switch kind {
+	case versions.Mailpit:
+		return fmt.Sprintf("http://127.0.0.1:%d/", secondPort(kind, port))
+	case versions.Meilisearch:
+		return fmt.Sprintf("http://127.0.0.1:%d/", port)
+	}
+	return ""
+}
 
 // runner runs one instance of a service; each kind of service implements it in its own package.
 type runner interface {
@@ -46,6 +61,14 @@ func (d *Daemon) runnerFor(kind versions.Component, series string) (runner, erro
 		return &mysql.Instance{Home: d.env.Home, Version: v, Port: cfg.Port, External: cfg.DataDir}, nil
 	case versions.MongoDB:
 		return &mongodb.Instance{Home: d.env.Home, Name: key, Version: v, Port: cfg.Port}, nil
+	case versions.PostgreSQL:
+		return &postgres.Instance{Home: d.env.Home, Name: key, Version: v, Port: cfg.Port}, nil
+	case versions.Redis:
+		return &redis.Instance{Home: d.env.Home, Name: key, Version: v, Port: cfg.Port}, nil
+	case versions.Mailpit:
+		return &mailpit.Instance{Home: d.env.Home, Name: key, Version: v, Port: cfg.Port, WebPort: secondPort(kind, cfg.Port)}, nil
+	case versions.Meilisearch:
+		return &meilisearch.Instance{Home: d.env.Home, Name: key, Version: v, Port: cfg.Port}, nil
 	}
 	return nil, fmt.Errorf("clon todavía no sabe ejecutar %s", kind.Name())
 }

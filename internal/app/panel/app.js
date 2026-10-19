@@ -4,7 +4,7 @@ let state = null;
 // Lo que el usuario está haciendo y debe sobrevivir a cada refresco del estado.
 const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {} };
 
-const INSTALLABLE = ['mysql', 'mariadb', 'nginx', 'frankenphp', 'mongodb'];
+const INSTALLABLE = ['mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'nginx', 'frankenphp'];
 // Services by section of the Servicios tab, in display order.
 const DB_KINDS = ['mysql', 'mariadb', 'postgresql', 'mongodb'];
 const OTHER_KINDS = ['redis', 'mailpit', 'meilisearch'];
@@ -308,6 +308,7 @@ function instanceRow(g, i) {
     el('td', {}, el('input', { type: 'radio', name: 'def-' + g.kind, checked: i.default, title: 'Predeterminada: puerto estándar y atajo mysql',
       onchange: () => act('POST', '/api/services/default', { key: i.key }, i.key) })),
     el('td', {}, el('span', { class: 'ver' }, i.version || i.series), ' ', el('span', { class: 'svc-sub' }, notes.join(' · ')),
+      i.web_url && i.state === 'en marcha' ? el('span', { class: 'svc-sub' }, ' · ', el('a', { href: i.web_url, target: '_blank' }, 'abrir ↗')) : null,
       i.error && i.state !== 'en marcha' ? el('div', { class: 'row-error' }, firstLine(i.error)) : null),
     el('td', {}, port),
     el('td', {}, el('label', { class: 'check', title: i.default ? 'La predeterminada siempre arranca' : '' }, auto,

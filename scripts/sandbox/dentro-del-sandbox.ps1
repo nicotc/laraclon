@@ -244,6 +244,26 @@ Step 'MariaDB desde el catálogo, en paralelo con MySQL (clon service install)' 
     "$(($out -split "`n" | Select-Object -Last 1).Trim())`nMariaDB responde en el puerto ${port}: $($v.Trim())`n$list"
 }
 
+Step 'PostgreSQL, Redis y Mailpit desde el catálogo (PostgreSQL sin permisos de administrador)' {
+    foreach ($k in 'postgresql', 'redis', 'mailpit') { Invoke-Tool $clon "service install $k latest" 1500 | Out-Null }
+    $running = { param($kind) $list -match "$kind-[\d.]+\s+\S+\s+puerto\s+\d+\s+en marcha" }
+    $deadline = (Get-Date).AddSeconds(240)
+    do {
+        Start-Sleep -Seconds 2
+        $list = Invoke-Tool $clon 'service list' 30
+    } while (-not ((& $running 'postgresql') -and (& $running 'redis') -and (& $running 'mailpit')) -and (Get-Date) -lt $deadline)
+    $pg = Invoke-Tool "$shims\psql.exe" '-t -A -c "select version()"' 60
+    if ($pg -notmatch 'PostgreSQL \d') { throw "PostgreSQL no respondió: $pg`n$list" }
+    $pong = Invoke-Tool "$shims\redis-cli.exe" 'ping' 30
+    if ($pong -notmatch 'PONG') { throw "Redis no respondió: $pong`n$list" }
+    # PHP's mail() goes to Mailpit through the SMTP settings clon writes in php.ini.
+    $code = "var_export(mail('cliente@ejemplo.test', 'Prueba de clon', 'Hola', 'From: app@clon.test'));"
+    $sent = Invoke-Tool "$shims\php.exe" "-r `"$code`"" 60
+    $inbox = (Invoke-Curl 'http://127.0.0.1:8025/api/v1/messages') | ConvertFrom-Json
+    if ($sent -notmatch 'true' -or $inbox.total -lt 1) { throw "Mailpit no recibió el correo de mail(): $sent" }
+    "PostgreSQL: $(($pg -split "`n")[0])`nRedis: $pong`nMailpit: $($inbox.total) correo(s) enviados con mail() de PHP"
+}
+
 Step 'https://demo.test con el hosts y la CA de Windows (sin --resolve ni --cacert)' {
     $raw = Invoke-Curl 'https://demo.test/'
     $j = $raw | ConvertFrom-Json

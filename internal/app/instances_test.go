@@ -99,6 +99,46 @@ func TestFirstSeriesOfEachKindIsItsDefaultAndPortsNeverClash(t *testing.T) {
 	}
 }
 
+func TestImportedServicesDoNotStartByThemselves(t *testing.T) {
+	laragonRedis := versions.Version{Component: versions.Redis, Version: "5.0.14.1", Path: `C:\laragon\bin\redis`, Source: "laragon"}
+	e := testEnv(t, laragonRedis)
+	e.SyncServices()
+	if svc := e.Cfg.Service("redis"); svc.Default != "" || svc.Instances["5.0"].Port == 6379 {
+		t.Fatalf("an imported Redis must not become the default (nor take 6379): %+v", svc)
+	}
+	// A version installed through clon becomes the default and takes the standard port.
+	e.Reg.Add(versions.Version{Component: versions.Redis, Version: "8.10.2", Path: `C:\clon\bin\redis\8.10.2`, Source: "download"})
+	e.SyncServices()
+	svc := e.Cfg.Service("redis")
+	if svc.Default != "8.10" || svc.Instances["8.10"].Port != 6379 {
+		t.Fatalf("the installed Redis must be the default on 6379: %+v", svc)
+	}
+}
+
+func TestPostgreSQLSeriesIsTheMajorVersion(t *testing.T) {
+	e := testEnv(t, versions.Version{Component: versions.PostgreSQL, Version: "18.6", Source: "download"},
+		versions.Version{Component: versions.PostgreSQL, Version: "18.7", Source: "download"})
+	e.SyncServices()
+	svc := e.Cfg.Service("postgresql")
+	if len(svc.Instances) != 1 || svc.Default != "18" || svc.Instances["18"].Port != 5432 {
+		t.Fatalf("18.6 and 18.7 share one instance on 5432: %+v", svc)
+	}
+	if v, _ := e.InstanceVersion(versions.PostgreSQL, "18"); v.Version != "18.7" {
+		t.Fatalf("the instance runs the newest patch, got %s", v.Version)
+	}
+}
+
+func TestMailpitReservesItsWebPort(t *testing.T) {
+	e := testEnv(t, versions.Version{Component: versions.Mailpit, Version: "1.31.6", Source: "download"})
+	e.SyncServices()
+	if p := e.Cfg.Service("mailpit").Instances["1.31"].Port; p != 1025 {
+		t.Fatalf("Mailpit SMTP port = %d", p)
+	}
+	if err := e.CheckPort("mysql-8.4", 8025); err == nil {
+		t.Fatal("8025 is Mailpit's web page")
+	}
+}
+
 func TestPinnedVersionIsNeverReplacedByANewerPatch(t *testing.T) {
 	e := testEnv(t, mysqlV("8.0.30", "laragon"), mysqlV("8.0.46", "download"))
 	e.Cfg.SetService("mysql", config.Service{Default: "8.0", Instances: map[string]config.ServiceInstance{

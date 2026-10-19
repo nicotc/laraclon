@@ -32,6 +32,10 @@ type Release struct {
 	Source  string             `json:"source"`
 	// Extras are installed with the release into a subfolder (MongoDB's shell, for example).
 	Extras []Extra `json:"extras,omitempty"`
+	// Binary is set when the download is the program itself rather than a zip (Meilisearch).
+	Binary string `json:"binary,omitempty"`
+	// Skip lists folders of the zip clon does not need (PostgreSQL's pgAdmin, for example).
+	Skip []string `json:"skip,omitempty"`
 }
 
 // Extra is a companion download of a release.
@@ -43,7 +47,8 @@ type Extra struct {
 }
 
 // Installable lists what the catalog can install.
-var Installable = []versions.Component{versions.MySQL, versions.MariaDB, versions.Nginx, versions.FrankenPHP, versions.MongoDB}
+var Installable = []versions.Component{versions.MySQL, versions.MariaDB, versions.PostgreSQL, versions.MongoDB,
+	versions.Redis, versions.Mailpit, versions.Meilisearch, versions.Nginx, versions.FrankenPHP}
 
 const catalogTTL = 6 * time.Hour
 
@@ -75,6 +80,20 @@ func Catalog(ctx context.Context, home paths.Home, kind versions.Component, refr
 		list, err = frankenphpCatalog(ctx)
 	case versions.MongoDB:
 		list, err = mongodbCatalog(ctx)
+	case versions.PostgreSQL:
+		list, err = postgresCatalog(ctx)
+	case versions.Redis:
+		list, err = githubCatalog(ctx, redisReleasesURL, versions.Redis, "github.com/redis-windows/redis-windows", redisAsset)
+		for i := range list {
+			list[i].Note = "compilación comunitaria"
+		}
+	case versions.Mailpit:
+		list, err = githubCatalog(ctx, mailpitReleasesURL, versions.Mailpit, "github.com/axllent/mailpit", tagAsset("mailpit-windows-amd64.zip"))
+	case versions.Meilisearch:
+		list, err = githubCatalog(ctx, meiliReleasesURL, versions.Meilisearch, "github.com/meilisearch/meilisearch", tagAsset("meilisearch-windows-amd64.exe"))
+		for i := range list {
+			list[i].Binary = "meilisearch.exe"
+		}
 	default:
 		return nil, fmt.Errorf("%s no se puede instalar desde el catálogo", kind.Name())
 	}
@@ -413,7 +432,7 @@ const frankenphpReleasesURL = "https://api.github.com/repos/php/frankenphp/relea
 
 const frankenphpAsset = "frankenphp-windows-x86_64.zip"
 
-var frankenTagRe = regexp.MustCompile(`^v?(\d+\.\d+\.\d+)$`)
+var releaseTagRe = regexp.MustCompile(`^v?(\d+\.\d+\.\d+)$`)
 
 func frankenphpCatalog(ctx context.Context) ([]Release, error) {
 	var rels []githubRelease
@@ -431,7 +450,7 @@ func frankenphpCatalog(ctx context.Context) ([]Release, error) {
 func pickFrankenPHP(rels []githubRelease) []Release {
 	newest := map[string]Release{}
 	for _, r := range rels {
-		m := frankenTagRe.FindStringSubmatch(r.Tag)
+		m := releaseTagRe.FindStringSubmatch(r.Tag)
 		if r.Draft || r.Prerelease || m == nil {
 			continue
 		}
@@ -570,36 +589,204 @@ func pickMongosh(rels []githubRelease) (Extra, bool) {
 	return Extra{}, false
 }
 
+// ---- Releases on GitHub (Redis, Mailpit, Meilisearch) ----
+
+const (
+	// Redis publishes no Windows build; this community project builds every release with MSYS2.
+	redisReleasesURL   = "https://api.github.com/repos/redis-windows/redis-windows/releases?per_page=20"
+	mailpitReleasesURL = "https://api.github.com/repos/axllent/mailpit/releases?per_page=20"
+	meiliReleasesURL   = "https://api.github.com/repos/meilisearch/meilisearch/releases?per_page=30"
+)
+
+var redisAssetRe = regexp.MustCompile(`^Redis-(\d+\.\d+\.\d+)-Windows-x64-msys2\.zip$`)
+
+func redisAsset(_, asset string) (string, bool) {
+	if m := redisAssetRe.FindStringSubmatch(asset); m != nil {
+		return m[1], true
+	}
+	return "", false
+}
+
+// tagAsset matches one asset name and takes the version from the release tag ("v1.31.6").
+func tagAsset(name string) func(tag, asset string) (string, bool) {
+	return func(tag, asset string) (string, bool) {
+		m := releaseTagRe.FindStringSubmatch(tag)
+		if m == nil || asset != name {
+			return "", false
+		}
+		return m[1], true
+	}
+}
+
+func githubCatalog(ctx context.Context, url string, kind versions.Component, source string, match func(tag, asset string) (string, bool)) ([]Release, error) {
+	var rels []githubRelease
+	if err := download.JSON(ctx, url, &rels); err != nil {
+		return nil, fmt.Errorf("no se pudo leer la lista de versiones de %s (%s): %w", kind.Name(), source, err)
+	}
+	list := pickGitHub(rels, kind, source, match)
+	if len(list) == 0 {
+		return nil, fmt.Errorf("%s no devolvió versiones para Windows", source)
+	}
+	return list, nil
+}
+
+// pickGitHub keeps the newest release of the two newest series that have a matching asset with its
+// SHA-256.
+func pickGitHub(rels []githubRelease, kind versions.Component, source string, match func(tag, asset string) (string, bool)) []Release {
+	newest := map[string]Release{}
+	for _, r := range rels {
+		if r.Draft || r.Prerelease {
+			continue
+		}
+		for _, a := range r.Assets {
+			v, ok := match(r.Tag, a.Name)
+			sum, hasSum := strings.CutPrefix(a.Digest, "sha256:")
+			if !ok || !hasSum || len(sum) != 64 {
+				continue
+			}
+			s := versions.Series(kind, v)
+			if cur, seen := newest[s]; !seen || versions.Compare(v, cur.Version) > 0 {
+				newest[s] = Release{Kind: kind, Series: s, Version: v, URL: a.URL, SHA256: sum, Size: a.Size, Source: source}
+			}
+		}
+	}
+	var series []string
+	for s := range newest {
+		series = append(series, s)
+	}
+	sort.Slice(series, func(i, j int) bool { return versions.Compare(series[i], series[j]) > 0 })
+	var out []Release
+	for i, s := range series {
+		if i == 2 {
+			break
+		}
+		r := newest[s]
+		r.Note = map[int]string{0: "la más reciente", 1: "serie anterior"}[i]
+		out = append(out, r)
+	}
+	return out
+}
+
+// ---- PostgreSQL ----
+
+// postgresql.org lists every major version with its newest release and end of life; the Windows
+// binaries are the zips EnterpriseDB builds (linked from postgresql.org); EnterpriseDB publishes no
+// checksum for them.
+const pgVersionsURL = "https://www.postgresql.org/versions.json"
+
+// pgVersion is one entry of versions.json, where numbers come either as numbers or as text.
+type pgVersion struct {
+	Major       json.Number `json:"major"`
+	LatestMinor json.Number `json:"latestMinor"`
+	Supported   bool        `json:"supported"`
+	EOL         string      `json:"eolDate"`
+}
+
+func postgresCatalog(ctx context.Context) ([]Release, error) {
+	var all []pgVersion
+	if err := download.JSON(ctx, pgVersionsURL, &all); err != nil {
+		return nil, fmt.Errorf("no se pudo leer la lista de versiones de PostgreSQL (postgresql.org): %w", err)
+	}
+	majors := supportedPostgres(all, time.Now())
+	out := make([]Release, len(majors))
+	found := make([]bool, len(majors))
+	var wg sync.WaitGroup
+	for i, m := range majors {
+		wg.Add(1)
+		go func(i int, m pgVersion) {
+			defer wg.Done()
+			v := m.Major.String() + "." + m.LatestMinor.String()
+			for build := 3; build >= 1; build-- {
+				url := fmt.Sprintf("https://get.enterprisedb.com/postgresql/postgresql-%s-%d-windows-x64-binaries.zip", v, build)
+				if size, err := download.Head(ctx, url); err == nil {
+					note := "soporte hasta " + m.EOL
+					if len(m.EOL) >= 7 {
+						note = "soporte hasta " + m.EOL[:7]
+					}
+					out[i] = Release{Kind: versions.PostgreSQL, Series: m.Major.String(), Version: v, URL: url, Size: size, Note: note,
+						Source: "get.enterprisedb.com (enlazado desde postgresql.org)", Skip: []string{"pgAdmin 4/", "StackBuilder/", "doc/", "symbols/"}}
+					found[i] = true
+					return
+				}
+			}
+		}(i, m)
+	}
+	wg.Wait()
+	var list []Release
+	for i := range out {
+		if found[i] {
+			list = append(list, out[i])
+		}
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("no se encontraron los binarios de PostgreSQL para Windows en get.enterprisedb.com")
+	}
+	list[0].Note = "la más reciente · " + list[0].Note
+	return list, nil
+}
+
+// supportedPostgres keeps the four newest supported major versions.
+func supportedPostgres(all []pgVersion, now time.Time) []pgVersion {
+	today := now.Format("2006-01-02")
+	var out []pgVersion
+	for _, m := range all {
+		if m.Supported && !strings.Contains(m.Major.String(), ".") && (m.EOL == "" || m.EOL >= today) {
+			out = append(out, m)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return versions.Compare(out[i].Major.String(), out[j].Major.String()) > 0 })
+	if len(out) > 4 {
+		out = out[:4]
+	}
+	return out
+}
+
 // ---- Install ----
 
-// InstallRelease downloads a release, checks it and unpacks it into bin\<kind>\<version>. Zips must
-// match the published SHA-256 (MariaDB, GitHub); MySQL's server must carry Oracle's signature.
-// phase receives a short description of each step.
+// signers are the vendors whose signature a program must carry when no checksum is published.
+// PostgreSQL has neither: EnterpriseDB signs its installer but not the programs in the zip, so that
+// zip is only checked for integrity (each entry's CRC) and for the version it contains.
+var signers = map[versions.Component]struct{ file, org string }{
+	versions.MySQL: {filepath.Join("bin", "mysqld.exe"), "Oracle America, Inc."},
+}
+
+// InstallRelease downloads a release, checks it and unpacks it into bin\<kind>\<version>. Downloads
+// must match the published SHA-256 (MariaDB, MongoDB, GitHub); MySQL's server must carry Oracle's
+// signature. phase receives a short description of each step.
 func InstallRelease(ctx context.Context, home paths.Home, rel Release, phase func(string), progress download.Progress) (versions.Version, error) {
 	say := func(s string) {
 		if phase != nil {
 			phase(s)
 		}
 	}
-	zipPath := home.Cache("downloads", path.Base(rel.URL))
-	say("descargando")
-	if _, err := download.File(ctx, rel.URL, zipPath, rel.SHA256, progress); err != nil {
-		return versions.Version{}, err
-	}
-	defer os.Remove(zipPath) // hundreds of MB that nothing reuses
 	dest := home.Bin(string(rel.Kind), rel.Version)
-	say("descomprimiendo")
-	if err := unpackFresh(zipPath, dest); err != nil {
-		os.RemoveAll(dest)
-		return versions.Version{}, err
-	}
 	fail := func(err error) (versions.Version, error) {
 		os.RemoveAll(dest)
 		return versions.Version{}, err
 	}
-	if rel.Kind == versions.MySQL {
-		say("comprobando la firma de Oracle")
-		if err := winx.VerifySignature(filepath.Join(dest, "bin", "mysqld.exe"), "Oracle America, Inc."); err != nil {
+	say("descargando")
+	if rel.Binary != "" {
+		os.RemoveAll(dest)
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			return versions.Version{}, err
+		}
+		if _, err := download.File(ctx, rel.URL, filepath.Join(dest, rel.Binary), rel.SHA256, progress); err != nil {
+			return fail(err)
+		}
+	} else {
+		zipPath := home.Cache("downloads", path.Base(rel.URL))
+		if _, err := download.File(ctx, rel.URL, zipPath, rel.SHA256, progress); err != nil {
+			return versions.Version{}, err
+		}
+		defer os.Remove(zipPath) // hundreds of MB that nothing reuses
+		say("descomprimiendo")
+		if err := unpackFreshSkip(zipPath, dest, rel.Skip); err != nil {
+			return fail(err)
+		}
+	}
+	if s, ok := signers[rel.Kind]; ok && rel.SHA256 == "" {
+		say("comprobando la firma de " + s.org)
+		if err := winx.VerifySignature(filepath.Join(dest, s.file), s.org); err != nil {
 			return fail(err)
 		}
 	}

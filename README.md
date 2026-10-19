@@ -22,7 +22,14 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
   - MariaDB de mariadb.org, con su SHA-256 comprobado.
 
   Cada versión tiene su puerto, su carpeta de datos y su interruptor. Una por tipo es la predeterminada: usa el 3306, arranca con «Iniciar todo» y es la que abre el atajo `mysql`. También puede usar las bases de una instalación de Laragon sin copiarlas (`clon mysql laragon-data`), sin abrirlas nunca a la vez que Laragon.
-- **MongoDB.** Se instala desde el catálogo (mongodb.org, con su SHA-256 comprobado) junto con `mongosh`, que queda como atajo en la terminal. Cada versión tiene su puerto (27017 la predeterminada) y sus datos, y se detiene de forma ordenada.
+- **PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch.** Se instalan desde el mismo catálogo, cada versión con su puerto, sus datos y su interruptor; la predeterminada usa el puerto estándar (5432, 27017, 6379, 1025 y 7700).
+  - **PostgreSQL:** zip oficial de get.enterprisedb.com, enlazado desde postgresql.org, sin pgAdmin. EnterpriseDB no publica sumas ni firma esos programas, así que clon comprueba que el zip esté íntegro y que traiga la versión esperada. El servidor corre sin permisos de administrador (PostgreSQL se niega a usarlos) y se detiene con `pg_ctl`. Atajo `psql`.
+  - **MongoDB:** desde mongodb.org con su SHA-256, junto con `mongosh`, que sirve para detenerlo de forma ordenada y queda como atajo.
+  - **Redis:** Redis no publica versión para Windows; clon usa la compilación comunitaria github.com/redis-windows (con su SHA-256) o el Redis de Laragon. Atajo `redis-cli`.
+  - **Mailpit:** recibe lo que envían `mail()` de PHP y Laravel (SMTP en el 1025) y lo muestra en su página (8025).
+  - **Meilisearch:** para Laravel Scout, en modo desarrollo y con su panel en el navegador.
+  - Lo que se importa de Laragon aparece en el panel pero no arranca solo; lo que se instala desde el catálogo pasa a ser el predeterminado de su tipo.
+  - «Copiar datos de conexión» da las líneas del `.env` de Laravel para cada tipo.
 - **Node incluido:** descarga la LTS oficial, verificada, con `npm` y `npx`. Los paquetes globales de npm sobreviven a los cambios de versión.
 - **Composer** actualizado y atajos de terminal (`php`, `php84`, `php83`…, `composer`, `node`, `npm`, `npx`, `mysql`) en una sola carpeta `shims\`. Los procesos PHP que lanzan Composer o Artisan heredan el mismo `php.ini`.
 - **Importación desde Laragon.** Usa en su sitio, sin copiar ni modificar, sus versiones de PHP, Apache, MySQL, Nginx, Node y Redis, y sus carpetas de proyectos.
@@ -35,7 +42,7 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
 - **Runtime de Visual C++ 2015–2022 x64 de Microsoft.** Lo necesitan los binarios de PHP, Apache y MySQL para Windows. Si falta, `clon setup` (o `clon vcredist install`) instala la versión oficial de Microsoft tras comprobar su firma; Windows pide permiso de administrador. En un Windows recién instalado, el instalador de Microsoft tarda unos 4 minutos.
 - **Go 1.27 o posterior,** solo para compilar.
 - **PHP, Node y Composer:** clon los descarga solo.
-- **MySQL y MariaDB:** se instalan desde el panel o con `clon service install`; también se importan de Laragon.
+- **Bases de datos y servicios** (MySQL, MariaDB, PostgreSQL, MongoDB, Redis, Mailpit, Meilisearch): se instalan desde el panel o con `clon service install`; MySQL y Redis también se importan de Laragon.
 - **Apache:** por ahora sale de una instalación de Laragon (`clon import laragon`). La descarga directa está en la hoja de ruta.
 
 ## Compilar
@@ -94,7 +101,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon composer install` | Descarga o actualiza Composer |
 | `clon vcredist status` · `install [instalador.exe]` | Runtime de Visual C++ que necesitan PHP, Apache y MySQL |
 | `clon import laragon [ruta]` | Importa versiones y carpetas de Laragon |
-| `clon service list` · `remote` · `install mysql 8.4` · `install mongodb latest` | Servicios instalados · catálogo · instalar una versión |
+| `clon service list` · `remote` · `install postgresql latest` | Servicios instalados · catálogo · instalar (mysql, mariadb, postgresql, mongodb, redis, mailpit, meilisearch) |
 | `clon service start` · `stop` · `default` · `uninstall mysql-8.4` | Una instancia: iniciar, detener, hacerla predeterminada o quitarla (los datos se conservan) |
 | `clon service port mysql-8.4 3307` · `autostart mysql-8.4 on` | Su puerto y si arranca con «Iniciar todo» |
 | `clon mysql laragon-data` · `own-data` | Usa las bases de Laragon o la carpeta de datos propia |
@@ -134,7 +141,8 @@ internal/apache  httpd.conf y control         internal/supervisor  procesos y jo
 internal/php     php.ini y pool de php-cgi    internal/ports       puertos libres y reservados
 internal/mysql   MySQL y MariaDB: my.ini      internal/install     descargas oficiales verificadas
 internal/nginx   nginx.conf y control         internal/frankenphp  Caddyfile y control
-internal/mongodb mongod y parada con mongosh
+internal/mongodb mongod y parada con mongosh  internal/postgres    initdb, servidor sin admin
+internal/redis   redis.conf y redis-cli       internal/mailpit, internal/meilisearch
 internal/laragon importación de Laragon       internal/versions    catálogo de versiones
 ```
 
@@ -160,6 +168,8 @@ En Windows 11, junto a Laragon y en puertos alternativos:
 - **Nginx:** un sitio pasa de Apache a Nginx (el 1.22 de Laragon y el 1.30 descargado) y vuelve, y PHP ve lo mismo con los dos: `HTTPS=on`, el puerto público y la URI enrutada a `index.php`. Al instalar otra versión, Nginx cambia a ella solo, y se detiene cuando ningún sitio lo usa.
 - **FrankenPHP:** un sitio con FrankenPHP 1.13 responde con su PHP 8.5 propio, `HTTPS=on`, MySQL y OPcache. Tres sitios corren a la vez, uno con cada servidor (Apache, Nginx y FrankenPHP).
 - **MongoDB:** la 9.0 se instala con `mongosh`, arranca como predeterminada, responde desde el atajo `mongosh` y se detiene de forma ordenada («shutdown complete», código 0).
+- **PostgreSQL 18:** crea sus datos, arranca sin permisos de administrador, responde a `psql`, se detiene con `pg_ctl` y conserva las bases al reiniciar. Sin pgAdmin ocupa 156 MB.
+- **Redis 8.10** (comunitario) responde a `redis-cli` y guarda sus datos al detenerse; **Mailpit** recibe un correo por SMTP; **Meilisearch 1.55** responde en `/health`. Todo a la vez que MySQL, MariaDB y MongoDB.
 
 En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 pasos de `probar-en-sandbox.ps1`:
 
@@ -174,9 +184,9 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
 
 - **Fase 1 (núcleo), pendiente:** descarga directa de Apache.
 - **Fase 2, en este orden:**
-  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; MongoDB.
-  - PostgreSQL, Redis, Mailpit y Meilisearch.
+  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch.
   - Varias versiones de Apache, incluidos perfiles legacy con su propio PHP.
+  - Extensiones de PHP por versión (PIE): redis, mongodb, xdebug.
 - **Fase 3:**
   - Instaladores: Laravel con sus starter kits, WordPress, Symfony, desde Git y recetas propias.
   - `.env` automático y procesos del proyecto (cola, scheduler, Reverb, Vite).

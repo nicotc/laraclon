@@ -12,6 +12,8 @@ import (
 	"github.com/nicotc/laraclon/internal/install"
 	"github.com/nicotc/laraclon/internal/mongodb"
 	"github.com/nicotc/laraclon/internal/mysql"
+	"github.com/nicotc/laraclon/internal/postgres"
+	"github.com/nicotc/laraclon/internal/redis"
 	"github.com/nicotc/laraclon/internal/paths"
 	"github.com/nicotc/laraclon/internal/php"
 	"github.com/nicotc/laraclon/internal/shims"
@@ -166,6 +168,17 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 	if db, ok := e.DefaultDB(); ok {
 		if client := mysql.ClientExe(db.Version); client != "" {
 			targets["mysql"] = shims.Target{Exe: client, Args: []string{"--host=127.0.0.1", fmt.Sprintf("--port=%d", db.Instance.Port), "--user=root"}}
+		}
+	}
+	// `psql` and `redis-cli` open the default PostgreSQL and Redis.
+	if ref, ok := e.DefaultInstance(versions.PostgreSQL); ok {
+		if psql := postgres.Psql(ref.Version); psql != "" {
+			targets["psql"] = shims.Target{Exe: psql, Args: []string{"-h", "127.0.0.1", "-p", fmt.Sprint(ref.Instance.Port), "-U", "postgres"}}
+		}
+	}
+	if ref, ok := e.DefaultInstance(versions.Redis); ok {
+		if cli := redis.CLI(ref.Version); cli != "" {
+			targets["redis-cli"] = shims.Target{Exe: cli, Args: []string{"-p", fmt.Sprint(ref.Instance.Port)}}
 		}
 	}
 	// `mongosh` opens the default MongoDB (its standard port needs no option, which keeps URIs usable).

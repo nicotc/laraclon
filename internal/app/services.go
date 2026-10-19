@@ -42,6 +42,7 @@ type InstanceStatus struct {
 	DataDir   string `json:"data_dir"`
 	External  bool   `json:"external"`
 	Error     string `json:"error,omitempty"`
+	WebURL    string `json:"web_url,omitempty"` // Mailpit's inbox, Meilisearch's dashboard
 }
 
 // dbGroups describes every kind of database for the status.
@@ -60,7 +61,7 @@ func (d *Daemon) dbGroups(problems map[string]string) []DBGroup {
 				Key: key, Series: ref.Series, Version: ref.Version.Version, Source: ref.Version.Source,
 				Port: ref.Instance.Port, Autostart: ref.Instance.Autostart || ref.Series == svc.Default,
 				Default: ref.Series == svc.Default, State: "detenido", External: ref.Instance.DataDir != "",
-				DataDir: ref.Instance.DataDir,
+				DataDir: ref.Instance.DataDir, WebURL: webURL(kind, ref.Instance.Port),
 			}
 			if st.DataDir == "" {
 				st.DataDir = d.env.Home.Data(key)
