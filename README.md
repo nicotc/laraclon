@@ -2,7 +2,7 @@
 
 Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e inspirado en Laragon. Escrito en Go. No está afiliado a Laragon ni a sus autores.
 
-**Estado:** fase 1 (núcleo) funcionando, probada en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
+**Estado:** fase 1 (núcleo) completa y fase 2 casi terminada. Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
 
 ## Qué hace hoy
 
@@ -13,6 +13,8 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
 - **Proxy frontal propio (80/443).** Presenta un certificado por sitio, firmado por una CA local, y redirige HTTP a HTTPS. Los sitios desconocidos reciben una página de error útil.
 - **PHP global con cambio en caliente.** Funciona con cualquier versión, incluida la 7.2. PHP corre por FastCGI (un pool de `php-cgi`), así que Apache no se reinicia al cambiarlo, y la terminal, Composer y Artisan siguen al mismo PHP.
 - **Apache 2.4** con un puerto interno por sitio y `.htaccess` (`AllowOverride All`). PHP recibe `HTTPS=on` y las URLs correctas.
+  - Se descarga de Apache Lounge (la compilación para Windows que usa también Laragon) con su SHA-256 comprobado, o se importa de Laragon. Apache Lounge mantiene esas compilaciones de forma voluntaria y acepta donaciones en apachelounge.com.
+  - Puedes tener varias versiones: el panel (o `clon apache use 2.4.62`) cambia en caliente la que atiende los sitios.
 - **Nginx o FrankenPHP por sitio.** Cada sitio elige Apache, Nginx o FrankenPHP en la pestaña «Sitios» (o con `clon site server tienda nginx`), sin cambiar su dirección `.test`.
   - Ambos se instalan desde el catálogo: los repositorios oficiales github.com/nginx/nginx y github.com/php/frankenphp, con el SHA-256 comprobado.
   - Solo arrancan cuando algún sitio los elige, y se recargan en caliente.
@@ -39,11 +41,12 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
 ## Requisitos
 
 - **Windows 10 u 11 de 64 bits.**
-- **Runtime de Visual C++ 2015–2022 x64 de Microsoft.** Lo necesitan los binarios de PHP, Apache y MySQL para Windows. Si falta, `clon setup` (o `clon vcredist install`) instala la versión oficial de Microsoft tras comprobar su firma; Windows pide permiso de administrador. En un Windows recién instalado, el instalador de Microsoft tarda unos 4 minutos.
+- **Runtime de Visual C++ x64 de Microsoft** (v14, el de Visual Studio 2015 a 2026). Lo necesitan los binarios de PHP, Apache y MySQL para Windows.
+  - Si falta, `clon setup` (o `clon vcredist install`, o el botón del panel) instala la versión oficial más reciente tras comprobar su firma de Microsoft. Windows pide permiso de administrador. En un Windows recién instalado, el instalador de Microsoft tarda unos 4 minutos.
+  - El Apache actual de Apache Lounge se compila con Visual Studio 2026, y Microsoft pide para él el runtime 14.50 o posterior. Funciona igual con los anteriores (probado con 14.44 y 14.32), así que clon no bloquea nada: solo avisa y ofrece actualizarlo. Si otros programas tienen abierto el runtime, Windows termina de actualizarlo al reiniciar, y el aviso lo indica.
 - **Go 1.27 o posterior,** solo para compilar.
-- **PHP, Node y Composer:** clon los descarga solo.
-- **Bases de datos y servicios** (MySQL, MariaDB, PostgreSQL, MongoDB, Redis, Mailpit, Meilisearch): se instalan desde el panel o con `clon service install`; MySQL y Redis también se importan de Laragon.
-- **Apache:** por ahora sale de una instalación de Laragon (`clon import laragon`). La descarga directa está en la hoja de ruta.
+- **PHP, Apache, Node y Composer:** clon los descarga solo. Sin Laragon, `clon setup` instala la versión más reciente de PHP y de Apache.
+- **Bases de datos y servicios** (MySQL, MariaDB, PostgreSQL, MongoDB, Redis, Mailpit, Meilisearch): se instalan desde el panel o con `clon service install`. MySQL y Redis también se importan de Laragon.
 
 ## Compilar
 
@@ -64,7 +67,7 @@ Todo lo que clon descarga o genera queda dentro de esa carpeta. Para usar otra c
 ## Primer uso
 
 ```powershell
-C:\clon\clon.exe setup     # importa Laragon si existe, instala Node LTS (con npm y npx), Composer y la lista de CAs públicas
+C:\clon\clon.exe setup     # importa Laragon si existe (si no, descarga PHP y Apache), instala Node LTS (con npm y npx), Composer y la lista de CAs públicas
 C:\clon\clon.exe run       # arranca clon con el icono en la bandeja
 C:\clon\clon.exe status    # servicios, sitios y avisos
 ```
@@ -97,6 +100,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon start` · `stop` · `restart` · `quit` | Servicios on/off; `quit` cierra clon |
 | `clon status` · `sites` · `versions` | Estado, sitios y versiones instaladas |
 | `clon php list` · `remote` · `install 8.4` · `use 8.3` | Versiones de PHP |
+| `clon apache list` · `remote` · `install` · `use 2.4.62` | Versiones de Apache (descarga de Apache Lounge) |
 | `clon node list` · `remote` · `install lts` · `use 24` | Versiones de Node (con npm y npx) |
 | `clon composer install` | Descarga o actualiza Composer |
 | `clon vcredist status` · `install [instalador.exe]` | Runtime de Visual C++ que necesitan PHP, Apache y MySQL |
@@ -126,9 +130,10 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - Puertos 80/443.
 - Proyecto Laravel nuevo con MySQL y `npm run build`.
 - MariaDB instalada desde el catálogo y corriendo a la vez que MySQL.
+- Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
 - Edge sin avisos, cambio de PHP y cierre.
 
-Tarda unos 10 minutos. No cierres la ventana del sandbox hasta que diga «Prueba terminada»: al cerrarla se descarta todo lo de dentro. Al terminar, clon queda arrancado con el proyecto Laravel y el panel abiertos en Edge, para probarlo a mano. El informe queda en `dist\sandbox\<fecha>\resultados\report.md`. El instalador de Visual C++ se descarga en el equipo anfitrión (`dist\cache`) y se comparte con el sandbox, porque dentro su descarga resultó poco fiable.
+Tarda unos 20 minutos. No cierres la ventana del sandbox hasta que diga «Prueba terminada»: al cerrarla se descarta todo lo de dentro. Al terminar, clon queda arrancado con el proyecto Laravel y el panel abiertos en Edge, para probarlo a mano. El informe queda en `dist\sandbox\<fecha>\resultados\report.md`. Los instaladores de Visual C++ se descargan en el equipo anfitrión (`dist\cache`) y se comparten con el sandbox, porque dentro su descarga resultó poco fiable. Primero se instala a propósito el de Visual Studio 2022 (14.44) y después el más reciente.
 
 ## Estructura
 
@@ -155,7 +160,10 @@ En Windows 11, junto a Laragon y en puertos alternativos:
   - Conexión a MySQL y OPcache activo.
   - 20 peticiones en paralelo devuelven 200 en menos de 0,5 s.
   - El cambio de PHP en caliente tarda entre 0,4 y 1,3 s.
-- **Apache:** una carpeta nueva se publica en segundos con recarga elegante (mismo PID), y las redirecciones de Apache conservan `https` y el puerto.
+- **Apache:**
+  - Una carpeta nueva se publica en segundos con recarga elegante (mismo PID), y las redirecciones de Apache conservan `https` y el puerto.
+  - Apache 2.4.69 de Apache Lounge (14,5 MB, SHA-256 comprobado) se instala junto al de Laragon y pasa a atender todos los sitios.
+  - `clon apache use` cambia de versión en unos 6 s, y los sitios responden en cuanto termina.
 - **Supervisor:** un `php-cgi` que se cae se reinicia solo. Si se mata `clon.exe` de golpe, no quedan procesos huérfanos. El apagado es ordenado (Apache con su señal, MySQL con `mysqladmin`).
 - **Panel:** sin token responde 403, y con otro `Host` u `Origin` no es alcanzable.
 - **Laragon:** clon se niega a abrir los datos de MySQL de Laragon mientras Laragon los usa.
@@ -182,10 +190,10 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
 
 ## Hoja de ruta
 
-- **Fase 1 (núcleo), pendiente:** descarga directa de Apache.
+- **Fase 1 (núcleo):** completa.
 - **Fase 2, en este orden:**
-  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch.
-  - Varias versiones de Apache, incluidos perfiles legacy con su propio PHP.
+  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch; Apache de Apache Lounge en varias versiones.
+  - Perfiles legacy: sitios con su propio Apache y PHP antiguos.
   - Extensiones de PHP por versión (PIE): redis, mongodb, xdebug.
 - **Fase 3:**
   - Instaladores: Laravel con sus starter kits, WordPress, Symfony, desde Git y recetas propias.

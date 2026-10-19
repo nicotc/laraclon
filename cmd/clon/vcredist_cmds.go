@@ -7,9 +7,10 @@ import (
 
 	"github.com/nicotc/laraclon/internal/app"
 	"github.com/nicotc/laraclon/internal/vcredist"
+	"github.com/nicotc/laraclon/internal/versions"
 )
 
-// cmdVCRedist reports or installs the Visual C++ 2015-2022 x64 runtime.
+// cmdVCRedist reports or installs the Visual C++ x64 runtime.
 // `clon vcredist install [instalador.exe]` uses a local installer when given (it must still carry
 // Microsoft's signature), otherwise it downloads the official one.
 func cmdVCRedist(ctx context.Context, env *app.Env, args []string) error {
@@ -20,11 +21,22 @@ func cmdVCRedist(ctx context.Context, env *app.Env, args []string) error {
 	switch action {
 	case "status":
 		if missing := vcredist.Missing(); len(missing) > 0 {
-			fmt.Printf("Falta el runtime de Visual C++ 2015-2022 x64 (%s).\n", strings.Join(missing, ", "))
+			fmt.Printf("Falta el runtime de Visual C++ x64 (%s).\n", strings.Join(missing, ", "))
 			fmt.Println("Sin él no arrancan PHP, Apache ni MySQL. Instálalo con 'clon vcredist install'.")
 			return nil
 		}
-		fmt.Println("Runtime de Visual C++ 2015-2022 x64 instalado:", vcredist.Version())
+		fmt.Println("Runtime de Visual C++ x64 instalado:", vcredist.Version())
+		// Microsoft asks for a runtime at least as new as the compiler of each program.
+		for _, c := range []versions.Component{versions.PHP, versions.Apache, versions.MySQL, versions.MariaDB} {
+			for _, v := range env.Reg.List(c) {
+				if need := vcredist.Needs(versions.Program(c, v.Path)); need != "" && vcredist.Older(need) {
+					fmt.Printf("  %s se compiló para %s o más nuevo: Microsoft recomienda 'clon vcredist install'\n", v.Label(), need)
+				}
+			}
+		}
+		if vcredist.RestartPending() {
+			fmt.Println("Hay una actualización del runtime instalada que Windows termina de aplicar al reiniciar.")
+		}
 		return nil
 	case "install":
 		installer := ""

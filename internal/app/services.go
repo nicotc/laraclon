@@ -457,7 +457,11 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release) {
 		d.cfgMu.Lock()
 		d.env.Reg.Add(v)
 		err = d.env.SaveRegistry()
-		if err == nil && d.env.SyncServices() {
+		// Saved before the job ends: 'clon service install' exits as soon as it sees the job finished.
+		if rel.Kind == versions.Apache {
+			d.env.Cfg.Apache.Version = v.Version
+		}
+		if err == nil && (d.env.SyncServices() || rel.Kind == versions.Apache) {
 			err = d.env.SaveConfig()
 		}
 		isDefault = d.env.Cfg.Service(string(rel.Kind)).Default == rel.Series
@@ -484,6 +488,9 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release) {
 		if err := d.Rescan(); err != nil {
 			d.setProblem("sitios", err)
 		}
+	// A downloaded Apache becomes the one that serves the sites.
+	case err == nil && rel.Kind == versions.Apache:
+		d.UseApache(v.Version)
 	}
 	d.changed()
 }

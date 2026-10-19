@@ -18,8 +18,8 @@ import (
 	"github.com/nicotc/laraclon/internal/apache"
 	"github.com/nicotc/laraclon/internal/ca"
 	"github.com/nicotc/laraclon/internal/config"
-	"github.com/nicotc/laraclon/internal/hosts"
 	"github.com/nicotc/laraclon/internal/frankenphp"
+	"github.com/nicotc/laraclon/internal/hosts"
 	"github.com/nicotc/laraclon/internal/install"
 	"github.com/nicotc/laraclon/internal/nginx"
 	"github.com/nicotc/laraclon/internal/php"
@@ -38,9 +38,9 @@ const (
 	sitePortTo      = 29999
 	// Sites that choose Nginx get a second, separate port, so moving a site between servers never
 	// has to wait for one of them to release a port.
-	nginxAdminPort = 30000
-	nginxPortFrom  = 30001
-	nginxPortTo    = 39999
+	nginxAdminPort   = 30000
+	nginxPortFrom    = 30001
+	nginxPortTo      = 39999
 	frankenAdminPort = 40000
 	frankenPortFrom  = 40001
 	frankenPortTo    = 49999
@@ -72,6 +72,8 @@ type Daemon struct {
 	servicesOn  bool   // between «Iniciar todo» and «Detener todo»
 	nginxPath   string // folder of the nginx that is running
 	frankenPath string // folder of the FrankenPHP that is running
+	runtime     RuntimeStatus
+	runtimeAt   time.Time
 
 	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
 	cfgMu sync.Mutex
@@ -202,11 +204,7 @@ func (d *Daemon) StartAll() {
 	d.mu.Lock()
 	d.servicesOn = true
 	d.mu.Unlock()
-	if missing := vcredist.Missing(); len(missing) > 0 {
-		d.setProblem("visual-c++", fmt.Errorf("falta el runtime de Visual C++ 2015-2022 x64 (%s): sin él no arrancan PHP, Apache ni MySQL. Instálalo con 'clon vcredist install' y luego 'clon import laragon'", strings.Join(missing, ", ")))
-	} else {
-		d.setProblem("visual-c++", nil)
-	}
+	d.setProblem("visual-c++", d.runtimeProblem())
 	if err := d.Rescan(); err != nil {
 		d.setProblem("sitios", err)
 	}
@@ -232,6 +230,86 @@ func (d *Daemon) StopAll() {
 	d.sup.StopMatching(func(n string) bool { return strings.HasPrefix(n, "php-cgi-") })
 	d.sup.StopMatching(func(n string) bool { return strings.HasPrefix(n, "mysql-") || strings.HasPrefix(n, "mariadb-") })
 	d.changed()
+}
+
+// RuntimeStatus is the Visual C++ runtime as the panel shows it.
+type RuntimeStatus struct {
+	Version string `json:"version"` // installed version, "" when missing
+	Missing bool   `json:"missing"`
+	Needs   string `json:"needs,omitempty"`   // runtime the global PHP or Apache was built for, when newer
+	For     string `json:"for,omitempty"`     // that program, e.g. "Apache 2.4.69 (x64)"
+	Restart bool   `json:"restart,omitempty"` // an update waits for Windows to restart
+}
+
+// runtimeStatus compares the runtime with what the global PHP and Apache were built for (both load
+// it from Windows). It reads program headers, so the answer is kept for a few seconds.
+func (d *Daemon) runtimeStatus() RuntimeStatus {
+	d.mu.Lock()
+	if time.Since(d.runtimeAt) < 10*time.Second {
+		rt := d.runtime
+		d.mu.Unlock()
+		return rt
+	}
+	d.mu.Unlock()
+	rt := RuntimeStatus{Version: vcredist.Version(), Missing: len(vcredist.Missing()) > 0}
+	if !rt.Missing {
+		var check []versions.Version
+		if v, err := d.env.GlobalPHP(); err == nil {
+			check = append(check, v)
+		}
+		if v, err := d.apacheVersion(); err == nil {
+			check = append(check, v)
+		}
+		for _, v := range check {
+			need := vcredist.Needs(versions.Program(v.Component, v.Path))
+			if need != "" && vcredist.Older(need) && versions.Compare(need, rt.Needs) > 0 {
+				rt.Needs, rt.For = need, v.Label()
+			}
+		}
+		rt.Restart = rt.Needs != "" && vcredist.RestartPending()
+	}
+	d.mu.Lock()
+	d.runtime, d.runtimeAt = rt, time.Now()
+	d.mu.Unlock()
+	return rt
+}
+
+// runtimeProblem is the runtime notice for the tray and 'clon status' (nil when all is well).
+// Programs built for a newer runtime than Windows has usually run anyway (Apache Lounge's do), so
+// that case is a recommendation.
+func (d *Daemon) runtimeProblem() error {
+	rt := d.runtimeStatus()
+	switch {
+	case rt.Missing:
+		return fmt.Errorf("falta el runtime de Visual C++ x64: sin él no arrancan PHP, Apache ni MySQL. Instálalo desde el panel o con 'clon vcredist install'")
+	case rt.Needs != "" && rt.Restart:
+		return fmt.Errorf("el runtime de Visual C++ que pide %s ya está instalado; Windows lo termina de aplicar al reiniciar", rt.For)
+	case rt.Needs != "":
+		return fmt.Errorf("%s se compiló para el runtime de Visual C++ %s o más nuevo y Windows tiene %s; Microsoft recomienda actualizarlo desde el panel o con 'clon vcredist install'", rt.For, rt.Needs, rt.Version)
+	}
+	return nil
+}
+
+// InstallRuntime installs Microsoft's latest Visual C++ runtime (Windows asks for permission) and
+// then starts whatever could not start without it.
+func (d *Daemon) InstallRuntime(ctx context.Context) error {
+	err := vcredist.Install(ctx, d.env.Home, "", nil, nil)
+	d.mu.Lock()
+	d.runtimeAt = time.Time{}
+	on := d.servicesOn
+	d.mu.Unlock()
+	if errors.Is(err, vcredist.ErrRestart) {
+		err = nil // the notice tells that Windows finishes the update at the next restart
+	}
+	if err != nil {
+		return err
+	}
+	if on {
+		d.StartAll()
+	}
+	d.setProblem("visual-c++", d.runtimeProblem())
+	d.changed()
+	return nil
 }
 
 func (d *Daemon) startPHP() error {
@@ -410,6 +488,44 @@ func (d *Daemon) UsePHP(want string) (versions.Version, error) {
 	d.sup.StopMatching(func(n string) bool { return strings.HasPrefix(n, "php-cgi-") })
 	err := d.startPHP()
 	d.setProblem("php", err)
+	d.changed()
+	return v, err
+}
+
+// UseApache switches the Apache that serves the sites. A running Apache restarts with the new
+// version (a few seconds without answering); the sites keep their ports.
+func (d *Daemon) UseApache(want string) (versions.Version, error) {
+	v, ok := d.env.Reg.Find(versions.Apache, want)
+	if !ok {
+		return v, fmt.Errorf("Apache %s no está instalado", want)
+	}
+	d.cfgMu.Lock()
+	d.env.Cfg.Apache.Version = v.Version
+	err := d.env.SaveConfig()
+	d.cfgMu.Unlock()
+	if err != nil {
+		return v, err
+	}
+	running := d.sup.PID(apache.ServiceName) != 0
+	if running {
+		d.sup.Stop(apache.ServiceName)
+	}
+	d.mu.Lock()
+	list := append([]sites.Site(nil), d.sites...)
+	on := d.servicesOn
+	d.mu.Unlock()
+	d.table.Set(d.routes(list)) // the proxy's pages name the server
+	d.setProblem("visual-c++", d.runtimeProblem())
+	if running || on {
+		err = d.startApache()
+		if err == nil {
+			// Answer once the sites are served again, so a switch never reports success early.
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			err = d.sup.WaitRunning(ctx, apache.ServiceName)
+			cancel()
+		}
+		d.setProblem("apache", err)
+	}
 	d.changed()
 	return v, err
 }

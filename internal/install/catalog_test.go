@@ -22,6 +22,44 @@ func TestPickMySQLSeries(t *testing.T) {
 	}
 }
 
+func TestPickApacheFromTheDownloadPage(t *testing.T) {
+	// Trimmed from https://www.apachelounge.com/download/
+	const page = `<a href="https://aka.ms/vc14/vc_redist.x64.exe" target="_blank">vc_redist_x64</a>
+	<a href="/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip">httpd-2.4.69-261002-Win64-VS18.zip</a>
+	<a href="/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip.asc">PGP</a>
+	<a href="/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip.txt">Checksums</a>
+	<a href="/download/VS18/binaries/httpd-2.4.69-261002-win32-vs18.zip">httpd-2.4.69-261002-win32-vs18.zip</a>
+	<a href="/download/VS18/modules/mod_fcgid-2.3.10-win64-VS18.zip">mod_fcgid</a>`
+	r, ok := pickApache(page)
+	if !ok {
+		t.Fatal("the 64-bit build must be found")
+	}
+	if r.Kind != versions.Apache || r.Series != "2.4" || r.Version != "2.4.69" || r.Note != "compilación VS18" {
+		t.Fatalf("got %+v", r)
+	}
+	if r.URL != "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip" {
+		t.Fatalf("url %s", r.URL)
+	}
+	if !reflect.DeepEqual(r.Skip, []string{"Apache24/manual/"}) {
+		t.Fatalf("skip %v", r.Skip)
+	}
+	if _, ok := pickApache(`<a href="/download/VS18/binaries/httpd-2.4.69-261002-win32-vs18.zip">32 bits</a>`); ok {
+		t.Fatal("a 32-bit build must not be offered")
+	}
+}
+
+func TestApacheChecksumFile(t *testing.T) {
+	// Layout of httpd-2.4.69-261002-Win64-VS18.zip.txt (Windows line endings).
+	const sums = "Checksums created with GPGHash by SmartJuwel\r\n\r\n" +
+		"SHA1-Checksum for: httpd-2.4.69-261002-Win64-VS18.zip:\r\nD7B557581787727CA222C6A5FF0E9E6FA6029893\r\n\r\n" +
+		"SHA256-Checksum for: httpd-2.4.69-261002-Win64-VS18.zip:\r\nCA272E0B75ABAD78B1E4029A0753B20FF2232D2D857E8EEBEEA5D469C5776977\r\n\r\n" +
+		"SHA512-Checksum for: httpd-2.4.69-261002-Win64-VS18.zip:\r\nB5198796E28FD985225DF36CB3E65226A423BB48DF5B111C91439C59D558FD9DB1868F838C927E79B7A30B7B0C1C6FA0E4BEA767A3908A5187745158E22E9269\r\n"
+	m := apacheSumRe.FindStringSubmatch(sums)
+	if m == nil || m[1] != "CA272E0B75ABAD78B1E4029A0753B20FF2232D2D857E8EEBEEA5D469C5776977" {
+		t.Fatalf("got %v", m)
+	}
+}
+
 func TestSupportedMariaDB(t *testing.T) {
 	all := []mariadbMajor{
 		{ID: "13.2", Status: "Preview"}, {ID: "13.0", Status: "Stable", Support: "Rolling"},

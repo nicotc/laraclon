@@ -16,6 +16,7 @@ import (
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/download"
 	"github.com/nicotc/laraclon/internal/paths"
+	"github.com/nicotc/laraclon/internal/vcredist"
 	"github.com/nicotc/laraclon/internal/versions"
 	"github.com/nicotc/laraclon/internal/winx"
 )
@@ -48,7 +49,7 @@ type Extra struct {
 
 // Installable lists what the catalog can install.
 var Installable = []versions.Component{versions.MySQL, versions.MariaDB, versions.PostgreSQL, versions.MongoDB,
-	versions.Redis, versions.Mailpit, versions.Meilisearch, versions.Nginx, versions.FrankenPHP}
+	versions.Redis, versions.Mailpit, versions.Meilisearch, versions.Apache, versions.Nginx, versions.FrankenPHP}
 
 const catalogTTL = 6 * time.Hour
 
@@ -74,6 +75,8 @@ func Catalog(ctx context.Context, home paths.Home, kind versions.Component, refr
 		list, err = mysqlCatalog(ctx)
 	case versions.MariaDB:
 		list, err = mariadbCatalog(ctx)
+	case versions.Apache:
+		list, err = apacheCatalog(ctx)
 	case versions.Nginx:
 		list, err = nginxCatalog(ctx)
 	case versions.FrankenPHP:
@@ -345,6 +348,56 @@ func mariadbWindowsZip(m mariadbMajor, rel mariadbReleases) (Release, bool) {
 		}
 	}
 	return Release{}, false
+}
+
+// ---- Apache ----
+
+// The Apache Software Foundation publishes no Windows builds; Apache Lounge's are the ones Windows
+// stacks use (Laragon's among them). Its download page links the current build with a file of
+// checksums next to the zip.
+const apacheLoungeURL = "https://www.apachelounge.com/download/"
+
+var (
+	apacheZipRe = regexp.MustCompile(`(?i)href="(/download/(VS\d+)/binaries/httpd-(\d+\.\d+\.\d+)-\d+-win64-VS\d+\.zip)"`)
+	apacheSumRe = regexp.MustCompile(`(?i)SHA256-Checksum for:[^\n]*\n\s*([0-9a-f]{64})`)
+)
+
+func apacheCatalog(ctx context.Context) ([]Release, error) {
+	page, err := download.Text(ctx, apacheLoungeURL)
+	if err != nil {
+		return nil, fmt.Errorf("no se pudo leer la página de descargas de Apache Lounge: %w", err)
+	}
+	rel, ok := pickApache(page)
+	if !ok {
+		return nil, fmt.Errorf("la página de descargas de Apache Lounge no enlaza ningún Apache de 64 bits")
+	}
+	sums, err := download.Text(ctx, rel.URL+".txt")
+	if err != nil {
+		return nil, fmt.Errorf("no se pudieron leer las sumas de comprobación de Apache Lounge: %w", err)
+	}
+	m := apacheSumRe.FindStringSubmatch(sums)
+	if m == nil {
+		return nil, fmt.Errorf("%s.txt no trae el SHA-256 del zip", path.Base(rel.URL))
+	}
+	rel.SHA256 = strings.ToLower(m[1])
+	if size, err := download.Head(ctx, rel.URL); err == nil {
+		rel.Size = size
+	}
+	return []Release{rel}, nil
+}
+
+// pickApache takes the newest 64-bit build the download page links. The zip holds Apache24\ (the
+// manual, 10 MB of HTML, is left out) next to a few text files.
+func pickApache(page string) (Release, bool) {
+	var best Release
+	for _, m := range apacheZipRe.FindAllStringSubmatch(page, -1) {
+		if best.Version == "" || versions.Compare(m[3], best.Version) > 0 {
+			best = Release{Kind: versions.Apache, Series: versions.MajorMinor(m[3]), Version: m[3],
+				URL: "https://www.apachelounge.com" + m[1], Note: "compilación " + strings.ToUpper(m[2]),
+				Source: "apachelounge.com", Skip: []string{"Apache24/manual/"}}
+		}
+	}
+	return best, best.Version != ""
 }
 
 // ---- Nginx ----
@@ -793,6 +846,14 @@ func InstallRelease(ctx context.Context, home paths.Home, rel Release, phase fun
 	say("comprobando la instalación")
 	v, err := versions.Detect(rel.Kind, dest)
 	if err != nil {
+		// A program built with a newer Visual Studio than the runtime Windows has may not start.
+		if need := vcredist.Needs(versions.Program(rel.Kind, dest)); need != "" && vcredist.Older(need) {
+			have := vcredist.Version()
+			if have == "" {
+				have = "ninguno"
+			}
+			err = fmt.Errorf("%w. %s %s se compiló para el runtime de Visual C++ %s o más nuevo y este equipo tiene %s: actualízalo con 'clon vcredist install' y vuelve a intentarlo", err, rel.Kind.Name(), rel.Version, need, have)
+		}
 		return fail(err)
 	}
 	if v.Component != rel.Kind || v.Version != rel.Version {

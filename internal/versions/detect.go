@@ -18,6 +18,33 @@ func exists(p string) bool {
 	return err == nil
 }
 
+// programs are where each component keeps its main executable inside its folder, in the order
+// they are looked for.
+var programs = map[Component][]string{
+	PHP:         {"php-cgi.exe"},
+	Apache:      {`bin\httpd.exe`, `Apache24\bin\httpd.exe`, `Apache2\bin\httpd.exe`},
+	MySQL:       {`bin\mysqld.exe`, `bin\mariadbd.exe`},
+	MariaDB:     {`bin\mariadbd.exe`, `bin\mysqld.exe`},
+	Node:        {"node.exe"},
+	Nginx:       {"nginx.exe"},
+	Redis:       {"redis-server.exe"},
+	FrankenPHP:  {"frankenphp.exe"},
+	MongoDB:     {`bin\mongod.exe`},
+	PostgreSQL:  {`bin\postgres.exe`},
+	Mailpit:     {"mailpit.exe"},
+	Meilisearch: {"meilisearch.exe"},
+}
+
+// Program is the main executable of a component inside its folder ("" when it is not there).
+func Program(c Component, dir string) string {
+	for _, name := range programs[c] {
+		if p := filepath.Join(dir, name); exists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
 // DetectPHP inspects a PHP folder by asking php.exe (without any php.ini) for its build details.
 func DetectPHP(dir string) (Version, error) {
 	exe := filepath.Join(dir, "php.exe")
@@ -44,17 +71,12 @@ var apacheVersionRe = regexp.MustCompile(`Apache/(\d+\.\d+\.\d+)\s*\((Win32|Win6
 
 // DetectApache accepts either the ServerRoot (with bin\httpd.exe) or a folder that contains it (Apache24\).
 func DetectApache(dir string) (Version, error) {
-	root := ""
-	for _, cand := range []string{dir, filepath.Join(dir, "Apache24"), filepath.Join(dir, "Apache2")} {
-		if exists(filepath.Join(cand, "bin", "httpd.exe")) {
-			root = cand
-			break
-		}
-	}
-	if root == "" {
+	exe := Program(Apache, dir)
+	if exe == "" {
 		return Version{}, fmt.Errorf("no hay bin\\httpd.exe en %s", dir)
 	}
-	out, err := procutil.Output(probeTimeout, root, filepath.Join(root, "bin", "httpd.exe"), "-v")
+	root := filepath.Dir(filepath.Dir(exe))
+	out, err := procutil.Output(probeTimeout, root, exe, "-v")
 	if err != nil {
 		return Version{}, err
 	}
@@ -74,11 +96,8 @@ var mysqlVersionRe = regexp.MustCompile(`Ver (\d+\.\d+\.\d+)(-MariaDB)?`)
 // DetectMySQL recognises MySQL and MariaDB folders (bin\mysqld.exe, or bin\mariadbd.exe in the
 // MariaDB versions that dropped the old name).
 func DetectMySQL(dir string) (Version, error) {
-	exe := filepath.Join(dir, "bin", "mysqld.exe")
-	if !exists(exe) {
-		exe = filepath.Join(dir, "bin", "mariadbd.exe")
-	}
-	if !exists(exe) {
+	exe := Program(MySQL, dir)
+	if exe == "" {
 		return Version{}, fmt.Errorf("no hay bin\\mysqld.exe ni bin\\mariadbd.exe en %s", dir)
 	}
 	out, err := procutil.Output(probeTimeout, dir, exe, "--version")
@@ -98,8 +117,8 @@ func DetectMySQL(dir string) (Version, error) {
 
 // DetectNode reads node.exe -v.
 func DetectNode(dir string) (Version, error) {
-	exe := filepath.Join(dir, "node.exe")
-	if !exists(exe) {
+	exe := Program(Node, dir)
+	if exe == "" {
 		return Version{}, fmt.Errorf("no hay node.exe en %s", dir)
 	}
 	out, err := procutil.Output(probeTimeout, dir, exe, "-v")
@@ -116,8 +135,8 @@ func DetectNode(dir string) (Version, error) {
 var nginxVersionRe = regexp.MustCompile(`nginx/(\d+\.\d+\.\d+)`)
 
 func DetectNginx(dir string) (Version, error) {
-	exe := filepath.Join(dir, "nginx.exe")
-	if !exists(exe) {
+	exe := Program(Nginx, dir)
+	if exe == "" {
 		return Version{}, fmt.Errorf("no hay nginx.exe en %s", dir)
 	}
 	out, err := procutil.Output(probeTimeout, dir, exe, "-v")
@@ -134,8 +153,8 @@ func DetectNginx(dir string) (Version, error) {
 var redisVersionRe = regexp.MustCompile(`v=(\d+\.\d+\.\d+(?:\.\d+)?)`)
 
 func DetectRedis(dir string) (Version, error) {
-	exe := filepath.Join(dir, "redis-server.exe")
-	if !exists(exe) {
+	exe := Program(Redis, dir)
+	if exe == "" {
 		return Version{}, fmt.Errorf("no hay redis-server.exe en %s", dir)
 	}
 	out, err := procutil.Output(probeTimeout, dir, exe, "--version")
@@ -153,8 +172,8 @@ var mongoRe = regexp.MustCompile(`db version v(\d+\.\d+\.\d+)`)
 
 // DetectMongoDB reads "mongod --version" ("db version v9.0.4").
 func DetectMongoDB(dir string) (Version, error) {
-	exe := filepath.Join(dir, "bin", "mongod.exe")
-	if !exists(exe) {
+	exe := Program(MongoDB, dir)
+	if exe == "" {
 		return Version{}, fmt.Errorf("no hay bin\\mongod.exe en %s", dir)
 	}
 	out, err := procutil.Output(probeTimeout, dir, exe, "--version")
@@ -172,8 +191,8 @@ var postgresRe = regexp.MustCompile(`\(PostgreSQL\) (\d+\.\d+)`)
 
 // DetectPostgreSQL reads "postgres --version" ("postgres (PostgreSQL) 18.6").
 func DetectPostgreSQL(dir string) (Version, error) {
-	exe := filepath.Join(dir, "bin", "postgres.exe")
-	if !exists(exe) {
+	exe := Program(PostgreSQL, dir)
+	if exe == "" {
 		return Version{}, fmt.Errorf("no hay bin\\postgres.exe en %s", dir)
 	}
 	out, err := procutil.Output(probeTimeout, dir, exe, "--version")
@@ -191,8 +210,8 @@ var mailpitRe = regexp.MustCompile(`v(\d+\.\d+\.\d+) compiled with`)
 
 // DetectMailpit reads "mailpit version" ("…\mailpit.exe v1.31.6 compiled with go1.27.2 …").
 func DetectMailpit(dir string) (Version, error) {
-	exe := filepath.Join(dir, "mailpit.exe")
-	if !exists(exe) {
+	exe := Program(Mailpit, dir)
+	if exe == "" {
 		return Version{}, fmt.Errorf("no hay mailpit.exe en %s", dir)
 	}
 	out, err := procutil.Output(probeTimeout, dir, exe, "version")
@@ -210,8 +229,8 @@ var meiliRe = regexp.MustCompile(`meilisearch v?(\d+\.\d+\.\d+)`)
 
 // DetectMeilisearch reads "meilisearch --version" ("meilisearch 1.55.0").
 func DetectMeilisearch(dir string) (Version, error) {
-	exe := filepath.Join(dir, "meilisearch.exe")
-	if !exists(exe) {
+	exe := Program(Meilisearch, dir)
+	if exe == "" {
 		return Version{}, fmt.Errorf("no hay meilisearch.exe en %s", dir)
 	}
 	out, err := procutil.Output(probeTimeout, dir, exe, "--version")
@@ -229,8 +248,8 @@ var frankenRe = regexp.MustCompile(`FrankenPHP v?(\d+\.\d+\.\d+)\s+PHP (\d+\.\d+
 
 // DetectFrankenPHP reads "frankenphp version" ("FrankenPHP 1.13.1 PHP 8.5.11 Caddy v2.11.7 …").
 func DetectFrankenPHP(dir string) (Version, error) {
-	exe := filepath.Join(dir, "frankenphp.exe")
-	if !exists(exe) {
+	exe := Program(FrankenPHP, dir)
+	if exe == "" {
 		return Version{}, fmt.Errorf("no hay frankenphp.exe en %s", dir)
 	}
 	out, err := procutil.Output(probeTimeout, dir, exe, "version")

@@ -22,7 +22,7 @@ import (
 const usage = `clon: entorno de desarrollo local para Windows
 
 Uso:
-  clon setup                        primera configuración (Visual C++, Laragon, Node LTS, Composer)
+  clon setup                        primera configuración (Visual C++, Laragon o PHP y Apache, Node LTS, Composer)
   clon vcredist status | install    runtime de Visual C++ que necesitan PHP, Apache y MySQL
   clon import laragon [ruta]        usa las versiones y carpetas de proyectos de Laragon
   clon versions                     lista todo lo instalado
@@ -50,7 +50,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		fmt.Print(usage + daemonUsage + siteUsage + serviceUsage + mysqlUsage)
+		fmt.Print(usage + apacheUsage + daemonUsage + siteUsage + serviceUsage + mysqlUsage)
 		return nil
 	}
 	// The elevated helper only rewrites clon's block in the hosts file; it touches nothing else.
@@ -98,6 +98,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdVersions(env)
 	case "php":
 		return cmdPHP(ctx, env, args[1:])
+	case "apache":
+		return cmdApache(env, args[1:])
 	case "node":
 		return cmdNode(ctx, env, args[1:])
 	case "composer":
@@ -113,7 +115,7 @@ func run(ctx context.Context, args []string) error {
 func cmdSetup(ctx context.Context, env *app.Env) error {
 	// PHP, Apache and MySQL cannot even start without the Visual C++ runtime, so it goes first.
 	if missing := vcredist.Missing(); len(missing) > 0 {
-		fmt.Printf("Falta el runtime de Visual C++ 2015-2022 x64 (%s), necesario para PHP, Apache y MySQL.\n", strings.Join(missing, ", "))
+		fmt.Printf("Falta el runtime de Visual C++ x64 (%s), necesario para PHP, Apache y MySQL.\n", strings.Join(missing, ", "))
 		fmt.Println("Instalando la versión oficial de Microsoft (Windows pedirá permiso de administrador)…")
 		if err := vcredist.Install(ctx, env.Home, "", printProgress(), vcStatus(true)); err != nil {
 			fmt.Println()
@@ -124,6 +126,17 @@ func cmdSetup(ctx context.Context, env *app.Env) error {
 	if _, err := os.Stat(laragon.DefaultRoot); err == nil && len(env.Reg.List(versions.PHP)) == 0 {
 		fmt.Println("Laragon encontrado en", laragon.DefaultRoot)
 		if err := cmdImport(env, []string{"laragon"}); err != nil {
+			return err
+		}
+	}
+	// Without Laragon, clon brings its own PHP (windows.php.net) and Apache (Apache Lounge).
+	if len(env.Reg.List(versions.PHP)) == 0 {
+		if err := cmdPHP(ctx, env, []string{"install", "latest"}); err != nil {
+			return err
+		}
+	}
+	if len(env.Reg.List(versions.Apache)) == 0 {
+		if err := cmdApache(env, []string{"install"}); err != nil {
 			return err
 		}
 	}
@@ -192,7 +205,7 @@ func cmdImport(env *app.Env, args []string) error {
 		fmt.Println("  omitido:", s)
 	}
 	if rep.MissingRuntime {
-		fmt.Println("\nPHP, Apache y MySQL necesitan el runtime de Visual C++ 2015-2022 x64, que falta en este equipo.")
+		fmt.Println("\nPHP, Apache y MySQL necesitan el runtime de Visual C++ x64, que falta en este equipo.")
 		fmt.Println("Instálalo con 'clon vcredist install' y vuelve a ejecutar 'clon import laragon'.")
 	}
 	return nil
@@ -275,7 +288,11 @@ func cmdPHP(ctx context.Context, env *app.Env, args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("uso: clon php install <rama>, por ejemplo 8.4")
 		}
-		fmt.Printf("Descargando PHP %s (build NTS x64 de windows.php.net)…\n", args[1])
+		if args[1] == "latest" {
+			fmt.Println("Descargando la versión más reciente de PHP (build NTS x64 de windows.php.net)…")
+		} else {
+			fmt.Printf("Descargando PHP %s (build NTS x64 de windows.php.net)…\n", args[1])
+		}
 		v, err := install.InstallPHP(ctx, env.Home, args[1], printProgress())
 		fmt.Println()
 		if err != nil {

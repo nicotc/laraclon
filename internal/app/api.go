@@ -24,29 +24,31 @@ var panelPage = template.Must(template.ParseFS(panelFiles, "panel/index.html"))
 
 // Status is what the panel, the tray and `clon status` show.
 type Status struct {
-	Home         string              `json:"home"`
-	PHP          string              `json:"php"`
-	PHPVersions  []string            `json:"php_versions"`
-	Node         string              `json:"node"`
-	Apache       string              `json:"apache"`
-	Nginx        string              `json:"nginx"` // version the Nginx sites use ("" when not installed)
-	FrankenPHP   string              `json:"frankenphp"`
-	FrankenPHPPHP string             `json:"frankenphp_php"` // the PHP built into FrankenPHP
-	DB           string              `json:"db"`    // the default database, e.g. "MySQL 8.4.11"
-	DBPort       int                 `json:"db_port"`
-	Databases    []DBGroup           `json:"databases"`
-	Jobs         []Job               `json:"jobs"`
-	PanelURL     string              `json:"panel_url"`
-	ProxyUp      bool                `json:"proxy_up"`
-	HTTPPort     int                 `json:"http_port"`
-	HTTPSPort    int                 `json:"https_port"`
-	CATrusted    bool                `json:"ca_trusted"`
-	CACert       string              `json:"ca_cert"`
-	HostsMissing []string            `json:"hosts_missing"`
-	Services     []supervisor.Status `json:"services"`
-	Sites        []SiteStatus        `json:"sites"`
-	Warnings     []sites.Warning     `json:"warnings"`
-	Problems     map[string]string   `json:"problems"`
+	Home           string              `json:"home"`
+	PHP            string              `json:"php"`
+	PHPVersions    []string            `json:"php_versions"`
+	Node           string              `json:"node"`
+	Apache         string              `json:"apache"`
+	ApacheVersions []string            `json:"apache_versions"`
+	Nginx          string              `json:"nginx"` // version the Nginx sites use ("" when not installed)
+	FrankenPHP     string              `json:"frankenphp"`
+	FrankenPHPPHP  string              `json:"frankenphp_php"` // the PHP built into FrankenPHP
+	DB             string              `json:"db"`             // the default database, e.g. "MySQL 8.4.11"
+	DBPort         int                 `json:"db_port"`
+	Databases      []DBGroup           `json:"databases"`
+	Jobs           []Job               `json:"jobs"`
+	PanelURL       string              `json:"panel_url"`
+	ProxyUp        bool                `json:"proxy_up"`
+	HTTPPort       int                 `json:"http_port"`
+	HTTPSPort      int                 `json:"https_port"`
+	CATrusted      bool                `json:"ca_trusted"`
+	Runtime        RuntimeStatus       `json:"runtime"` // Microsoft's Visual C++ runtime
+	CACert         string              `json:"ca_cert"`
+	HostsMissing   []string            `json:"hosts_missing"`
+	Services       []supervisor.Status `json:"services"`
+	Sites          []SiteStatus        `json:"sites"`
+	Warnings       []sites.Warning     `json:"warnings"`
+	Problems       map[string]string   `json:"problems"`
 }
 
 // SiteStatus is one site as shown to the user.
@@ -61,8 +63,10 @@ func (d *Daemon) Status() Status {
 		Home: d.env.Home.Root, PanelURL: d.PanelURL(),
 		HTTPPort: d.env.Cfg.Proxy.HTTPPort, HTTPSPort: d.env.Cfg.Proxy.HTTPSPort,
 		CATrusted: d.CATrusted(), CACert: d.ca.CertPath(),
-		Services: d.sup.Statuses(), Jobs: d.Jobs(),
+		Services: d.sup.Statuses(), Jobs: d.Jobs(), Runtime: d.runtimeStatus(),
 	}
+	// The runtime can change outside clon ('clon vcredist install', a restart of Windows).
+	d.setProblem("visual-c++", d.runtimeProblem())
 	if v, err := d.env.GlobalPHP(); err == nil {
 		st.PHP = v.Version
 	}
@@ -74,6 +78,9 @@ func (d *Daemon) Status() Status {
 	}
 	if v, err := d.apacheVersion(); err == nil {
 		st.Apache = v.Version
+	}
+	for _, v := range d.env.Reg.List(versions.Apache) {
+		st.ApacheVersions = append(st.ApacheVersions, v.Version)
 	}
 	if v, err := d.nginxVersion(); err == nil {
 		st.Nginx = v.Version
@@ -142,6 +149,18 @@ func (d *Daemon) Handler() http.Handler {
 		}
 		v, err := d.UsePHP(req.Version)
 		return map[string]string{"php": v.Version}, err
+	})
+	api("POST /api/apache", func(r *http.Request) (any, error) {
+		var req struct{ Version string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		v, err := d.UseApache(req.Version)
+		return map[string]string{"apache": v.Version}, err
+	})
+	api("POST /api/vcredist/install", func(r *http.Request) (any, error) {
+		err := d.InstallRuntime(r.Context())
+		return d.Status(), err
 	})
 	api("POST /api/hosts/sync", func(*http.Request) (any, error) { return d.Status(), d.SyncHosts() })
 	api("POST /api/ca/trust", func(*http.Request) (any, error) { return d.Status(), d.TrustCA() })

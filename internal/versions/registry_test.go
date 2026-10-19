@@ -1,6 +1,36 @@
 package versions
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestProgramFindsTheMainExecutable(t *testing.T) {
+	touch := func(parts ...string) string {
+		p := filepath.Join(parts...)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	lounge := t.TempDir() // Apache Lounge's zip keeps everything under Apache24\
+	want := touch(lounge, "Apache24", "bin", "httpd.exe")
+	if got := Program(Apache, lounge); got != want {
+		t.Errorf("Apache: got %q, want %q", got, want)
+	}
+	maria := t.TempDir() // MariaDB 11+ may ship only the new name
+	want = touch(maria, "bin", "mariadbd.exe")
+	if got := Program(MySQL, maria); got != want {
+		t.Errorf("MariaDB: got %q, want %q", got, want)
+	}
+	if got := Program(Nginx, t.TempDir()); got != "" {
+		t.Errorf("an empty folder has no program, got %q", got)
+	}
+}
 
 func TestCompareAndFind(t *testing.T) {
 	if Compare("8.10.0", "8.4.16") <= 0 || Compare("8.4.16", "8.4.16") != 0 || Compare("5.0.14.1", "5.0.14") <= 0 {

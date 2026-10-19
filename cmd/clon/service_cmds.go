@@ -15,7 +15,7 @@ import (
 const serviceUsage = `
   clon service list                       bases de datos: versiones, puertos y estado
   clon service remote [mysql|mariadb]     versiones que se pueden instalar (descargas oficiales)
-  clon service install mysql 8.4          instala una serie o versión de MySQL, MariaDB, Nginx o FrankenPHP
+  clon service install mysql 8.4          instala una serie o versión (MySQL, MariaDB, PostgreSQL, Apache, Nginx…)
   clon service start | stop <servicio>    inicia o detiene una instancia, por ejemplo mysql-8.4
   clon service port <servicio> <puerto>   cambia su puerto
   clon service default <servicio>         la hace predeterminada (puerto 3306 y atajo mysql)
@@ -231,6 +231,10 @@ func followJob(ops serviceOps, j app.Job) error {
 					return fmt.Errorf("%s", cur.Error)
 				}
 				kind := versions.Component(cur.Kind)
+				if kind == versions.Apache {
+					fmt.Printf("Instalado: Apache %s, que ahora atiende los sitios (para volver a otro: 'clon apache use <versión>')\n", cur.Version)
+					return nil
+				}
 				if kind == versions.Nginx || kind == versions.FrankenPHP {
 					fmt.Printf("Instalado: %s %s. Elígelo en un sitio con 'clon site server <sitio> %s'\n", kind.Name(), cur.Version, kind)
 					return nil

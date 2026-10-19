@@ -16,11 +16,11 @@ type Config struct {
 	TLD   string   `toml:"tld"`
 	Roots []string `toml:"roots"`
 
-	Proxy  Proxy  `toml:"proxy"`
-	PHP    PHP    `toml:"php"`
-	Node   Node   `toml:"node"`
-	Apache Apache `toml:"apache"`
-	Nginx  Nginx  `toml:"nginx"`
+	Proxy      Proxy      `toml:"proxy"`
+	PHP        PHP        `toml:"php"`
+	Node       Node       `toml:"node"`
+	Apache     Apache     `toml:"apache"`
+	Nginx      Nginx      `toml:"nginx"`
 	FrankenPHP FrankenPHP `toml:"frankenphp"`
 	Hosts      Hosts      `toml:"hosts"`
 

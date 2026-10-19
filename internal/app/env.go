@@ -12,10 +12,10 @@ import (
 	"github.com/nicotc/laraclon/internal/install"
 	"github.com/nicotc/laraclon/internal/mongodb"
 	"github.com/nicotc/laraclon/internal/mysql"
-	"github.com/nicotc/laraclon/internal/postgres"
-	"github.com/nicotc/laraclon/internal/redis"
 	"github.com/nicotc/laraclon/internal/paths"
 	"github.com/nicotc/laraclon/internal/php"
+	"github.com/nicotc/laraclon/internal/postgres"
+	"github.com/nicotc/laraclon/internal/redis"
 	"github.com/nicotc/laraclon/internal/shims"
 	"github.com/nicotc/laraclon/internal/versions"
 )

@@ -4,7 +4,7 @@ let state = null;
 // Lo que el usuario está haciendo y debe sobrevivir a cada refresco del estado.
 const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {} };
 
-const INSTALLABLE = ['mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'nginx', 'frankenphp'];
+const INSTALLABLE = ['mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'apache', 'nginx', 'frankenphp'];
 // Services by section of the Servicios tab, in display order.
 const DB_KINDS = ['mysql', 'mariadb', 'postgresql', 'mongodb'];
 const OTHER_KINDS = ['redis', 'mailpit', 'meilisearch'];
@@ -131,7 +131,18 @@ function renderAlerts(s) {
     alerts.append(alertBox(`${s.hosts_missing.length} sitio(s) no están en el archivo hosts (por ejemplo ${s.hosts_missing[0]}).`,
       'Actualizar hosts (pide permiso)', () => act('POST', '/api/hosts/sync')));
   }
+  const rt = s.runtime || {};
+  if (rt.missing) {
+    alerts.append(alertBox('Falta el runtime de Visual C++ de Microsoft: sin él no arrancan PHP, Apache ni MySQL.',
+      'Instalar Visual C++ (pide permiso)', () => act('POST', '/api/vcredist/install'), true));
+  } else if (rt.needs && rt.restart) {
+    alerts.append(alertBox(`El runtime de Visual C++ que pide ${rt.for} ya está instalado: Windows lo termina de aplicar al reiniciar.`));
+  } else if (rt.needs) {
+    alerts.append(alertBox(`${rt.for} se compiló para el runtime de Visual C++ ${rt.needs} o más nuevo y Windows tiene ${rt.version.split('.').slice(0, 2).join('.')}; Microsoft recomienda actualizarlo.`,
+      'Actualizar Visual C++ (pide permiso)', () => act('POST', '/api/vcredist/install')));
+  }
   for (const [what, msg] of Object.entries(s.problems || {})) {
+    if (what === 'visual-c++') continue; // shown above, with its button
     alerts.append(alertBox(`${what}: ${firstLine(msg)}`, null, null, true));
   }
 }
@@ -211,15 +222,40 @@ function phpBar(s) {
     el('a', { href: '#php', onclick: e => { e.preventDefault(); showTab('php'); } }, 'Cambiar versión en «PHP y Node» →'));
 }
 
+// apacheGroup describes the installed Apache versions like a database group. They are all series
+// 2.4, so the catalog is compared by exact version.
+function apacheGroup(s) {
+  return { kind: 'apache', name: 'Apache', byVersion: true, instances: (s.apache_versions || []).map(v => ({ series: v })) };
+}
+
 function apacheCard(s) {
   const st = (s.services || []).find(x => x.name === 'apache');
+  const g = apacheGroup(s);
+  const jobs = (s.jobs || []).filter(j => j.kind === 'apache' && !ui.dismissed[j.id] && (!j.finished || j.error));
+  if (!s.apache) {
+    return el('div', { class: 'svc dashed' },
+      el('div', { class: 'svc-head' }, logo('apache'), el('div', {}, el('div', { class: 'svc-title' }, 'Apache'), el('div', { class: 'svc-sub' }, 'sin instalar'))),
+      el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' }, 'El servidor de los sitios: sin él solo funcionan los que eligen Nginx o FrankenPHP.')),
+      ...jobs.map(j => jobLine(j, 'Apache')),
+      el('div', { class: 'svc-foot' }, ...installPicker(g)));
+  }
+  const users = (s.sites || []).filter(x => x.server === 'apache').length;
+  let version = 'versión ' + s.apache;
+  if (s.apache_versions.length > 1) {
+    version = el('select', { 'aria-label': 'Versión de Apache',
+      onchange: e => act('POST', '/api/apache', { version: e.target.value }) },
+      ...s.apache_versions.map(v => el('option', { value: v, selected: v === s.apache }, 'versión ' + v)));
+  }
+  const cat = ui.catalog.apache;
+  const newer = (cat || []).some(r => !s.apache_versions.includes(r.version));
   return el('div', { class: 'svc' },
     el('div', { class: 'svc-head' }, logo('apache'),
-      el('div', {}, el('div', { class: 'svc-title' }, 'Apache'), el('div', { class: 'svc-sub' }, s.apache ? 'versión ' + s.apache : 'no instalado')),
+      el('div', {}, el('div', { class: 'svc-title' }, 'Apache'), el('div', { class: 'svc-sub' }, version)),
       el('span', { class: 'spacer' }), statePill(st ? st.state : 'detenido')),
     el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' },
-      `Atiende ${(s.sites || []).length} sitios, cada uno en su puerto interno, con PHP por FastCGI.`)),
-    el('div', { class: 'svc-foot' }, 'Servidor de todos los sitios'));
+      `Atiende ${users === 1 ? '1 sitio' : users + ' sitios'}, cada uno en su puerto interno, con PHP por FastCGI.`)),
+    ...jobs.map(j => jobLine(j, 'Apache')),
+    el('div', { class: 'svc-foot' }, ...(newer ? ['Disponible:', ...installPicker(g)] : ['Servidor de los sitios que no eligen otro'])));
 }
 
 // serverGroup describes a web server like a database group, so the install picker and job lines work alike.
@@ -336,13 +372,14 @@ function installPicker(g) {
   if (!cat) {
     return [el('span', { class: 'svc-sub' }, ui.catalogError[g.kind] ? 'No se pudo leer el catálogo: ' + ui.catalogError[g.kind] : 'Consultando las versiones disponibles…')];
   }
+  const key = r => g.byVersion ? r.version : r.series;
   const have = new Set(g.instances.map(i => i.series));
-  const busy = new Set((state.jobs || []).filter(j => j.kind === g.kind && !j.finished).map(j => j.series));
-  const options = cat.filter(r => !have.has(r.series) && !busy.has(r.series));
+  const busy = new Set((state.jobs || []).filter(j => j.kind === g.kind && !j.finished).map(key));
+  const options = cat.filter(r => !have.has(key(r)) && !busy.has(key(r)));
   if (!options.length) return [el('span', { class: 'svc-sub' }, 'Ya tienes todas las versiones del catálogo')];
   const sel = el('select', { 'aria-label': 'Versión' }, ...options.map(r =>
-    el('option', { value: r.series }, r.version + (r.note ? ' · ' + r.note : '') + (r.size > 0 ? ` · ${mb(r.size)} MB` : ''))));
-  if (options.some(r => r.series === ui.choice[g.kind])) sel.value = ui.choice[g.kind];
+    el('option', { value: key(r) }, r.version + (r.note ? ' · ' + r.note : '') + (r.size > 0 ? ` · ${mb(r.size)} MB` : ''))));
+  if (options.some(r => key(r) === ui.choice[g.kind])) sel.value = ui.choice[g.kind];
   sel.addEventListener('change', () => { ui.choice[g.kind] = sel.value; });
   return [sel, el('button', { class: 'small' + (g.instances.length ? ' secondary' : ''), onclick: () => installSeries(g.kind, sel.value) },
     g.instances.length ? 'Instalar otra' : 'Instalar')];
@@ -453,7 +490,7 @@ function closeDialog() {
 function renderDialog() {
   if (!state) return;
   const all = [...DB_KINDS, ...OTHER_KINDS].map(groupOf);
-  const groups = [serverGroup(state, 'nginx'), serverGroup(state, 'frankenphp'), ...all.filter(isAvailable)];
+  const groups = [apacheGroup(state), serverGroup(state, 'nginx'), serverGroup(state, 'frankenphp'), ...all.filter(isAvailable)];
   const tiles = groups.map(g => {
     const job = (state.jobs || []).find(j => j.kind === g.kind && !j.finished);
     const cat = ui.catalog[g.kind];
@@ -461,7 +498,7 @@ function renderDialog() {
     return el('div', { class: 'tile' + (job ? ' busy' : '') },
       el('div', { class: 'top' }, logo(g.kind),
         el('div', {}, el('div', { class: 'name' }, g.name, ' ', n ? el('span', { class: 'pill' }, n === 1 ? '1 instalada' : `${n} instaladas`) : null),
-          el('div', { class: 'desc' }, { nginx: 'Servidor web · por sitio', frankenphp: 'Servidor web con su propio PHP · por sitio' }[g.kind] || KIND_INFO[g.kind].desc))),
+          el('div', { class: 'desc' }, { apache: 'Servidor web de los sitios', nginx: 'Servidor web · por sitio', frankenphp: 'Servidor web con su propio PHP · por sitio' }[g.kind] || KIND_INFO[g.kind].desc))),
       job ? jobLine(job, g.name) : el('div', { class: 'act' }, ...installPicker(g)),
       el('div', { class: 'src' }, cat && cat.length ? `Descarga de ${cat[0].source}` : ''));
   });

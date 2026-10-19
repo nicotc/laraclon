@@ -36,16 +36,21 @@ $inner = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'dentro-del-sandbox.ps1
 [IO.File]::WriteAllText((Join-Path $stage 'dentro-del-sandbox.ps1'), $inner, (New-Object System.Text.UTF8Encoding $true))
 
 # A clean Windows lacks the Visual C++ runtime; downloading it inside the sandbox proved unreliable,
-# so the official installer is fetched here (cached) and shared read-only. clon checks its signature.
+# so the official installers are fetched here (cached) and shared read-only. clon checks their
+# signature. The sandbox first gets the one of Visual Studio 2022 (14.44) on purpose, and later the
+# newest, which Apache Lounge's Apache (built with Visual Studio 2026) asks for.
 $cache = Join-Path $repo 'dist\cache'
-$vc = Join-Path $cache 'vc_redist.x64.exe'
-if (-not (Test-Path $vc)) {
-    New-Item -ItemType Directory -Force $cache | Out-Null
-    Write-Host 'Descargando el runtime de Visual C++ de Microsoft…'
-    & curl.exe -sSL --fail -o $vc 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
-    if ($LASTEXITCODE -ne 0) { Remove-Item $vc -ErrorAction SilentlyContinue; throw 'no se pudo descargar vc_redist.x64.exe' }
+New-Item -ItemType Directory -Force $cache | Out-Null
+foreach ($vcFile in @(@{ name = 'vc_redist.x64.exe'; url = 'https://aka.ms/vs/17/release/vc_redist.x64.exe' },
+                      @{ name = 'vc_redist-reciente.x64.exe'; url = 'https://aka.ms/vc14/vc_redist.x64.exe' })) {
+    $vc = Join-Path $cache $vcFile.name
+    if (-not (Test-Path $vc)) {
+        Write-Host "Descargando $($vcFile.name) de Microsoft…"
+        & curl.exe -sSL --fail -o $vc $vcFile.url
+        if ($LASTEXITCODE -ne 0) { Remove-Item $vc -ErrorAction SilentlyContinue; throw "no se pudo descargar $($vcFile.name)" }
+    }
+    Copy-Item $vc $stage
 }
-Copy-Item $vc $stage
 
 $wsb = @"
 <Configuration>

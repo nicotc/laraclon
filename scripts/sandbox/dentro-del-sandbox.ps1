@@ -311,6 +311,46 @@ Step 'Cambio de PHP en caliente (8.4 -> 8.3 -> 8.4)' {
     $lines -join "`n"
 }
 
+# The sandbox starts with the runtime of Visual Studio 2022 (14.44). Apache Lounge builds Apache with
+# Visual Studio 2026, for which Microsoft asks a newer runtime; it runs anyway, and clon recommends it.
+Step 'Apache de Apache Lounge desde el catálogo y cambio de versión (clon apache install / use)' {
+    $out = Invoke-Tool $clon 'apache install' 900
+    $list = Invoke-Tool $clon 'apache list' 30
+    if ($list -notmatch '\*\s+Apache\s+(\d+\.\d+\.\d+)\s.*download') { throw "el Apache descargado no quedó activo:`n$out`n$list" }
+    $new = $Matches[1]
+    $j = (Invoke-Curl 'https://demo.test/') | ConvertFrom-Json
+    if ($j.https -ne 'on' -or "$($j.mysql)" -notmatch '^\d') { throw "demo.test con Apache ${new}: $($j | ConvertTo-Json -Compress)" }
+    $up = Invoke-Curl '-o NUL -w %{http_code} https://laravel-demo.test/up'
+    if ($up -ne '200') { throw "laravel-demo.test/up con Apache ${new}: HTTP $up" }
+    # Back to Laragon's Apache and forward again; the sites must answer right after each switch.
+    if ($list -notmatch 'Apache\s+(\d+\.\d+\.\d+)\s+\S+\s+laragon') { throw "no aparece el Apache de Laragon:`n$list" }
+    $old = $Matches[1]
+    Invoke-Tool $clon "apache use $old" 120 | Out-Null
+    $c1 = Invoke-Curl '-o NUL -w %{http_code} https://demo.test/'
+    Invoke-Tool $clon "apache use $new" 120 | Out-Null
+    $c2 = Invoke-Curl '-o NUL -w %{http_code} https://demo.test/'
+    if ($c1 -ne '200' -or $c2 -ne '200') { throw "cambio de versión: Apache $old -> HTTP $c1, Apache $new -> HTTP $c2" }
+    $notice = ((Invoke-Tool $clon 'status' 30) -split "`n" | Where-Object { $_ -match 'Visual C\+\+' }) -join ' '
+    "$((($out -split "`n") | Select-Object -Last 1).Trim())`n" +
+    "demo.test (PHP $($j.php), MySQL $($j.mysql)) y laravel-demo.test responden con Apache $new; apache use $old y vuelta: HTTP $c1 / $c2`n" +
+    "runtime: $((Get-Item "$env:SystemRoot\System32\vcruntime140.dll").VersionInfo.FileVersion) · aviso: $notice`n$list"
+}
+
+Step 'Actualizar Visual C++ con clon en marcha (clon vcredist install)' {
+    $dll = "$env:SystemRoot\System32\vcruntime140.dll"
+    $before = (Get-Item $dll).VersionInfo.FileVersion
+    # Windows may only finish replacing DLLs that running programs hold open after a restart.
+    try { $out = Invoke-Tool $clon 'vcredist install C:\clon-dist\vc_redist-reciente.x64.exe' 900 } catch { $out = $_.Exception.Message }
+    $after = (Get-Item $dll).VersionInfo.FileVersion
+    Start-Sleep -Seconds 11 # clon re-reads the runtime every 10 s
+    $notice = ((Invoke-Tool $clon 'status' 30) -split "`n" | Where-Object { $_ -match 'Visual C\+\+' }) -join ' '
+    $status = Invoke-Tool $clon 'vcredist status' 60
+    $code = Invoke-Curl '-o NUL -w %{http_code} https://demo.test/'
+    if ($code -ne '200') { throw "demo.test dejó de responder tras actualizar Visual C++: HTTP $code" }
+    if ($after -eq $before -and $status -notmatch 'reiniciar') { throw "el runtime sigue en $before y no queda nada pendiente:`n$out`n$status" }
+    "vcruntime140.dll: $before -> $after`n$((($out -split "`n") | Select-Object -Last 2) -join ' ')`n$status`naviso de clon: $(if ($notice) { $notice } else { 'ninguno' })"
+}
+
 Step 'Nginx y FrankenPHP desde el catálogo, un sitio en cada uno (clon site server)' {
     Invoke-Tool $clon 'service install nginx latest' 600 | Out-Null
     Invoke-Tool $clon 'service install frankenphp latest' 900 | Out-Null
