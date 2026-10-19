@@ -70,6 +70,23 @@ func TestPackageManagerFollowsPackageJSONThenTheLockFile(t *testing.T) {
 	}
 }
 
+func TestHasReverbReadsComposerRequire(t *testing.T) {
+	dir := t.TempDir()
+	write := func(cj string) {
+		if err := os.WriteFile(filepath.Join(dir, "composer.json"), []byte(cj), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`{"require": {"laravel/framework": "^13.0"}, "require-dev": {"laravel/reverb": "^1.6"}}`)
+	if hasReverb(dir) {
+		t.Fatal("only a production requirement runs Reverb")
+	}
+	write(`{"require": {"laravel/framework": "^13.0", "laravel/reverb": "^1.6"}}`)
+	if !hasReverb(dir) {
+		t.Fatal("laravel/reverb in require means the project uses Reverb")
+	}
+}
+
 func TestNormalize(t *testing.T) {
 	cases := map[string]string{
 		"app":            "app",

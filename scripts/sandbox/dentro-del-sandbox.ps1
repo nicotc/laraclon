@@ -494,6 +494,45 @@ Step 'Node, npm, npx, Composer y PHP desde shims\' {
     ) -join "`n"
 }
 
+Step 'Reverb en wss://reverb.laravel-demo.test: evento de PHP a un cliente WebSocket (clon site proc reverb)' {
+    $dir = 'C:\www\laravel-demo'
+    Invoke-Tool "$shims\php.exe" 'artisan install:broadcasting --reverb --no-interaction' 900 $dir | Out-Null
+    Invoke-Tool $clon 'rescan' 120 | Out-Null
+    Invoke-Tool $clon 'site proc laravel-demo reverb on' 900 | Out-Null
+    # reverb.laravel-demo.test goes to the hosts file like the site names.
+    $p = Start-Process $clon -ArgumentList 'hosts sync' -NoNewWindow -PassThru
+    $null = $p.Handle
+    if (-not ($p.WaitForExit(120000) -and $p.ExitCode -eq 0)) {
+        try { $p.Kill() } catch {}
+        Invoke-Tool $clon "hosts-apply $H\run\hosts-names.txt" 60 | Out-Null
+    }
+    $key = ((Get-Content "$dir\.env" | Where-Object { $_ -match '^REVERB_APP_KEY=' }) -split '=', 2)[1].Trim('"')
+    # Node's own WebSocket client, trusting clon's CA like the browser does, waits for one event.
+    $js = @"
+const ws = new WebSocket('wss://reverb.laravel-demo.test/app/${key}?protocol=7&client=js&version=8.4.0');
+ws.onmessage = e => {
+  console.log(e.data);
+  const m = JSON.parse(e.data);
+  if (m.event === 'pusher:connection_established') ws.send(JSON.stringify({ event: 'pusher:subscribe', data: { auth: '', channel: 'pruebas' } }));
+  if (m.event === 'saludo') process.exit(0);
+};
+ws.onerror = e => { console.log('error: ' + e.message); process.exit(1); };
+setTimeout(() => { console.log('sin evento'); process.exit(2); }, 40000);
+"@
+    [IO.File]::WriteAllText("$R\reverb-cliente.js", $js, $utf8)
+    $env:NODE_EXTRA_CA_CERTS = "$H\ssl\clon-ca.crt"
+    $client = Start-Process "$shims\node.exe" -ArgumentList "$R\reverb-cliente.js" -NoNewWindow -PassThru -RedirectStandardOutput "$R\reverb-cliente.txt"
+    $null = $client.Handle
+    Start-Sleep -Seconds 5
+    # PHP reaches Reverb the same way: https://reverb.laravel-demo.test through the proxy.
+    Invoke-Tool "$shims\php.exe" "artisan tinker --execute=""Illuminate\Support\Facades\Broadcast::connection('reverb')->broadcast(['pruebas'], 'saludo', ['texto' => 'hola desde clon']);""" 120 $dir | Out-Null
+    $client.WaitForExit(45000) | Out-Null
+    $got = Get-Content "$R\reverb-cliente.txt" -Raw
+    Invoke-Tool $clon 'site proc laravel-demo reverb off' 120 | Out-Null
+    if ($client.ExitCode -ne 0 -or $got -notmatch 'hola desde clon') { throw "el cliente no recibió el evento:`n$got" }
+    "wss://reverb.laravel-demo.test: conexión, suscripción y evento enviado desde PHP`n$got"
+}
+
 Step 'Node: líneas de nodejs.org, otra versión, yarn y pnpm (clon node)' {
     $lines = Invoke-Tool $clon 'node remote' 120
     if ($lines -notmatch 'LTS') { throw "sin líneas LTS:`n$lines" }

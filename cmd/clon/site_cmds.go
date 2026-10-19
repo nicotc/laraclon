@@ -14,7 +14,8 @@ import (
 const siteUsage = `
   clon site server <sitio> apache|nginx|frankenphp   servidor web de un sitio (la dirección .test no cambia)
   clon site php <sitio> <versión>|global             PHP propio para un proyecto antiguo, o vuelta al global
-  clon site proc <sitio> vite|queue|schedule on|off  npm run dev (con HTTPS), queue:work o schedule:work del proyecto
+  clon site proc <sitio> vite|queue|schedule|reverb on|off
+                                          npm run dev (con HTTPS), queue:work, schedule:work o Reverb (wss://reverb.<sitio>.test)
   clon site debug <sitio> on|off                     Xdebug solo para ese sitio (el editor escucha en el 9003)
   clon site setup <sitio> [--db mysql|…]             prepara un proyecto existente: Composer, .env, base de datos, Vite
 `
@@ -146,6 +147,17 @@ func cmdSiteProc(env *app.Env, site, id, state string) error {
 		if on {
 			name := strings.TrimSuffix(strings.ToLower(site), "."+env.Cfg.TLD)
 			fmt.Printf("%s: %s en marcha; arranca también con «Iniciar todo» (registro en %s)\n", site, id, env.Home.Logs(name+"-"+id+".log"))
+			if id == "reverb" {
+				fmt.Printf("Reverb responde en wss://reverb.%s.%s; el .env del proyecto ya apunta ahí\n", name, env.Cfg.TLD)
+				// The compiled frontend is rebuilt with the new address when it had another one.
+				var jobs []app.Job
+				c.Call("GET", "/api/jobs", nil, &jobs)
+				for _, j := range jobs {
+					if j.Kind == "project" && j.Series == name && !j.Finished {
+						return followJob(remoteOps{c}, j)
+					}
+				}
+			}
 		} else {
 			fmt.Printf("%s: %s detenido\n", site, id)
 		}

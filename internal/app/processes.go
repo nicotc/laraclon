@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -16,10 +17,10 @@ import (
 )
 
 // Project processes are the long-running helpers of a site that clon supervises like a service:
-// Vite's dev server, Laravel's queue worker and its scheduler.
-var projectProcesses = []string{"vite", "queue", "schedule"}
+// Vite's dev server, Laravel's queue worker, its scheduler and Reverb, its WebSocket server.
+var projectProcesses = []string{"vite", "queue", "schedule", "reverb"}
 
-var processLabels = map[string]string{"vite": "Vite", "queue": "Cola", "schedule": "Tareas"}
+var processLabels = map[string]string{"vite": "Vite", "queue": "Cola", "schedule": "Tareas", "reverb": "Reverb"}
 
 // processService is the supervisor name of a site's process ("vite-tienda").
 func processService(id, site string) string { return id + "-" + site }
@@ -42,7 +43,7 @@ type ProcessStatus struct {
 }
 
 // siteProcesses are the processes a site can run: Vite when it has a Vite config, the queue and the
-// scheduler for Laravel.
+// scheduler for Laravel, and Reverb when the project requires it.
 func siteProcesses(s sites.Site) []string {
 	var out []string
 	if s.Vite {
@@ -50,6 +51,9 @@ func siteProcesses(s sites.Site) []string {
 	}
 	if s.Kind == "laravel" {
 		out = append(out, "queue", "schedule")
+	}
+	if s.Reverb {
+		out = append(out, "reverb")
 	}
 	return out
 }
@@ -122,7 +126,7 @@ func (d *Daemon) processSpec(s sites.Site, id string) (supervisor.Spec, error) {
 		// Vite then listens on the site's name (its line in hosts, which the browser needs anyway):
 		// a --host option would make the pages load from an address the certificate does not cover.
 		spec.Env = append(append(env, run.env...), d.env.ChildPATH(), "NPM_CONFIG_PREFIX="+d.env.NPMPrefix(), "APP_URL=https://"+s.Host)
-	case "queue", "schedule":
+	case "queue", "schedule", "reverb":
 		v, err := d.sitePHP(s)
 		if err != nil {
 			return spec, err
@@ -132,14 +136,22 @@ func (d *Daemon) processSpec(s sites.Site, id string) (supervisor.Spec, error) {
 			return spec, err
 		}
 		cmd := []string{"queue:work", "--tries=3"}
-		if id == "schedule" {
+		switch id {
+		case "schedule":
 			cmd = []string{"schedule:work"}
+		case "reverb":
+			// Only on this computer: the proxy publishes it with TLS at reverb.<site>.test.
+			if s.ReverbPort == 0 {
+				return spec, fmt.Errorf("%s todavía no tiene puerto para Reverb", s.Host)
+			}
+			cmd = []string{"reverb:start", "--host=127.0.0.1", fmt.Sprintf("--port=%d", s.ReverbPort), "--no-interaction"}
+			spec.Port = s.ReverbPort
 		}
 		spec.Exe = filepath.Join(v.Path, "php.exe")
 		spec.Args = append([]string{"-c", ini, "artisan"}, cmd...)
 		spec.Env = []string{"PHPRC=" + filepath.Dir(ini), d.env.ChildPATH()}
 	default:
-		return spec, fmt.Errorf("proceso desconocido %q: usa vite, queue o schedule", id)
+		return spec, fmt.Errorf("proceso desconocido %q: usa vite, queue, schedule o reverb", id)
 	}
 	return spec, nil
 }
@@ -169,7 +181,7 @@ func (d *Daemon) SetSiteProcess(site, id string, on bool) error {
 		allowed = allowed || p == id
 	}
 	if !allowed {
-		return fmt.Errorf("%s no puede usar %q (Vite necesita vite.config y package.json; la cola y las tareas, Laravel)", s.Host, id)
+		return fmt.Errorf("%s no puede usar %q (Vite necesita vite.config y package.json; la cola y las tareas, Laravel; Reverb, laravel/reverb en composer.json)", s.Host, id)
 	}
 	d.cfgMu.Lock()
 	d.env.Cfg.SetSiteProcess(s.Name, id, on)
@@ -185,6 +197,11 @@ func (d *Daemon) SetSiteProcess(site, id string, on bool) error {
 		d.changed()
 		return err
 	}
+	if id == "reverb" {
+		if err := d.useReverb(s); err != nil {
+			return err
+		}
+	}
 	if id == "vite" {
 		if env, err := d.viteEnv(s); err == nil {
 			var values [][2]string
@@ -196,6 +213,12 @@ func (d *Daemon) SetSiteProcess(site, id string, on bool) error {
 		}
 	}
 	err = d.startProcess(s, id)
+	// Reverb is ready once it accepts connections: whoever turned it on can connect right away.
+	if err == nil && id == "reverb" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err = d.sup.WaitRunning(ctx, name)
+		cancel()
+	}
 	d.setProblem(name, err)
 	d.changed()
 	return err
@@ -283,13 +306,13 @@ func (d *Daemon) stopOrphanProcesses(list []sites.Site) {
 	d.sup.StopMatching(func(n string) bool { return isProcessService(n) && !keep[n] })
 }
 
-// restartPHPProcesses restarts the running queue and scheduler processes, after a PHP change.
+// restartPHPProcesses restarts the running queue, scheduler and Reverb processes, after a PHP change.
 func (d *Daemon) restartPHPProcesses() {
 	d.mu.Lock()
 	list := append([]sites.Site(nil), d.sites...)
 	d.mu.Unlock()
 	for _, s := range list {
-		for _, id := range []string{"queue", "schedule"} {
+		for _, id := range []string{"queue", "schedule", "reverb"} {
 			name := processService(id, s.Name)
 			if d.sup.PID(name) == 0 {
 				continue

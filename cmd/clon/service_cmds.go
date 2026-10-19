@@ -208,6 +208,8 @@ func followJob(ops serviceOps, j app.Job) error {
 	tool := j.Kind == "pnpm" || j.Kind == "yarn"
 	if j.Kind == "project" && j.Version == "preparar" {
 		fmt.Printf("Preparando %s…\n", j.Series)
+	} else if j.Kind == "project" && j.Version == "Reverb" {
+		fmt.Printf("Compilando el frontend de %s con la dirección de Reverb…\n", j.Series)
 	} else if j.Kind == "project" {
 		fmt.Printf("Creando %s (%s)…\n", j.Series, j.Version)
 	} else if tool && j.Series == "quitar" {

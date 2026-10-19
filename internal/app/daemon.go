@@ -44,6 +44,10 @@ const (
 	frankenAdminPort = 40000
 	frankenPortFrom  = 40001
 	frankenPortTo    = 49999
+	// Reverb, Laravel's WebSocket server, gets a port per site that runs it, kept below the ports
+	// Windows hands out to outgoing connections and Hyper-V reserves (49152 and up).
+	reverbPortFrom = 18001
+	reverbPortTo   = 18999
 )
 
 // Daemon is the long-running part of clon: it owns the services, the front proxy and the API.
@@ -56,6 +60,7 @@ type Daemon struct {
 	store *sites.PortStore // Apache port of every site
 	ngx   *sites.PortStore // Nginx port of the sites that use Nginx
 	fphp  *sites.PortStore // FrankenPHP port of the sites that use FrankenPHP
+	rvb   *sites.PortStore // Reverb port of the Laravel sites that require Reverb
 	token string
 
 	mu              sync.Mutex
@@ -111,6 +116,10 @@ func NewDaemon(env *Env) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	rvb, err := sites.LoadPorts(env.Home.State("site-ports-reverb.json"))
+	if err != nil {
+		return nil, err
+	}
 	pools, err := loadPoolStore(env.Home.State("php-pools.json"))
 	if err != nil {
 		return nil, err
@@ -125,6 +134,7 @@ func NewDaemon(env *Env) (*Daemon, error) {
 		store:           store,
 		ngx:             ngx,
 		fphp:            fphp,
+		rvb:             rvb,
 		token:           hex.EncodeToString(tok),
 		problems:        map[string]string{},
 		quit:            make(chan struct{}),
@@ -459,6 +469,9 @@ func (d *Daemon) Rescan() error {
 	if err := assignPorts(list, d.store, d.serverPorts(), own); err != nil {
 		return err
 	}
+	if err := d.assignReverbPorts(list); err != nil {
+		return err
+	}
 	pools, notes := d.planPHP(list)
 	d.mu.Lock()
 	d.sites, d.warnings, d.pools = list, append(warns, notes...), pools
@@ -606,6 +619,9 @@ func (d *Daemon) hostNames() []string {
 	for _, s := range d.sites {
 		names = append(names, s.Host)
 		names = append(names, s.Aliases...)
+		if s.Reverb {
+			names = append(names, reverbHost(s))
+		}
 	}
 	return names
 }

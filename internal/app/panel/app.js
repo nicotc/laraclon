@@ -237,6 +237,7 @@ const PROCESS_HELP = {
   vite: 'npm run dev con HTTPS (el certificado del sitio)',
   queue: 'php artisan queue:work',
   schedule: 'php artisan schedule:work',
+  reverb: 'WebSockets de Laravel (reverb:start)',
 };
 
 // processToggles switches a site's processes (Vite, the queue, the scheduler); one that is on also
@@ -246,7 +247,8 @@ const MISSING_LABEL = { vendor: 'paquetes de Composer', '.env': '.env', frontend
 function processToggles(site) {
   const buttons = (site.processes || []).map(p => {
     const key = `proc-${site.name}-${p.id}`;
-    const title = `${PROCESS_HELP[p.id]} · ${p.on ? p.state + ' (clic para detenerlo)' : 'clic para arrancarlo'}`;
+    const help = p.id === 'reverb' ? `${PROCESS_HELP.reverb} en wss://reverb.${site.host}` : PROCESS_HELP[p.id];
+    const title = `${help} · ${p.on ? p.state + ' (clic para detenerlo)' : 'clic para arrancarlo'}`;
     return el('button', { class: 'proc' + (p.on ? ' on' : '') + (p.state === 'en marcha' ? ' running' : ''), disabled: !!ui.pending[key], title,
       onclick: () => act('POST', '/api/sites/process', { site: site.name, id: p.id, on: !p.on }, key) }, p.label);
   });

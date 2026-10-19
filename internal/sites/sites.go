@@ -31,10 +31,11 @@ type Site struct {
 	Kind    string   `json:"kind"`     // laravel, wordpress, symfony, php, static
 	Aliases []string `json:"aliases,omitempty"`
 	HTTPS   bool     `json:"https"`
-	Server  string   `json:"server"`          // apache, nginx, frankenphp
-	PHP     string   `json:"php,omitempty"`   // PHP version the site pinned ("" = the global one)
-	Vite    bool     `json:"vite,omitempty"`  // has a Vite config and package.json (npm run dev)
-	Debug   bool     `json:"debug,omitempty"` // runs with Xdebug
+	Server  string   `json:"server"`           // apache, nginx, frankenphp
+	PHP     string   `json:"php,omitempty"`    // PHP version the site pinned ("" = the global one)
+	Vite    bool     `json:"vite,omitempty"`   // has a Vite config and package.json (npm run dev)
+	Reverb  bool     `json:"reverb,omitempty"` // requires laravel/reverb (WebSockets at reverb.<host>)
+	Debug   bool     `json:"debug,omitempty"`  // runs with Xdebug
 	// Missing lists what the project lacks to run here: "vendor" (Composer packages), ".env" and
 	// "frontend" (the build Laravel's @vite reads). «Preparar» takes care of them.
 	Missing []string `json:"missing,omitempty"`
@@ -43,6 +44,7 @@ type Site struct {
 	// Filled in by clon when it plans the PHP pools.
 	PHPVersion string `json:"php_version,omitempty"` // the PHP that serves the site
 	Pool       string `json:"-"`                     // name of its php-cgi pool
+	ReverbPort int    `json:"reverb_port,omitempty"` // internal port of its Reverb server
 }
 
 // Warning explains why a folder did not become a site.
@@ -134,6 +136,23 @@ func Missing(folder, kind string) []string {
 
 // HasVite reports whether a project runs a Vite dev server (npm run dev).
 func HasVite(folder string) bool { return hasVite(folder) }
+
+// hasReverb reports whether a Laravel project requires Reverb, Laravel's WebSocket server
+// (php artisan install:broadcasting --reverb adds it).
+func hasReverb(folder string) bool {
+	data, err := os.ReadFile(filepath.Join(folder, "composer.json"))
+	if err != nil {
+		return false
+	}
+	var c struct {
+		Require map[string]string `json:"require"`
+	}
+	if json.Unmarshal(data, &c) != nil {
+		return false
+	}
+	_, ok := c.Require["laravel/reverb"]
+	return ok
+}
 
 // lockFiles tell which package manager a project uses, as Laravel's installer reads them.
 var lockFiles = []struct{ file, manager string }{
@@ -232,6 +251,7 @@ func Scan(cfg config.Config) ([]Site, []Warning) {
 				Server:  cfg.ServerFor(name),
 				PHP:     settings.PHP,
 				Vite:    hasVite(folder),
+				Reverb:  kind == "laravel" && hasReverb(folder),
 				Debug:   settings.Debug,
 				Missing: Missing(folder, kind),
 			})

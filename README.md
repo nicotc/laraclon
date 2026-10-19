@@ -22,6 +22,8 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
   - clon escribe también `VITE_DEV_SERVER_KEY` y `VITE_DEV_SERVER_CERT` en el `.env`, así `npm run dev` en una terminal también sirve HTTPS. Al apagar Vite, clon borra `public/hot`.
   - Vite necesita que el sitio esté en el archivo `hosts`; si falta, clon lo avisa y lo arranca al actualizar `hosts`.
   - La cola y las tareas usan el PHP del sitio (el fijado o el global) y se reinician al cambiarlo.
+  - Reverb, los WebSockets de Laravel, en los proyectos que lo usan (`php artisan install:broadcasting --reverb`): corre en un puerto interno y el proxy lo publica en `wss://reverb.tienda.test` con el certificado del sitio.
+  - Al encenderlo, clon apunta `REVERB_HOST`, `REVERB_PORT` y `REVERB_SCHEME` del `.env` a esa dirección, así Echo en el navegador y `broadcast()` en PHP llegan por el mismo camino. Si el frontend ya estaba compilado con otra dirección, lo vuelve a compilar.
 - **Xdebug por sitio:** botón «Xdebug» junto al PHP del sitio, o `clon site debug tienda on`.
   - Ese sitio pasa a un grupo de `php-cgi` de su versión con Xdebug, que se conecta al editor (VS Code, PhpStorm) en 127.0.0.1:9003. Los demás siguen igual de rápidos, sin Xdebug.
   - Si a esa versión le falta Xdebug, clon lo descarga.
@@ -154,7 +156,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon mysql laragon-data` · `own-data` | Usa las bases de Laragon o la carpeta de datos propia |
 | `clon site server tienda nginx` · `frankenphp` · `apache` | Servidor web de un sitio |
 | `clon site php tienda 7.2` · `global` | PHP propio para un proyecto antiguo, o vuelta al global |
-| `clon site proc tienda vite\|queue\|schedule on\|off` | Procesos del proyecto: Vite con HTTPS, cola y tareas programadas |
+| `clon site proc tienda vite\|queue\|schedule\|reverb on\|off` | Procesos del proyecto: Vite con HTTPS, cola, tareas programadas y Reverb |
 | `clon site debug tienda on\|off` · `phpx` | Xdebug solo para ese sitio · PHP con Xdebug en la terminal |
 | `clon service install nginx latest` · `frankenphp 1.13` | Instala un servidor web desde el catálogo |
 | `clon service install adminer latest` | Adminer en `https://db.localhost` |
@@ -183,6 +185,7 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - Proyecto nuevo con `clon new` (kit de Vue, MySQL y pnpm), otro clonado de GitHub y preparado, y los procesos de un tercero: Vite por HTTPS, cola y tareas.
 - Node: otra versión instalada y borrada sin tocar la global, y yarn y pnpm desde los atajos.
 - Xdebug solo en un sitio, y `phpx` en la terminal.
+- Reverb en `wss://reverb.laravel-demo.test`: un cliente WebSocket de Node recibe el evento que envía PHP, los dos a través del proxy.
 - Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
 - Edge sin avisos, cambio de PHP y cierre.
 
@@ -250,6 +253,7 @@ En Windows 11, junto a Laragon y en puertos alternativos:
   - La cola de un proyecto con PostgreSQL procesa un job en 30 ms, y el programador corre cada minuto. Ambos se detienen y vuelven con «Detener todo» e «Iniciar todo».
   - Vite+ 0.3 sirve HTTPS con el certificado de clon, y `public/hot` desaparece al apagarlo.
   - Probado: una opción `--host` haría que la página cargara Vite desde `127.0.0.1`, que el certificado no cubre; por eso clon no la usa.
+  - Reverb, instalado en un proyecto con `php artisan install:broadcasting --reverb`, acepta conexiones en menos de 1 s desde que se enciende. Un cliente WebSocket que entra por el proxy (con el certificado de clon verificado y `101 Switching Protocols`) se suscribe a un canal y recibe el evento que envía PHP con `Broadcast`. Al encenderlo, clon recompila el frontend con la dirección nueva en 2 s.
 - **Xdebug por sitio:**
   - El sitio depurado carga Xdebug y los demás no.
   - Sin editor escuchando, la página responde en 0,25 s; con uno en el 9003, Xdebug se conecta y le envía el `init` de DBGp con la ruta del script.
@@ -271,8 +275,8 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
   - Sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch.
   - Apache de Apache Lounge en varias versiones; PHP fijado por sitio para proyectos antiguos (como PHP va por FastCGI, no hace falta un Apache viejo para un PHP viejo); extensiones de PHP con casillas; Adminer en `https://db.localhost`.
 - **Fase 3 (en marcha):**
-  - Hecho: proyectos Laravel nuevos con sus starter kits y desde Git, «Preparar» para proyectos existentes, `.env` automático, procesos del proyecto (Vite con HTTPS, cola y tareas), Xdebug por sitio, y Node al día con pnpm y yarn.
-  - Falta: Reverb, compartir con ngrok, WordPress, Symfony y recetas propias.
+  - Hecho: proyectos Laravel nuevos con sus starter kits y desde Git, «Preparar» para proyectos existentes, `.env` automático, procesos del proyecto (Vite con HTTPS, cola, tareas y Reverb), Xdebug por sitio, y Node al día con pnpm y yarn.
+  - Falta: compartir con ngrok, WordPress, Symfony y recetas propias.
 - **Fase 4:** DNS comodín para `*.sitio.test`, modo worker de FrankenPHP, actualizador y firma de código.
 
 ## Licencia

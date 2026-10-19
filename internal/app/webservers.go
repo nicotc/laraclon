@@ -91,6 +91,9 @@ func (d *Daemon) routes(list []sites.Site) map[string]proxy.Route {
 		for _, a := range s.Aliases {
 			routes[strings.ToLower(a)] = r
 		}
+		if rr, ok := reverbRoute(s); ok {
+			routes[reverbHost(s)] = rr
+		}
 	}
 	if r, ok := d.adminerRoute(); ok {
 		routes[adminerHost] = r
