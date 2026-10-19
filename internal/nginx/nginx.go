@@ -5,8 +5,10 @@ package nginx
 import (
 	"bytes"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -31,6 +33,7 @@ type Site struct {
 	HTTPS      bool
 	PublicPort int    // the port the browser uses (443, or the proxy's), handed to PHP as SERVER_PORT
 	Pool       string // the PHP pool of the site ("" = the global one)
+	Extra      string // file with the site's own directives, included in its server block
 }
 
 // Pool is a group of php-cgi processes: the global PHP's, or one of a version some site pinned.
@@ -55,6 +58,7 @@ type Options struct {
 func upstream(pool string) string { return "nido_" + strings.ReplaceAll(pool, "-", "_") }
 
 var confTemplate = template.Must(template.New("nginx").Funcs(template.FuncMap{"q": strconv.Quote, "upstream": upstream}).Parse(`# Generado por Nido el {{.Now}}. No lo edites: se regenera al cambiar sitios o versiones.
+# Generación {{.Generation}}, comprobación en 127.0.0.1:{{.AdminPort}}
 # nginx para Windows atiende con un solo proceso de trabajo.
 worker_processes 1;
 error_log {{q .ErrorLog}} warn;
@@ -87,10 +91,11 @@ http {
 {{range .Ports}}        server 127.0.0.1:{{.}} max_fails=0;
 {{end}}    }
 {{end}}
-    # Comprobación de salud de Nido
+    # Comprobación de salud de Nido. La generación dice qué configuración atiende ya: tras recargar,
+    # Nido espera a verla.
     server {
         listen 127.0.0.1:{{.AdminPort}};
-        location / { return 204; }
+        location / { add_header X-Nido-Generacion {{.Generation}} always; return 204; }
     }
 {{range .Sites}}
     # {{.Host}}
@@ -100,7 +105,11 @@ http {
         root {{q .DocRoot}};
         index index.php index.html index.htm;
         charset utf-8;
-
+{{if .Extra}}
+        # Directivas propias del sitio (su ficha en el panel), antes que las de Nido: sus location
+        # con expresiones regulares ganan a las de abajo.
+        include {{q .Extra}};
+{{end}}
         location / {
             try_files $uri $uri/ /index.php?$query_string;
         }
@@ -136,16 +145,22 @@ func ConfPath(home paths.Home) string { return filepath.Join(Prefix(home), "ngin
 
 // Write renders nginx.conf and creates the folders nginx expects.
 func Write(o Options) (string, error) {
+	conf := ConfPath(o.Home)
+	return conf, WriteTo(o, conf)
+}
+
+// WriteTo renders the configuration into another file, to test it without touching the real one.
+func WriteTo(o Options, conf string) error {
 	prefix := Prefix(o.Home)
 	temp := filepath.Join(prefix, "temp")
 	for _, d := range []string{filepath.Join(prefix, "logs"), temp, o.Home.Logs(), o.Home.Run()} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return "", err
+			return err
 		}
 	}
 	for _, d := range []string{"client_body", "proxy", "fastcgi", "uwsgi", "scgi"} {
 		if err := os.MkdirAll(filepath.Join(temp, d), 0o755); err != nil {
-			return "", err
+			return err
 		}
 	}
 	known := map[string]bool{}
@@ -153,11 +168,12 @@ func Write(o Options) (string, error) {
 		known[p.Name] = len(p.Ports) > 0
 	}
 	if !known[GlobalPool] {
-		return "", fmt.Errorf("falta el grupo de PHP global")
+		return fmt.Errorf("falta el grupo de PHP global")
 	}
 	sites := make([]Site, len(o.Sites))
 	for i, s := range o.Sites {
 		s.DocRoot = paths.Slash(s.DocRoot)
+		s.Extra = paths.Slash(s.Extra)
 		if !known[s.Pool] {
 			s.Pool = GlobalPool
 		}
@@ -166,6 +182,7 @@ func Write(o Options) (string, error) {
 	var buf bytes.Buffer
 	err := confTemplate.Execute(&buf, map[string]any{
 		"Now":           time.Now().Format("2006-01-02 15:04:05"),
+		"Generation":    strconv.FormatInt(time.Now().UnixNano(), 10),
 		"ErrorLog":      paths.Slash(o.Home.Logs("nginx-error.log")),
 		"AccessLog":     paths.Slash(o.Home.Logs("nginx-access.log")),
 		"Pid":           paths.Slash(o.Home.Run("nginx.pid")),
@@ -177,34 +194,72 @@ func Write(o Options) (string, error) {
 		"Sites":         sites,
 	})
 	if err != nil {
-		return "", err
+		return err
 	}
-	conf := ConfPath(o.Home)
-	return conf, config.WriteFileAtomic(conf, buf.Bytes())
+	return config.WriteFileAtomic(conf, buf.Bytes())
 }
 
 func exe(v versions.Version) string { return filepath.Join(v.Path, "nginx.exe") }
 
 // run executes nginx with Nido's prefix and configuration plus extra arguments.
 func run(home paths.Home, v versions.Version, args ...string) (string, error) {
-	all := append([]string{"-p", paths.Slash(Prefix(home)) + "/", "-c", paths.Slash(ConfPath(home))}, args...)
+	return runConf(home, v, ConfPath(home), args...)
+}
+
+func runConf(home paths.Home, v versions.Version, conf string, args ...string) (string, error) {
+	all := append([]string{"-p", paths.Slash(Prefix(home)) + "/", "-c", paths.Slash(conf)}, args...)
 	return procutil.Output(30*time.Second, v.Path, exe(v), all...)
 }
 
 // Test runs nginx -t so a broken configuration never replaces a working one.
 func Test(home paths.Home, v versions.Version) error {
-	if out, err := run(home, v, "-t"); err != nil {
+	return TestFile(home, v, ConfPath(home))
+}
+
+// TestFile runs nginx -t on a configuration written with WriteTo.
+func TestFile(home paths.Home, v versions.Version, conf string) error {
+	if out, err := runConf(home, v, conf, "-t"); err != nil {
 		return fmt.Errorf("la configuración de Nginx no es válida: %s", procutil.LastLines(out, 6))
 	}
 	return nil
 }
 
-// Reload makes the running nginx read its configuration again without dropping requests.
+var generationLine = regexp.MustCompile(`(?m)^# Generación (\d+), comprobación en 127\.0\.0\.1:(\d+)\r?$`)
+
+// Reload makes the running nginx read its configuration again without dropping requests, and waits
+// until it answers with it: nginx -s reload returns before the new worker takes over, and a request
+// right after would still get the old configuration.
 func Reload(home paths.Home, v versions.Version) error {
 	if out, err := run(home, v, "-s", "reload"); err != nil {
 		return fmt.Errorf("nginx no se recargó: %s", procutil.LastLines(out, 4))
 	}
-	return nil
+	data, err := os.ReadFile(ConfPath(home))
+	if err != nil {
+		return err
+	}
+	m := generationLine.FindSubmatch(data)
+	if m == nil {
+		return nil
+	}
+	return waitGeneration(string(m[2]), string(m[1]), 10*time.Second)
+}
+
+// waitGeneration asks nginx's health-check server until it answers with the generation of the
+// configuration just written. Each request uses a new connection: one kept open would stay with
+// the old worker.
+func waitGeneration(port, gen string, timeout time.Duration) error {
+	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
+	for by := time.Now().Add(timeout); ; time.Sleep(100 * time.Millisecond) {
+		if resp, err := client.Get("http://127.0.0.1:" + port + "/"); err == nil {
+			resp.Body.Close()
+			if resp.Header.Get("X-Nido-Generacion") == gen {
+				return nil
+			}
+		}
+		if time.Now().After(by) {
+			return fmt.Errorf("nginx no aplicó la configuración nueva en %s", timeout)
+		}
+	}
 }
 
 // Spec describes the nginx service; it stops gracefully with "nginx -s quit".

@@ -215,3 +215,26 @@ footer { margin-top: 24px; }
 .health-state.fallo { background: var(--bad-soft); color: var(--bad); }
 .health-state.apagado, .health-state.iniciando { background: var(--bg); color: var(--muted); }
 section[data-panel=salud] h3 { font-size: 14px; margin: 16px 0 6px; }
+/* Ficha del sitio y editor de archivos de configuración */
+.dialog.sheet { width: 840px; }
+.sheet-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sheet-grid { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 8px 12px; align-items: center; padding-bottom: 10px; font-size: 14px; }
+.sheet-grid .k { color: var(--muted); font-size: 13px; font-weight: 600; }
+.sheet-grid code { word-break: break-all; }
+.sheet-db { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding-bottom: 10px; font-size: 13.5px; }
+.sheet-h { font-size: 15px; margin: 2px 0 -8px; }
+.file-list { border: 1px solid var(--line); border-radius: 8px; background: #fff; margin-bottom: 16px; }
+.file-row { display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid #eef1f4; }
+.file-row:first-child { border-top: none; }
+.file-main { flex: 1; min-width: 0; }
+.file-note { font-size: 12.5px; color: var(--warn); margin-top: 2px; }
+.file-path { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: -6px; }
+.file-path code { word-break: break-all; }
+textarea.editor { width: 100%; min-height: 340px; font: 13px/1.5 ui-monospace, Consolas, monospace; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fcfcfb; color: var(--fg); resize: vertical; tab-size: 4; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+textarea.editor:focus { outline: 2px solid var(--accent-line); border-color: var(--accent); }
+textarea.editor[readonly] { background: var(--bg); }
+.file-result { border-radius: 8px; padding: 9px 12px; font-size: 13.5px; white-space: pre-wrap; }
+.file-result.ok { background: var(--ok-soft); color: #0f5323; border: 1px solid #aceebb; }
+.file-result.bad { background: var(--bad-soft); color: #82071e; border: 1px solid #ffcecb; }
+.file-result ul { margin: 6px 0 0; padding-left: 18px; color: var(--warn); white-space: normal; }
+td a.ext { font-size: 13px; }

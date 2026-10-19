@@ -340,6 +340,38 @@ func (d *Daemon) Handler() http.Handler {
 		err := d.SetSiteProcess(req.Site, req.ID, req.On)
 		return d.Status(), err
 	})
+	api("POST /api/sites/open", func(r *http.Request) (any, error) {
+		var req struct{ Site string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, d.OpenSiteFolder(req.Site)
+	})
+	// Configuration files: a site's ("site:tienda"), PHP's ("php") or an instance's ("service:mysql-8.0").
+	api("GET /api/files", func(r *http.Request) (any, error) {
+		list, err := d.Files(r.URL.Query().Get("scope"))
+		return list, err
+	})
+	api("GET /api/file", func(r *http.Request) (any, error) {
+		f, err := d.ReadEditable(r.URL.Query().Get("key"))
+		return f, err
+	})
+	api("POST /api/file", func(r *http.Request) (any, error) {
+		var req struct{ Key, Content, Hash string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		res, err := d.SaveFile(req.Key, req.Content, req.Hash)
+		return res, err
+	})
+	api("POST /api/file/undo", func(r *http.Request) (any, error) {
+		var req struct{ Key string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		res, err := d.UndoFile(req.Key)
+		return res, err
+	})
 	api("GET /api/recipes", func(*http.Request) (any, error) { return d.Recipes(), nil })
 	api("POST /api/sites/template", func(r *http.Request) (any, error) {
 		var req struct{ Site, Name string }

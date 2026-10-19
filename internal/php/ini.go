@@ -165,6 +165,9 @@ func WriteIni(home paths.Home, v versions.Version, opt IniOptions) (string, erro
 	set("post_max_size", "512M")
 	set("max_execution_time", "300")
 	set("max_input_vars", "5000")
+	// php-cgi rereads a site's .user.ini at most once a second instead of every 5 minutes: a change
+	// made in the site's page counts at the next request.
+	set("user_ini.cache_ttl", "0")
 	set("session.save_path", q(home.Tmp("php-sessions")))
 	set("upload_tmp_dir", q(home.Tmp("php-uploads")))
 	set("sys_temp_dir", q(home.Tmp()))

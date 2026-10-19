@@ -92,6 +92,12 @@
     </div>
     <div id="extensions" class="ext-grid"></div>
     <div class="toolbar">
+      <h2>php.ini propio</h2>
+      <span class="spacer"></span>
+      <span class="muted">Tus valores ganan a los de Nido. PHP los revisa antes de aplicarlos.</span>
+    </div>
+    <div id="php-files" class="file-list"></div>
+    <div class="toolbar">
       <h2>Node y gestores de paquetes</h2>
       <span class="spacer"></span>
       <button class="small secondary" id="node-refresh">Buscar versiones nuevas</button>
@@ -124,6 +130,17 @@
       <div class="dialog-foot">
         <span>Composer crea los proyectos Laravel, WP-CLI los de WordPress y Git clona el resto; Nido crea la base de datos, escribe la configuración y compila el frontend cuando lo hay.</span>
       </div>
+    </div>
+  </div>
+
+  <div id="site-dialog" class="scrim" hidden>
+    <div class="dialog sheet" role="dialog" aria-labelledby="site-title">
+      <div class="dialog-head">
+        <h2 id="site-title">Sitio</h2>
+        <span class="spacer"></span>
+        <button class="ghost" id="site-close" title="Cerrar">✕</button>
+      </div>
+      <div class="form" id="site-body"></div>
     </div>
   </div>
 

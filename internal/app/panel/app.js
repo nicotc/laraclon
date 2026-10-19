@@ -98,7 +98,7 @@ function showTab(tab) {
   document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab; });
   history.replaceState(null, '', '#' + tab);
   if (tab === 'servicios') loadCatalogs();
-  if (tab === 'php') { loadExtensions(); loadNode(); }
+  if (tab === 'php') { loadExtensions(); loadNode(); loadPHPFiles(); }
   if (tab === 'salud') renderHealth();
 }
 
@@ -206,6 +206,8 @@ function render() {
   const editing = view.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName);
   if (!editing) renderServices();
   if (ui.dialog) renderDialog();
+  // The sheet follows the site (server, PHP, processes); a file being edited is left alone.
+  if (ui.sheet && !ui.edit) renderSiteSheet();
   // The form is not redrawn while you type; a creation in progress is.
   if (ui.projectOpen && ui.project.job) renderProjectDialog();
   document.getElementById('count-sites').textContent = (s.sites || []).length || '';
@@ -315,8 +317,11 @@ function renderSites() {
   if (tbody.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;
   const q = document.getElementById('filter').value.toLowerCase();
   const list = (state.sites || []).filter(x => !q || x.host.includes(q) || x.folder.toLowerCase().includes(q));
+  // The name opens the site's sheet (environment and configuration files); ↗ opens the site.
   tbody.replaceChildren(...list.map(x => el('tr', {},
-    el('td', {}, el('a', { href: x.url, target: '_blank' }, x.host), ' ',
+    el('td', {}, el('a', { href: '#sitio/' + x.name, title: 'Ficha del sitio: entorno y archivos de configuración',
+      onclick: e => { e.preventDefault(); openSiteSheet(x.name); } }, x.host), ' ',
+      el('a', { href: x.url, target: '_blank', class: 'ext', title: 'Abrir ' + x.url }, '↗'), ' ',
       el('button', { class: 'ghost', title: 'Guardar como plantilla para proyectos nuevos', onclick: () => saveTemplate(x) }, '⧉')),
     el('td', {}, x.kind),
     el('td', {}, serverPicker(x)),
@@ -627,6 +632,7 @@ function instanceMenu(g, i) {
   const item = (text, fn, cls) => el('div', { class: 'item' + (cls ? ' ' + cls : ''), onclick: e => { e.stopPropagation(); ui.menu = null; renderServices(); fn(); } }, text);
   return el('div', { class: 'menu' },
     ADMINER_KINDS.includes(g.kind) && state.adminer_url ? item('Abrir en Adminer', () => window.open(adminerLink(g.kind, i.port), '_blank')) : null,
+    ['mysql', 'mariadb'].includes(g.kind) ? item('Configuración (my.ini)…', () => openFile('service:' + i.key, null)) : null,
     item('Ver log', () => act('POST', '/api/services/open', { key: i.key, what: 'log' })),
     item('Abrir carpeta de datos', () => act('POST', '/api/services/open', { key: i.key, what: 'data' })),
     item('Copiar datos de conexión (.env)', () => copyEnv(g, i)),
@@ -1195,6 +1201,223 @@ async function saveTemplate(site) {
   }
 }
 
+// ---------- ficha del sitio y archivos de configuración ----------
+
+const KIND_LABEL = { laravel: 'Laravel', wordpress: 'WordPress', symfony: 'Symfony', php: 'PHP', static: 'estático' };
+
+// fill replaces the children of a node, skipping the empty ones (null, false).
+const fill = (node, ...children) => node.replaceChildren(...children.flat().filter(c => c !== null && c !== undefined && c !== false));
+const firstSentence = s => String(s || '').split(/(?<=\.)\s/)[0];
+
+// ui.sheet is the open sheet of a site; ui.edit, the file being edited (from the sheet, the PHP tab
+// or a database's menu). Both live in the same dialog.
+function openSiteSheet(name) {
+  ui.sheet = { site: name, files: null, error: '' };
+  ui.edit = null;
+  document.getElementById('site-dialog').hidden = false;
+  history.replaceState(null, '', '#sitio/' + name);
+  renderSiteSheet();
+  loadSiteFiles();
+}
+
+function closeSiteDialog() {
+  if (ui.edit && ui.edit.dirty && !confirm('Hay cambios sin guardar. ¿Cerrar igual?')) return;
+  ui.sheet = null;
+  ui.edit = null;
+  document.getElementById('site-dialog').hidden = true;
+  history.replaceState(null, '', '#' + ui.tab);
+}
+
+async function loadSiteFiles() {
+  const sheet = ui.sheet;
+  if (!sheet) return;
+  try {
+    sheet.files = await call('GET', '/api/files?scope=' + encodeURIComponent('site:' + sheet.site));
+    sheet.error = '';
+  } catch (e) {
+    sheet.error = e.message;
+  }
+  if (ui.sheet === sheet && !ui.edit) renderSiteSheet();
+}
+
+// renderSiteSheet shows everything about a site: its address and folder, the server and PHP it uses,
+// its processes, its database as the last health check saw it, and its configuration files.
+function renderSiteSheet() {
+  const sheet = ui.sheet;
+  if (!sheet || ui.edit || !state) return;
+  const body = document.getElementById('site-body');
+  // Not redrawn while a version is being chosen.
+  if (body.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;
+  const site = (state.sites || []).find(s => s.name === sheet.site);
+  document.getElementById('site-title').textContent = site ? site.host : sheet.site;
+  if (!site) {
+    fill(body, el('p', {}, 'Este sitio ya no está: su carpeta se movió o se borró.'));
+    return;
+  }
+  const db = ((state.health || {}).sitios || []).find(h => h.sitio === site.host && h.estado !== 'sin-bd');
+  fill(body,
+    el('div', { class: 'sheet-head' },
+      el('a', { href: site.url, target: '_blank' }, site.url + ' ↗'),
+      el('span', { class: 'pill' }, KIND_LABEL[site.kind] || site.kind),
+      el('span', { class: 'spacer' }),
+      el('button', { class: 'small secondary', onclick: () => act('POST', '/api/sites/open', { site: site.name }) }, 'Abrir carpeta')),
+    el('div', { class: 'box' }, el('h4', {}, 'Entorno'),
+      el('div', { class: 'sheet-grid' },
+        el('span', { class: 'k' }, 'Servidor web'), el('div', {}, serverPicker(site)),
+        el('span', { class: 'k' }, 'PHP'), phpPicker(site),
+        el('span', { class: 'k' }, 'Procesos'), processToggles(site),
+        el('span', { class: 'k' }, 'Carpeta'), el('code', {}, site.folder),
+        el('span', { class: 'k' }, 'Carpeta pública'), el('code', {}, site.doc_root),
+        el('span', { class: 'k' }, 'Puerto interno'), el('span', {}, String(site.port)))),
+    db ? el('div', { class: 'box' }, el('h4', {}, 'Base de datos'),
+      el('div', { class: 'sheet-db' }, el('code', {}, db.bd), el('span', { class: 'health-state ' + db.estado }, HEALTH_STATE[db.estado] || db.estado),
+        el('span', { class: 'muted' }, db.detalle))) : null,
+    el('h3', { class: 'sheet-h' }, 'Archivos de configuración'),
+    el('p', { class: 'muted' }, 'Nido revisa cada cambio con el programa que lo lee antes de aplicarlo, y guarda la versión anterior para deshacerlo.'),
+    sheet.error ? el('div', { class: 'file-result bad' }, sheet.error) : null,
+    sheet.files ? el('div', { class: 'file-list' }, ...sheet.files.map(f => fileRow(f, 'sheet'))) : el('p', { class: 'muted' }, 'Cargando…'));
+}
+
+function fileRow(f, back) {
+  const versions = f.backups ? el('span', { class: 'pill', title: '«Deshacer el último cambio» vuelve a la anterior' },
+    f.backups === 1 ? '1 versión anterior' : `${f.backups} versiones anteriores`) : null;
+  return el('div', { class: 'file-row' },
+    el('div', { class: 'file-main' },
+      el('div', {}, el('b', {}, f.title), ' ', f.exists ? null : el('span', { class: 'pill' }, 'no existe todavía'), ' ', versions),
+      el('div', { class: 'muted' }, firstSentence(f.help)),
+      f.note ? el('div', { class: 'file-note' }, f.note) : null),
+    el('button', { class: 'small' + (f.exists ? '' : ' secondary'), onclick: () => openFile(f.key, back) }, f.exists ? 'Editar' : 'Crear'));
+}
+
+async function openFile(key, back) {
+  ui.edit = { key, back, file: null, text: '', dirty: false, busy: false, result: null, error: '' };
+  document.getElementById('site-dialog').hidden = false;
+  renderEditor();
+  try {
+    const f = await call('GET', '/api/file?key=' + encodeURIComponent(key));
+    if (!ui.edit || ui.edit.key !== key) return;
+    ui.edit.file = f;
+    ui.edit.text = f.content || '';
+  } catch (e) {
+    if (ui.edit) ui.edit.error = e.message;
+  }
+  renderEditor();
+}
+
+function leaveEditor() {
+  if (ui.edit.dirty && !confirm('Hay cambios sin guardar. ¿Descartarlos?')) return;
+  if (ui.edit.back === 'sheet' && ui.sheet) {
+    ui.edit = null;
+    renderSiteSheet();
+    loadSiteFiles();
+  } else {
+    ui.edit.dirty = false;
+    closeSiteDialog();
+    if (ui.tab === 'php') loadPHPFiles();
+  }
+}
+
+// renderEditor shows a file: what it is, its text and the result of the last save.
+function renderEditor() {
+  const ed = ui.edit;
+  const body = document.getElementById('site-body');
+  const back = el('button', { class: 'secondary', onclick: leaveEditor }, ed.back === 'sheet' ? '← Volver a la ficha' : 'Cerrar');
+  document.getElementById('site-title').textContent = ed.file ? ed.file.title : 'Abriendo…';
+  if (!ed.file) {
+    fill(body, ed.error ? el('div', { class: 'file-result bad' }, ed.error) : el('p', { class: 'muted' }, 'Abriendo…'), el('div', { class: 'row' }, back));
+    return;
+  }
+  const f = ed.file;
+  const save = el('button', { onclick: saveFile, disabled: ed.busy || !!f.read_only || !ed.dirty }, ed.busy ? 'Comprobando y aplicando…' : 'Guardar y aplicar');
+  const area = el('textarea', { class: 'editor', spellcheck: 'false', readonly: !!f.read_only || ed.busy, 'aria-label': f.title });
+  area.value = ed.text;
+  area.addEventListener('input', () => {
+    ed.text = area.value;
+    ed.dirty = true;
+    save.disabled = false;
+  });
+  area.addEventListener('keydown', e => {
+    if (e.key === 'Tab' && !e.shiftKey) { // indents instead of leaving the editor
+      e.preventDefault();
+      area.setRangeText('    ', area.selectionStart, area.selectionEnd, 'end');
+      area.dispatchEvent(new Event('input'));
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      saveFile();
+    }
+  });
+  const undo = f.backups ? el('button', { class: 'secondary', disabled: ed.busy, onclick: undoFile,
+    title: f.backups === 1 ? 'Hay 1 versión anterior guardada' : `Hay ${f.backups} versiones anteriores guardadas` }, 'Deshacer el último cambio') : null;
+  fill(body,
+    el('div', { class: 'file-path' }, el('code', {}, f.path), f.starter ? el('span', { class: 'pill warn' }, 'todavía no existe: se crea al guardar') : null),
+    el('p', { class: 'muted' }, f.help),
+    f.note ? el('div', { class: 'file-note' }, f.note) : null,
+    f.read_only ? el('div', { class: 'file-result bad' }, 'Solo lectura: ' + f.read_only) : null,
+    area,
+    ed.error ? el('div', { class: 'file-result bad' }, el('b', {}, 'No se aplicó. '), ed.error) : null,
+    ed.result ? el('div', { class: 'file-result ok' }, ed.result.message,
+      (ed.result.warnings || []).length ? el('ul', {}, ...ed.result.warnings.map(w => el('li', {}, w))) : null) : null,
+    el('div', { class: 'row' }, save, undo, el('span', { class: 'spacer' }), el('span', { class: 'muted' }, 'Ctrl+S guarda'), back));
+}
+
+// After a save or an undo, the file is read again: its new fingerprint lets the next save check
+// that nobody changed it in between.
+async function afterFileChange(ed, res) {
+  const f = await call('GET', '/api/file?key=' + encodeURIComponent(ed.key));
+  ed.file = f;
+  ed.text = f.content || '';
+  ed.dirty = false;
+  ed.result = res;
+}
+
+async function saveFile() {
+  const ed = ui.edit;
+  if (!ed || !ed.file || ed.busy || !ed.dirty) return;
+  ed.busy = true;
+  ed.error = '';
+  ed.result = null;
+  renderEditor();
+  try {
+    const res = await call('POST', '/api/file', { key: ed.key, content: ed.text, hash: ed.file.hash || '' });
+    await afterFileChange(ed, res);
+  } catch (e) {
+    ed.error = e.message;
+  }
+  ed.busy = false;
+  if (ui.edit === ed) renderEditor();
+  refresh();
+}
+
+async function undoFile() {
+  const ed = ui.edit;
+  if (!ed || ed.busy) return;
+  if (!confirm(`¿Volver a la versión anterior de ${ed.file.title}?` + (ed.dirty ? ' Se pierden los cambios sin guardar.' : ''))) return;
+  ed.busy = true;
+  ed.error = '';
+  ed.result = null;
+  renderEditor();
+  try {
+    const res = await call('POST', '/api/file/undo', { key: ed.key });
+    await afterFileChange(ed, res);
+  } catch (e) {
+    ed.error = e.message;
+  }
+  ed.busy = false;
+  if (ui.edit === ed) renderEditor();
+  refresh();
+}
+
+async function loadPHPFiles() {
+  const view = document.getElementById('php-files');
+  try {
+    const files = await call('GET', '/api/files?scope=php');
+    fill(view, ...files.map(f => fileRow(f, null)));
+  } catch (e) {
+    fill(view, el('div', { class: 'file-row' }, el('span', { class: 'row-error' }, e.message)));
+  }
+}
+
 // ---------- «Añadir servicio» ----------
 
 function openDialog() {
@@ -1248,9 +1471,12 @@ document.getElementById('node-refresh').addEventListener('click', async e => {
 document.getElementById('new-project').addEventListener('click', openProjectDialog);
 document.getElementById('project-close').addEventListener('click', closeProjectDialog);
 document.getElementById('dialog').addEventListener('click', e => { if (e.target.id === 'dialog') closeDialog(); });
+document.getElementById('site-close').addEventListener('click', closeSiteDialog);
+document.getElementById('site-dialog').addEventListener('click', e => { if (e.target.id === 'site-dialog') closeSiteDialog(); });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if (ui.dialog) closeDialog();
+  if (ui.sheet || ui.edit) closeSiteDialog();
   if (ui.menu) { ui.menu = null; renderServices(); }
 });
 document.addEventListener('click', () => { if (ui.menu) { ui.menu = null; renderServices(); } });
@@ -1271,6 +1497,12 @@ function schedule() {
 }
 
 const firstTab = location.hash.slice(1);
-// #nuevo opens «Nuevo proyecto» right away (the tray's «Nuevo proyecto…» links there).
-showTab(firstTab === 'nuevo' ? 'sitios' : ['resumen', 'sitios', 'servicios', 'php', 'salud'].includes(firstTab) ? firstTab : 'resumen');
-refresh().then(() => { if (firstTab === 'nuevo') openProjectDialog(); schedule(); });
+// #nuevo opens «Nuevo proyecto» right away (the tray's «Nuevo proyecto…» links there) and
+// #sitio/<name> the sheet of a site.
+const firstSite = firstTab.startsWith('sitio/') ? decodeURIComponent(firstTab.slice('sitio/'.length)) : '';
+showTab(firstTab === 'nuevo' || firstSite ? 'sitios' : ['resumen', 'sitios', 'servicios', 'php', 'salud'].includes(firstTab) ? firstTab : 'resumen');
+refresh().then(() => {
+  if (firstTab === 'nuevo') openProjectDialog();
+  if (firstSite) openSiteSheet(firstSite);
+  schedule();
+});

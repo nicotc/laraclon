@@ -41,3 +41,16 @@ func TestInUseByFindsALiveMySQLThroughItsPidFile(t *testing.T) {
 		t.Fatal("a stale pid file must not block")
 	}
 }
+
+func TestServerMessageKeepsWhatTheServerSays(t *testing.T) {
+	for line, want := range map[string]string{
+		"2026-10-19T20:45:53.314865Z 0 [ERROR] [MY-000067] [Server] unknown variable 'variable_inventada=1'.":    "unknown variable 'variable_inventada=1'.",
+		"2026-10-19T20:46:11.941713Z 0 [ERROR] unknown variable 'variable_inventada=1'":                          "unknown variable 'variable_inventada=1'",
+		`2026-10-19 16:46:08 0 [ERROR] E:\nido\bin\mariadb\11.8.9\bin\mariadbd.exe: unknown variable 'x=1'`:      "unknown variable 'x=1'",
+		"2026-10-19 16:46:09 0 [Warning] option 'innodb-buffer-pool-size': unsigned value 0 adjusted to 2097152": "option 'innodb-buffer-pool-size': unsigned value 0 adjusted to 2097152",
+	} {
+		if got := serverMessage(line); got != want {
+			t.Errorf("serverMessage(%q) = %q, quiero %q", line, got, want)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
@@ -160,6 +161,48 @@ func (i Instance) WriteIni() error {
 		return err
 	}
 	return config.WriteFileAtomic(i.IniPath(), []byte(b.String()))
+}
+
+// CheckIni asks the server whether it accepts my.ini, without starting it: MySQL 8.0.16 and later
+// with --validate-config, MariaDB and older MySQL with --help, which also stops at unknown
+// settings. Values out of range only bring warnings (the server adjusts them).
+func (i Instance) CheckIni() (warnings []string, err error) {
+	args := []string{"--defaults-file=" + i.IniPath()}
+	if i.Version.Component == versions.MySQL && versions.Compare(i.Version.Version, "8.0.16") >= 0 {
+		args = append(args, "--validate-config")
+	} else {
+		args = append(args, "--verbose", "--help")
+	}
+	out, runErr := procutil.Output(time.Minute, i.Version.Path, i.serverExe(), args...)
+	var problems []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		// Noise of every run: Nido's loose-mysqlx (MariaDB lacks X Protocol), the Windows event log
+		// MySQL 5.7 cannot open without privileges, and the last line of a failure.
+		case strings.Contains(line, "loose-"), strings.Contains(line, "EventLog"), strings.HasSuffix(line, "Aborting"):
+		case strings.Contains(line, "[ERROR]"):
+			problems = append(problems, serverMessage(line))
+		case strings.Contains(line, "[Warning]"):
+			warnings = append(warnings, serverMessage(line))
+		}
+	}
+	if runErr == nil {
+		return warnings, nil
+	}
+	if len(problems) == 0 {
+		problems = append(problems, procutil.LastLines(out, 3))
+	}
+	return warnings, fmt.Errorf("%s no acepta la configuración: %s", i.Key(), strings.Join(problems, "; "))
+}
+
+// logPrefix is the start of a log line of MySQL ("2026-10-19T20:45:53.314865Z 0 [ERROR] [MY-000067]
+// [Server] ") or MariaDB ("2026-10-19 16:46:08 0 [ERROR] "), followed by the program's path on MariaDB.
+var logPrefix = regexp.MustCompile(`^.*?\d+ (?:\[[^\]]*\] ?)+(?:[A-Za-z]:\\[^:]*\.exe: )?`)
+
+// serverMessage keeps what a log line of MySQL or MariaDB says.
+func serverMessage(line string) string {
+	return strings.TrimSpace(logPrefix.ReplaceAllString(line, ""))
 }
 
 // Initialized reports whether the data folder already holds the system database.

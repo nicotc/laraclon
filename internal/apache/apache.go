@@ -31,6 +31,7 @@ type Site struct {
 	Port    int
 	HTTPS   bool
 	Pool    string // the PHP pool of the site ("" = the global one)
+	Extra   string // file with the site's own directives, included at the end of its VirtualHost
 }
 
 // Pool is a group of php-cgi processes: the global PHP's, or one of a version some site pinned.
@@ -139,7 +140,9 @@ Listen 127.0.0.1:{{.Port}}
             SetHandler "proxy:balancer://{{.Pool}}/"
         </If>
     </FilesMatch>
-</VirtualHost>
+{{if .Extra}}    # Directivas propias del sitio (su ficha en el panel)
+    Include "{{.Extra}}"
+{{end}}</VirtualHost>
 {{end}}`))
 
 // ConfPath is where the generated httpd.conf of a version lives.
@@ -149,11 +152,17 @@ func ConfPath(home paths.Home, v versions.Version) string {
 
 // Write renders httpd.conf.
 func Write(o Options) (string, error) {
+	conf := ConfPath(o.Home, o.Version)
+	return conf, WriteTo(o, conf)
+}
+
+// WriteTo renders the configuration into another file, to test it without touching the real one.
+func WriteTo(o Options, conf string) error {
 	var mods []module
 	for _, name := range requiredModules {
 		p := filepath.Join(o.Version.Path, "modules", "mod_"+name+".so")
 		if _, err := os.Stat(p); err != nil {
-			return "", fmt.Errorf("a Apache %s le falta el módulo mod_%s", o.Version.Version, name)
+			return fmt.Errorf("a Apache %s le falta el módulo mod_%s", o.Version.Version, name)
 		}
 		mods = append(mods, module{name, paths.Slash(p)})
 	}
@@ -167,7 +176,7 @@ func Write(o Options) (string, error) {
 	empty := o.Home.Generated("apache", "empty")
 	for _, d := range []string{runDir, empty, o.Home.Logs()} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return "", err
+			return err
 		}
 	}
 	known := map[string]bool{}
@@ -175,11 +184,12 @@ func Write(o Options) (string, error) {
 		known[p.Name] = len(p.Ports) > 0
 	}
 	if !known[GlobalPool] {
-		return "", fmt.Errorf("falta el grupo de PHP global")
+		return fmt.Errorf("falta el grupo de PHP global")
 	}
 	sites := make([]Site, len(o.Sites))
 	for i, s := range o.Sites {
 		s.DocRoot = paths.Slash(s.DocRoot)
+		s.Extra = paths.Slash(s.Extra)
 		if !known[s.Pool] {
 			s.Pool = GlobalPool
 		}
@@ -204,10 +214,9 @@ func Write(o Options) (string, error) {
 		"Sites":     sites,
 	})
 	if err != nil {
-		return "", err
+		return err
 	}
-	conf := ConfPath(o.Home, o.Version)
-	return conf, config.WriteFileAtomic(conf, buf.Bytes())
+	return config.WriteFileAtomic(conf, buf.Bytes())
 }
 
 func httpd(v versions.Version) string { return filepath.Join(v.Path, "bin", "httpd.exe") }

@@ -28,7 +28,7 @@ func TestWriteSendsEachSiteToItsPHPPool(t *testing.T) {
 		Pools:     []Pool{{Name: GlobalPool, Ports: []int{9100, 9101}}, {Name: "php-7-2-0", Ports: []int{9200, 9201}}},
 		Sites: []Site{
 			{Host: "app.test", DocRoot: `E:\www\app\public`, Port: 20001, HTTPS: true},
-			{Host: "viejo.test", DocRoot: `E:\www\viejo`, Port: 20002, HTTPS: true, Pool: "php-7-2-0"},
+			{Host: "viejo.test", DocRoot: `E:\www\viejo`, Port: 20002, HTTPS: true, Pool: "php-7-2-0", Extra: `C:\nido\config\sitios\viejo\apache.conf`},
 			{Host: "raro.test", DocRoot: `E:\www\raro`, Port: 20003, Pool: "php-5-6-40"}, // no such pool
 		},
 	})
@@ -56,6 +56,13 @@ func TestWriteSendsEachSiteToItsPHPPool(t *testing.T) {
 		if !strings.Contains(section(host), `SetHandler "proxy:balancer://`+pool+`/"`) {
 			t.Errorf("%s debe ir al grupo %s", host, pool)
 		}
+	}
+	// A site's own directives go inside its VirtualHost, and only in its own.
+	if !strings.Contains(section("viejo.test"), `Include "C:/nido/config/sitios/viejo/apache.conf"`) {
+		t.Error("viejo.test debe incluir sus directivas propias")
+	}
+	if strings.Contains(section("app.test"), "Include") {
+		t.Error("app.test no tiene directivas propias")
 	}
 	if _, err := Write(Options{Home: paths.Home{Root: t.TempDir()}, Version: versions.Version{Path: root}}); err == nil {
 		t.Error("sin el grupo de PHP global, Write debe fallar")

@@ -356,6 +356,15 @@ func (d *Daemon) OpenPath(key, what string) error {
 	return winx.OpenURL(target)
 }
 
+// OpenSiteFolder shows a site's folder in Explorer.
+func (d *Daemon) OpenSiteFolder(site string) error {
+	s, err := d.findSite(site)
+	if err != nil {
+		return err
+	}
+	return winx.OpenURL(s.Folder)
+}
+
 func (d *Daemon) refreshShims() {
 	if _, err := d.env.RefreshShims(); err != nil {
 		log.Println("atajos:", err)

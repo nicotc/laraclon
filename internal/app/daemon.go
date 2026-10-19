@@ -87,7 +87,9 @@ type Daemon struct {
 
 	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
 	cfgMu sync.Mutex
-	jobs  jobList
+	// filesMu serialises the saves of configuration files made in the panel.
+	filesMu sync.Mutex
+	jobs    jobList
 
 	// OnChange is called after anything visible changes (tray menu refresh).
 	OnChange func()
@@ -394,9 +396,14 @@ func (d *Daemon) apacheOptions() (apache.Options, error) {
 		if s.Server != config.ServerApache {
 			continue
 		}
-		opt.Sites = append(opt.Sites, apache.Site{Host: s.Host, Aliases: s.Aliases, DocRoot: s.DocRoot, Port: s.Port, HTTPS: s.HTTPS, Pool: s.Pool})
+		opt.Sites = append(opt.Sites, d.apacheSite(s))
 	}
 	return opt, nil
+}
+
+func (d *Daemon) apacheSite(s sites.Site) apache.Site {
+	return apache.Site{Host: s.Host, Aliases: s.Aliases, DocRoot: s.DocRoot, Port: s.Port, HTTPS: s.HTTPS, Pool: s.Pool,
+		Extra: d.siteDirectives(s.Name, config.ServerApache)}
 }
 
 func (d *Daemon) startApache() error {

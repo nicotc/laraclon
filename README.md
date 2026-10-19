@@ -6,16 +6,24 @@
 
 ## Qué hace hoy
 
-- **Página de salud en `https://salud.localhost`:** botón «Salud» del panel o «Salud del entorno» en la bandeja.
+- **Salud del entorno, sin abrir el navegador:** Nido la comprueba solo cada minuto. La pestaña «Salud» del panel muestra el detalle; en la bandeja, el icono lleva un punto rojo y el menú dice cuántas cosas fallan.
   - Muestra qué PHP corre (versión, `php.ini` y extensiones) y prueba de verdad cada base de datos y servicio en marcha: MySQL, MariaDB y PostgreSQL (versión y cuántas bases tiene), Redis (`PING`), Mailpit (SMTP), Meilisearch (`/health`) y MongoDB.
-  - También prueba la base de datos de cada sitio, la que dice su propia configuración: el `.env` de Laravel, `DATABASE_URL` de Symfony o `wp-config.php` de WordPress. Cada fila dice OK o FALLO, con el motivo.
-  - Lo detecta todo solo y lo vuelve a comprobar cada 5 segundos.
-  - Con `?formato=json` responde para programas: HTTP 200 si todo está bien y 503 si algo falla.
+  - También prueba la base de datos de cada sitio, la que dice su propia configuración: el `.env` de Laravel, `DATABASE_URL` de Symfony o `wp-config.php` de WordPress. Cada fila dice OK o FALLO, con el motivo; los fallos van primero.
+  - La misma comprobación está en `https://salud.localhost`, y con `?formato=json` responde para programas: HTTP 200 si todo está bien y 503 si algo falla.
+- **Ficha de cada sitio:** el nombre del sitio en la pestaña «Sitios» la abre (o `#sitio/tienda` en el panel).
+  - Reúne su dirección, su carpeta, el servidor web y el PHP que usa, sus procesos y su base de datos según la última comprobación de salud.
+  - Edita sus archivos de configuración: el `.env`, el `.htaccess` y el `.user.ini` de la carpeta pública, y directivas propias de Apache (dentro de su `<VirtualHost>`) y de Nginx (dentro de su bloque `server`).
+  - Antes de aplicar un cambio, lo revisa el programa que lo lee: Apache (`httpd -t`), Nginx (`nginx -t`) o el PHP del sitio, que avisa de los valores que no conoce y de los que no se pueden cambiar por carpeta. En el `.env`, Nido detecta los errores que rompen Laravel (un valor con espacios sin comillas, comillas sin cerrar) y Laravel lo vuelve a leer: si no puede, el cambio no queda.
+  - Un `.htaccess` se prueba pidiendo la portada al sitio: si Apache lo rechaza, vuelve el anterior y se ve el motivo. Las directivas se aplican sin cortar peticiones, los procesos del sitio se reinician para leer el `.env` nuevo y la caché de configuración de Laravel se borra si la hay.
+  - Cada guardado conserva la versión anterior (las últimas 10, en `state\copias`): «Deshacer el último cambio» la trae de vuelta. Si el archivo cambió fuera de Nido desde que se abrió, no se pisa.
+- **`php.ini` propio y `my.ini` propio:** sección «php.ini propio» de la pestaña «PHP y Node» (uno para todas las versiones y uno por versión de PHP), y «Configuración (my.ini)» en el menú «⋯» de cada MySQL o MariaDB.
+  - Tus valores ganan a los de Nido. PHP comprueba que arranca con ellos y Nido reinicia sus procesos; MySQL y MariaDB validan los ajustes sin arrancar (`--validate-config`) y, si están en marcha, se reinician con ellos. Si no arrancan, vuelve la versión anterior.
 - **Proyectos Laravel nuevos en un paso:** botón «Nuevo proyecto» en la pestaña «Sitios», o `nido new tienda --kit react --db mysql`.
   - Laravel sin kit o con los kits oficiales: React, Vue, Svelte o Livewire. Se crean como con el instalador de Laravel, incluidos los pasos propios de cada kit.
   - Nido escribe el `.env` (nombre, `APP_URL` en https, la base de datos elegida y el correo a Mailpit), crea la base en MySQL, MariaDB o PostgreSQL (o usa SQLite) y migra.
   - Instala las dependencias del frontend y lo compila con Vite, con npm o, como `laravel new`, con pnpm o yarn (`--pnpm`, `--yarn`).
-  - El sitio queda en `https://tienda.test`. El panel muestra cada fase y se puede cancelar.
+  - Desde el inicio se elige el entorno: el servidor web (Apache, Nginx o FrankenPHP), el PHP del sitio y dónde va la base de datos (la instancia, el nombre de la base y, si quieres, un usuario propio con contraseña generada, en vez de root). También si se siembran los datos de ejemplo. En la terminal: `--servidor nginx --php 8.3 --instancia mysql-8.0 --base tienda_db --usuario-propio --sembrar`.
+  - El sitio queda en `https://tienda.test`. El panel muestra cada fase con su tiempo, las últimas líneas de lo que imprimen Composer y npm y una señal de que siguen trabajando, y se puede cancelar o dejar en segundo plano.
 - **WordPress en un paso:** «Nuevo proyecto → WordPress», o `nido new blog --wordpress [--idioma es_ES]`.
   - Nido descarga el zip oficial de wordpress.org (comprobado con su SHA-1 y después archivo por archivo con `wp core verify-checksums`) y la traducción elegida.
   - Crea la base de datos en MySQL o MariaDB, escribe `wp-config.php` e instala el sitio en ese idioma, con el contenido de ejemplo, el tema y los plugins traducidos, y enlaces permanentes (`/%postname%/`).
@@ -295,6 +303,11 @@ En Windows 11, en puertos alternativos (junto a otro entorno local):
   - Probado: una opción `--host` haría que la página cargara Vite desde `127.0.0.1`, que el certificado no cubre; por eso Nido no la usa.
   - Reverb, instalado en un proyecto con `php artisan install:broadcasting --reverb`, acepta conexiones en menos de 1 s desde que se enciende. Un cliente WebSocket que entra por el proxy (con el certificado de Nido verificado y `101 Switching Protocols`) se suscribe a un canal y recibe el evento que envía PHP con `Broadcast`. Al encenderlo, Nido recompila el frontend con la dirección nueva en 2 s.
 - **Página de salud:** con 9 servicios y 48 sitios contesta en 1,4 s: prueba cada servicio en marcha y la base de datos de cada sitio, y encuentra los dos cuyo `.env` apunta a un usuario de MySQL que no existe («Access denied»), por lo que el JSON responde 503.
+- **Proyecto nuevo con todo elegido:** `nido new entorno-demo --servidor nginx --php 8.3 --instancia mysql-8.0 --base demo_entorno --usuario-propio --sembrar` deja el sitio servido por Nginx con PHP 8.3.12, conectado a MySQL 8.0 con su propio usuario `demo_entorno` y el usuario de ejemplo sembrado.
+- **Archivos de configuración** (con Apache, Nginx, PHP 8.3 y 8.4, MySQL 5.7 y MariaDB 11.8 de verdad):
+  - Se rechazan, sin tocar el archivo: un `.env` con un valor con espacios sin comillas, una directiva inventada en el `.htaccess` (con el mensaje de Apache), `extension=` o una línea rota en un `.user.ini`, directivas inventadas para Apache o Nginx y una variable inexistente en el `my.ini` de MySQL 5.7 y de MariaDB.
+  - Se aplican al guardar y vuelven atrás con «Deshacer»: el nombre del `.env` en el título de la página, una cabecera desde el `.htaccess` y desde las directivas de Apache y de Nginx, `memory_limit` desde el `.user.ini` (300M, y 512M al deshacer), `max_input_time` desde el `php.ini` de PHP 8.3, y `max_connections` de MariaDB, que se reinicia con 321 y vuelve a 151.
+  - Probado: FrankenPHP no lee `.user.ini` (Apache y Nginx sí, con `php-cgi`), y `nginx -s reload` vuelve antes de que el proceso nuevo atienda, por eso Nido espera a ver la configuración nueva antes de dar el cambio por aplicado.
 - **Xdebug por sitio:**
   - El sitio depurado carga Xdebug y los demás no.
   - Sin editor escuchando, la página responde en 0,25 s; con uno en el 9003, Xdebug se conecta y le envía el `init` de DBGp con la ruta del script.
@@ -318,7 +331,8 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
 - **Fase 3 (en marcha):**
   - Hecho: proyectos Laravel nuevos con sus starter kits, WordPress, Symfony, desde Git y desde plantillas propias, «Preparar» para proyectos existentes, `.env` automático, procesos del proyecto (Vite con HTTPS, cola, tareas y Reverb), Xdebug por sitio, y Node al día con pnpm y yarn.
   - Falta: compartir con ngrok.
-  - Nombre e identidad propios (Nido) y página de salud.
+  - Nombre e identidad propios (Nido), salud del entorno, progreso visible de los trabajos largos, proyecto nuevo con su entorno elegido y ficha de cada sitio con sus archivos de configuración.
+  - Siguiente: Node por sitio.
 - **Fase 4:** DNS comodín para `*.sitio.test`, modo worker de FrankenPHP, actualizador y firma de código.
 
 ## Licencia

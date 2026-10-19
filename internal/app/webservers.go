@@ -205,11 +205,16 @@ func (d *Daemon) nginxVersion() (versions.Version, error) {
 func (d *Daemon) nginxOptions() (nginx.Options, error) {
 	opt := nginx.Options{Home: d.env.Home, AdminPort: nginxAdminPort, Pools: d.nginxPools()}
 	for _, s := range d.sitesOf(config.ServerNginx) {
-		opt.Sites = append(opt.Sites, nginx.Site{Host: s.Host, Aliases: s.Aliases, DocRoot: s.DocRoot, Port: s.Port, HTTPS: s.HTTPS, PublicPort: d.publicPort(s), Pool: s.Pool})
+		opt.Sites = append(opt.Sites, d.nginxSite(s))
 	}
 	v, err := d.nginxVersion()
 	opt.Version = v
 	return opt, err
+}
+
+func (d *Daemon) nginxSite(s sites.Site) nginx.Site {
+	return nginx.Site{Host: s.Host, Aliases: s.Aliases, DocRoot: s.DocRoot, Port: s.Port, HTTPS: s.HTTPS, PublicPort: d.publicPort(s), Pool: s.Pool,
+		Extra: d.siteDirectives(s.Name, config.ServerNginx)}
 }
 
 func (d *Daemon) syncNginx() error {
