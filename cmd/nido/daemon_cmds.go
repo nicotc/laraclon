@@ -244,11 +244,7 @@ func cmdHosts(env *app.Env, args []string) error {
 		return err
 	}
 	found, _ := sites.Scan(env.Cfg)
-	var names []string
-	for _, s := range found {
-		names = append(names, s.Host)
-		names = append(names, s.Aliases...)
-	}
+	names := app.HostNames(found)
 	switch action {
 	case "status":
 		missing := hosts.Missing(string(content), names)

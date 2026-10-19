@@ -109,7 +109,14 @@ func (s *Server) Start() error {
 		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			name := strings.ToLower(hello.ServerName)
 			switch {
-			case name == "" || name == "localhost" || strings.HasSuffix(name, ".localhost"):
+			case name == "" || name == "localhost":
+				return s.CA.Leaf("localhost")
+			case strings.HasSuffix(name, ".localhost"):
+				// Windows and browsers do not accept a wildcard right under a top-level name
+				// (*.localhost): Nido's local pages (db.localhost, salud.localhost) get their own.
+				if _, ok := s.Table.Lookup(name); ok {
+					return s.CA.Leaf(name)
+				}
 				return s.CA.Leaf("localhost")
 			}
 			if _, ok := s.Table.Lookup(name); ok {

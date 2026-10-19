@@ -45,3 +45,15 @@ func TestReverbIsPublishedAtItsOwnNameThroughTheProxy(t *testing.T) {
 		t.Fatal("a site without Reverb has no Reverb route")
 	}
 }
+
+// 'nido hosts sync' and the running Nido write the same names: the Reverb ones included.
+func TestHostNamesIncludeReverb(t *testing.T) {
+	got := HostNames([]sites.Site{
+		{Host: "tienda.test", Aliases: []string{"shop.test"}, Reverb: true},
+		{Host: "blog.test"},
+	})
+	want := []string{"tienda.test", "shop.test", "reverb.tienda.test", "blog.test"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}

@@ -424,8 +424,22 @@ var procCreateRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").NewProc
 // unprivilegedToken is Nido's own token with the Administrators and Power Users groups turned into
 // deny-only groups and the privileges removed: the way PostgreSQL's pg_ctl starts the server.
 func unprivilegedToken() (windows.Token, error) {
+	restricted, err := restrictedToken()
+	if err != nil {
+		return 0, err
+	}
+	if err := addUserToDefaultDacl(restricted); err != nil {
+		restricted.Close()
+		return 0, err
+	}
+	return restricted, nil
+}
+
+// restrictedToken is the current token without administrator groups and privileges.
+func restrictedToken() (windows.Token, error) {
 	var current windows.Token
-	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_DUPLICATE|windows.TOKEN_ASSIGN_PRIMARY|windows.TOKEN_QUERY, &current); err != nil {
+	access := uint32(windows.TOKEN_DUPLICATE | windows.TOKEN_ASSIGN_PRIMARY | windows.TOKEN_QUERY | windows.TOKEN_ADJUST_DEFAULT)
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), access, &current); err != nil {
 		return 0, err
 	}
 	defer current.Close()
@@ -446,6 +460,44 @@ func unprivilegedToken() (windows.Token, error) {
 		return 0, callErr
 	}
 	return restricted, nil
+}
+
+type tokenDefaultDacl struct{ DefaultDacl *windows.ACL }
+
+// addUserToDefaultDacl lets the process open the objects it creates itself. When Nido runs as
+// administrator, the default DACL of its token grants them to Administrators only, a group the
+// restricted token has as deny-only: the child then fails while loading its DLLs (0xC0000142).
+// pg_ctl does the same (AddUserToTokenDacl).
+func addUserToDefaultDacl(token windows.Token) error {
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return err
+	}
+	var size uint32
+	windows.GetTokenInformation(token, windows.TokenDefaultDacl, nil, 0, &size)
+	if size == 0 {
+		return fmt.Errorf("la sesión no tiene DACL predeterminada")
+	}
+	buf := make([]byte, size)
+	if err := windows.GetTokenInformation(token, windows.TokenDefaultDacl, &buf[0], size, &size); err != nil {
+		return err
+	}
+	current := (*tokenDefaultDacl)(unsafe.Pointer(&buf[0])).DefaultDacl
+	acl, err := windows.ACLFromEntries([]windows.EXPLICIT_ACCESS{{
+		AccessPermissions: windows.GENERIC_ALL,
+		AccessMode:        windows.GRANT_ACCESS,
+		Inheritance:       windows.NO_INHERITANCE,
+		Trustee: windows.TRUSTEE{
+			TrusteeForm:  windows.TRUSTEE_IS_SID,
+			TrusteeType:  windows.TRUSTEE_IS_USER,
+			TrusteeValue: windows.TrusteeValueFromSID(user.User.Sid),
+		},
+	}}, current)
+	if err != nil {
+		return err
+	}
+	dacl := tokenDefaultDacl{DefaultDacl: acl}
+	return windows.SetTokenInformation(token, windows.TokenDefaultDacl, (*byte)(unsafe.Pointer(&dacl)), uint32(unsafe.Sizeof(dacl)))
 }
 
 // resume starts the threads of a process created with CREATE_SUSPENDED.

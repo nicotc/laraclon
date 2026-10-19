@@ -245,7 +245,9 @@ func (d *Daemon) frankenOptions() (frankenphp.Options, error) {
 		return opt, err
 	}
 	opts := d.env.IniOptions()
-	opts.Builtin = true // FrankenPHP's PHP is built with its extensions inside
+	// Some FrankenPHP builds carry their extensions inside; the Windows ones since 1.13.1 ship them
+	// as DLLs in ext\ (pdo_mysql among them), which are loaded like a regular PHP's.
+	opts.Builtin = len(php.Extensions(d.env.Home, frankenPHPVersion(v), config.PHPExtensions{})) == 0
 	ini, err := php.WriteIni(d.env.Home, frankenPHPVersion(v), opts)
 	opt.IniDir = filepath.Dir(ini)
 	return opt, err

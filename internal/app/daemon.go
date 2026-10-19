@@ -633,8 +633,14 @@ func (d *Daemon) SyncHosts() error {
 func (d *Daemon) hostNames() []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	return HostNames(d.sites)
+}
+
+// HostNames are the names some sites need in the hosts file: each site, its aliases and, in the
+// projects with Reverb, reverb.<site>. 'nido hosts' and the running Nido use the same list.
+func HostNames(list []sites.Site) []string {
 	var names []string
-	for _, s := range d.sites {
+	for _, s := range list {
 		names = append(names, s.Host)
 		names = append(names, s.Aliases...)
 		if s.Reverb {

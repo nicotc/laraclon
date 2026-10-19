@@ -164,13 +164,13 @@ try {
 
     $deadline = (Get-Date).AddMinutes($TimeoutMin)
     $seen = 0
-    $peakVm = 0
+    $peakVm = [double]0 # bytes: an Int32 would overflow past 2 GB
     $minFree = [double]::MaxValue
     while (-not $done -and (Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 15
         # This computer's memory during the run: what the VM takes and what is left for the rest.
-        $peakVm = [Math]::Max($peakVm, (Get-VM -Name $Name).MemoryAssigned)
-        $minFree = [Math]::Min($minFree, (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1KB)
+        $peakVm = [Math]::Max($peakVm, [double](Get-VM -Name $Name).MemoryAssigned)
+        $minFree = [Math]::Min($minFree, [double](Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory * 1KB)
         try {
             if ($s.State -ne 'Opened') { $s = Connect-Vm }
             # The VM reads its own report and sends back finished lines of text.
