@@ -54,7 +54,8 @@ func (d *Daemon) dbGroups(problems map[string]string) []DBGroup {
 	var out []DBGroup
 	for _, kind := range ServiceKinds {
 		svc := d.env.Cfg.Service(string(kind))
-		g := DBGroup{Kind: string(kind), Name: kind.Name(), Default: svc.Default}
+		// Instances is never null: the panel counts them even for a kind nothing of is installed.
+		g := DBGroup{Kind: string(kind), Name: kind.Name(), Default: svc.Default, Instances: []InstanceStatus{}}
 		for _, ref := range d.env.Instances(kind) {
 			key := ref.Key()
 			st := InstanceStatus{

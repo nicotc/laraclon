@@ -213,7 +213,8 @@ func (d *Daemon) planPHP(list []sites.Site) ([]phpPool, []sites.Warning) {
 }
 
 // startPinnedPools starts the processes of the pinned pools that are not running yet (while clon's
-// services are on) and waits a few seconds for them, so a site moved to its pool answers at once.
+// services are on) and waits for them, so a site moved to its pool answers at once (the first start
+// of a version can take several seconds on a slow machine, and meanwhile the server would answer 503).
 // The global pool is startPHP's.
 func (d *Daemon) startPinnedPools(pools []phpPool) error {
 	d.mu.Lock()
@@ -257,7 +258,7 @@ func (d *Daemon) startPinnedPools(pools []phpPool) error {
 			started = append(started, spec.Name)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	for _, name := range started {
 		if err := d.sup.WaitRunning(ctx, name); err != nil {
@@ -274,6 +275,31 @@ func (d *Daemon) poolVersionOn(port int) string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.poolPortVersion[port]
+}
+
+// waitPinnedPool waits until the php-cgi processes of a pinned version's pool accept connections:
+// until then the sites moved to it would answer 503. Nothing to wait for when that version is the
+// global one (its sites use the global pool), or while clon's services are stopped.
+func (d *Daemon) waitPinnedPool(version string, debug bool, timeout time.Duration) error {
+	d.mu.Lock()
+	on := d.servicesOn
+	d.mu.Unlock()
+	if !on {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	for _, p := range d.currentPools() {
+		if p.Global || p.Debug != debug || p.Version.Version != version {
+			continue
+		}
+		for _, port := range p.Ports {
+			if err := d.sup.WaitRunning(ctx, php.PoolName(port)); err != nil {
+				return fmt.Errorf("PHP %s: %w", version, err)
+			}
+		}
+	}
+	return nil
 }
 
 // stopUnusedPools stops php-cgi processes that belong to no pool any more: a site went back to the
@@ -358,8 +384,10 @@ func (d *Daemon) SetSitePHP(site, want string) error {
 	if found.Server == config.ServerFrankenPHP && want != "" {
 		return fmt.Errorf("%s usa FrankenPHP, que trae su propio PHP; pásalo a Apache o Nginx para fijarle otro", found.Host)
 	}
+	var v versions.Version
 	if want != "" {
-		v, ok := d.env.Reg.Find(versions.PHP, want)
+		var ok bool
+		v, ok = d.env.Reg.Find(versions.PHP, want)
 		if !ok {
 			return fmt.Errorf("PHP %s no está instalado (instálalo con 'clon php install %s')", want, versions.MajorMinor(want))
 		}
@@ -378,6 +406,9 @@ func (d *Daemon) SetSitePHP(site, want string) error {
 	}
 	d.refreshShims()
 	err = d.Rescan()
+	if err == nil && want != "" {
+		err = d.waitPinnedPool(v.Version, found.Debug, 30*time.Second)
+	}
 	d.restartPHPProcesses()
 	d.changed()
 	return err

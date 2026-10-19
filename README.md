@@ -2,7 +2,7 @@
 
 Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e inspirado en Laragon. Escrito en Go. No está afiliado a Laragon ni a sus autores.
 
-**Estado:** fases 1 (núcleo) y 2 (versiones y servicios) completas; de la 3 (proyectos) solo falta compartir los sitios por Internet. Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
+**Estado:** fases 1 (núcleo) y 2 (versiones y servicios) completas; de la 3 (proyectos) solo falta compartir los sitios por Internet. Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (una VM de Hyper-V).
 
 ## Qué hace hoy
 
@@ -182,32 +182,49 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 
 `CLON_APACHE_LOGLEVEL="warn proxy_fcgi:trace8"` hace que Apache registre las variables que envía a PHP (útil para diagnosticar).
 
-## Probar en un Windows limpio (Windows Sandbox)
+## Probar en un Windows limpio (VM de Hyper-V)
 
 ```powershell
-.\scripts\sandbox\probar-en-sandbox.ps1
+# Una vez: crea la VM (Windows pide permiso de administrador; después hay que cerrar sesión y volver a entrar)
+.\scripts\vm\probar-en-vm.ps1 -Crear -Iso <ISO de Windows 11> -VmRoot D:\VMs
+# Cada prueba (con -DejarEncendida, la VM queda encendida al terminar para mirarla)
+.\scripts\vm\probar-en-vm.ps1 -VmRoot D:\VMs
+# Cambiar la memoria máxima de la VM o la contraseña de su cuenta clon
+.\scripts\vm\ajustar-vm.ps1 -MemoryGB 6 -Password <nueva> -VmRoot D:\VMs
 ```
 
-Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de clon y `C:\laragon\bin`. Dentro del sandbox recorre todo el flujo real:
-- Runtime de Visual C++, importación de Laragon y `clon setup`.
-- PHP descargado de windows.php.net.
-- Confiar en la CA y escribir el archivo `hosts`.
-- Puertos 80/443.
-- Proyecto Laravel nuevo con MySQL y `npm run build`.
-- MariaDB instalada desde el catálogo y corriendo a la vez que MySQL.
-- PHP 7.2 fijado en un sitio, en la web y en la terminal, mientras el resto usa el global.
-- Extensiones de PHP: Xdebug descargado y soap, activadas y apagadas.
-- Adminer en `https://db.localhost`, con entrada sin contraseña en MySQL.
-- Proyecto nuevo con `clon new` (kit de Vue, MySQL y pnpm), otro clonado de GitHub y preparado, y los procesos de un tercero: Vite por HTTPS, cola y tareas.
-- Node: otra versión instalada y borrada sin tocar la global, y yarn y pnpm desde los atajos.
-- Xdebug solo en un sitio, y `phpx` en la terminal.
-- Reverb en `wss://reverb.laravel-demo.test`: un cliente WebSocket de Node recibe el evento que envía PHP, los dos a través del proxy.
-- WordPress con `clon new --wordpress`: en español, con enlaces permanentes y el acceso de admin.
-- Symfony con `clon new --symfony --webapp`: el router responde a través del `.htaccess` y Doctrine usa MySQL.
-- Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
-- Edge sin avisos, cambio de PHP y cierre.
-
-Tarda alrededor de una hora. No cierres la ventana del sandbox hasta que diga «Prueba terminada»: al cerrarla se descarta todo lo de dentro. Al terminar, clon queda arrancado con el proyecto Laravel y el panel abiertos en Edge, para probarlo a mano. El informe queda en `dist\sandbox\<fecha>\resultados\report.md`. Los instaladores de Visual C++ se descargan en el equipo anfitrión (`dist\cache`) y se comparten con el sandbox, porque dentro su descarga resultó poco fiable. Primero se instala a propósito el de Visual Studio 2022 (14.44) y después el más reciente.
+- **La VM se crea sin asistente:**
+  - `crear-vm.ps1` aplica Windows 11 Pro del ISO directamente a un disco virtual dinámico. No hace falta activarlo para probar.
+  - Crea una cuenta `clon` de administrador que entra sola, copia dentro la carpeta `bin` de Laragon y guarda un checkpoint «limpia» con la sesión ya iniciada.
+  - Tu usuario pasa al grupo «Administradores de Hyper-V», así las pruebas no vuelven a pedir permiso.
+  - Memoria dinámica: arranca con 2 GB, baja a 1 GB en reposo y sube hasta 6 GB (`-MemoryGB`) solo mientras la prueba lo necesita.
+  - MAC fija: con una dinámica, al volver al checkpoint chocaba con la que el «Default Switch» había tomado entretanto, y la VM se quedaba minutos sin red.
+- **Cada prueba:**
+  - Compila clon, vuelve la VM a «limpia», le copia clon por PowerShell Direct (por Hyper-V, sin red) y ejecuta `dentro-de-la-vm.ps1` en la sesión de Windows. Antes comprueba que la VM tiene Internet.
+  - Recorre todo el flujo real:
+    - Runtime de Visual C++, importación de Laragon y `clon setup`.
+    - PHP descargado de windows.php.net.
+    - Confiar en la CA y escribir el archivo `hosts`.
+    - Puertos 80/443.
+    - Proyecto Laravel nuevo con MySQL y `npm run build`.
+    - MariaDB instalada desde el catálogo y corriendo a la vez que MySQL.
+    - PHP 7.2 fijado en un sitio, en la web y en la terminal, mientras el resto usa el global.
+    - Extensiones de PHP: Xdebug descargado y soap, activadas y apagadas.
+    - Adminer en `https://db.localhost`, con entrada sin contraseña en MySQL.
+    - Proyecto nuevo con `clon new` (kit de Vue, MySQL y pnpm), otro clonado de GitHub y preparado, y los procesos de un tercero: Vite por HTTPS, cola y tareas.
+    - Node: otra versión instalada y borrada sin tocar la global, y yarn y pnpm desde los atajos.
+    - Xdebug solo en un sitio, y `phpx` en la terminal.
+    - Reverb en `wss://reverb.laravel-demo.test`: un cliente WebSocket de Node recibe el evento que envía PHP, los dos a través del proxy.
+    - WordPress con `clon new --wordpress`: en español, con enlaces permanentes y el acceso de admin.
+    - Symfony con `clon new --symfony --webapp`: el router responde a través del `.htaccess` y Doctrine usa MySQL.
+    - Una plantilla propia guardada desde un proyecto y otro proyecto creado a partir de ella.
+    - Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
+    - Edge sin avisos, cambio de PHP y cierre.
+  - Tarda alrededor de una hora y muestra cada paso a medida que termina.
+  - El informe queda en `dist\vm\<fecha>\resultados\report.md`, y el avance, con la memoria que llegó a usar la VM, en `dist\vm\<fecha>\progreso.log`.
+  - Al terminar apaga la VM, para que su memoria vuelva al equipo. Con `-DejarEncendida` sigue encendida con clon arrancado y el proyecto Laravel y el panel abiertos en Edge, para probarlo a mano (`vmconnect.exe localhost clon-pruebas`).
+- Los instaladores de Visual C++ se descargan en el equipo anfitrión (`dist\cache`) y se copian a la VM. Primero se instala a propósito el de Visual Studio 2022 (14.44) y después el más reciente.
+- Antes se usaba Windows Sandbox, pero se cerraba solo a mitad de la prueba (error 0x80370106) y al cerrar su ventana se perdía todo.
 
 ## Estructura
 

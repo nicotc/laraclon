@@ -70,14 +70,22 @@ APP_LOCALE = "es"
 func (d *Daemon) recipesDir() string   { return d.env.Home.Config("recetas") }
 func (d *Daemon) templatesDir() string { return d.env.Home.Config("plantillas") }
 
+// ensureRecipesDir creates config\recetas the first time, with an example that shows the format.
+func (d *Daemon) ensureRecipesDir() error {
+	dir := d.recipesDir()
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "laravel-filament.toml"), []byte(recipeExample), 0o644)
+}
+
 // Recipes lists the recipes in config\recetas, writing the example the first time.
 func (d *Daemon) Recipes() []Recipe {
+	d.ensureRecipesDir()
 	dir := d.recipesDir()
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if os.MkdirAll(dir, 0o755) == nil {
-			os.WriteFile(filepath.Join(dir, "laravel-filament.toml"), []byte(recipeExample), 0o644)
-		}
-	}
 	entries, _ := os.ReadDir(dir)
 	out := []Recipe{}
 	for _, e := range entries {
@@ -292,6 +300,9 @@ func (d *Daemon) SaveTemplate(site, name string) (Recipe, error) {
 	if fileExists(dest) || fileExists(recipePath) {
 		return Recipe{}, fmt.Errorf("ya hay una plantilla %s: elige otro nombre", id)
 	}
+	if err := d.ensureRecipesDir(); err != nil {
+		return Recipe{}, err
+	}
 	if err := copyTree(s.Folder, dest, templateSkip, templateEmpty); err != nil {
 		os.RemoveAll(dest)
 		return Recipe{}, err
@@ -309,6 +320,7 @@ func (d *Daemon) SaveTemplate(site, name string) (Recipe, error) {
 	}
 	f, err := os.Create(recipePath)
 	if err != nil {
+		os.RemoveAll(dest)
 		return Recipe{}, err
 	}
 	fmt.Fprintf(f, "# Plantilla guardada desde %s: los proyectos nuevos copian config\\plantillas\\%s\n", s.Host, id)

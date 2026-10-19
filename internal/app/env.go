@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nicotc/laraclon/internal/ca"
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/install"
 	"github.com/nicotc/laraclon/internal/mongodb"
@@ -79,6 +80,32 @@ func (e *Env) GlobalNode() (versions.Version, error) {
 		return v, fmt.Errorf("no hay ninguna versión de Node instalada (usa 'clon node install lts')")
 	}
 	return v, nil
+}
+
+// RefreshCABundle rewrites ssl\cacert-bundle.pem, the public roots plus clon's CA that PHP and
+// Composer trust, when it is missing or older than the public list: the local CA may exist before
+// that list is downloaded, and a bundle with clon's CA alone makes every HTTPS download fail.
+func (e *Env) RefreshCABundle(authority *ca.Authority, force bool) error {
+	bundle := e.Home.SSL("cacert-bundle.pem")
+	b, berr := os.Stat(bundle)
+	m, merr := os.Stat(install.MozillaBundle(e.Home))
+	if force || berr != nil || (merr == nil && m.ModTime().After(b.ModTime())) {
+		return authority.WriteBundle(install.MozillaBundle(e.Home), bundle)
+	}
+	return nil
+}
+
+// RefreshCABundleFile is RefreshCABundle for the command line: nothing to do until the local CA
+// exists.
+func (e *Env) RefreshCABundleFile() error {
+	if !fileExists(e.Home.SSL("clon-ca.crt")) {
+		return nil
+	}
+	authority, _, err := ca.LoadOrCreate(e.Home.SSL())
+	if err != nil {
+		return err
+	}
+	return e.RefreshCABundle(authority, false)
 }
 
 // CABundle is the PEM file PHP uses for HTTPS: the public roots plus the local CA ("" if absent).

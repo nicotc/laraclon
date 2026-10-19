@@ -4,9 +4,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/sites"
+	"github.com/nicotc/laraclon/internal/supervisor"
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
@@ -102,5 +104,24 @@ func TestPinnedSitesGetAPoolOfTheirVersion(t *testing.T) {
 	}
 	if reflect.DeepEqual(back[1].Ports, pinned.Ports) {
 		t.Fatalf("8.4 must not take the ports kept for 7.2 (%v)", pinned.Ports)
+	}
+}
+
+// 'clon site php' ends when the site answers with its version, and only waits for that site's pool.
+func TestPinningWaitsForTheSitesOwnPool(t *testing.T) {
+	d := &Daemon{env: testEnv(t), sup: supervisor.New(), pools: []phpPool{
+		{Name: "global", Global: true, Ports: []int{9100}},
+		{Name: "7.2", Version: versions.Version{Version: "7.2.0"}, Ports: []int{9200}},
+	}}
+	// With clon's services stopped nothing runs: pinning only changes the configuration.
+	if err := d.waitPinnedPool("7.2.0", false, 50*time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	d.servicesOn = true
+	if err := d.waitPinnedPool("8.1.0", false, 50*time.Millisecond); err != nil {
+		t.Fatalf("8.1 has no pool of its own to wait for: %v", err)
+	}
+	if err := d.waitPinnedPool("7.2.0", false, 50*time.Millisecond); err == nil {
+		t.Fatal("the 7.2 pool is not running, so its sites would answer 503")
 	}
 }

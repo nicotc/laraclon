@@ -161,6 +161,10 @@ func cmdSetup(ctx context.Context, env *app.Env) error {
 			return err
 		}
 	}
+	// The local CA may already exist (the Node step creates it): PHP's bundle gets the public list.
+	if err := env.RefreshCABundleFile(); err != nil {
+		return err
+	}
 	if err := refreshShims(env); err != nil {
 		return err
 	}

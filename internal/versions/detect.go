@@ -11,7 +11,9 @@ import (
 	"github.com/nicotc/laraclon/internal/procutil"
 )
 
-const probeTimeout = 20 * time.Second
+// probeTimeout bounds asking a program its version. The first run of a freshly downloaded program
+// can take long: the antivirus scans it (MariaDB took over 20 s on a fresh Windows).
+const probeTimeout = 60 * time.Second
 
 func exists(p string) bool {
 	_, err := os.Stat(p)

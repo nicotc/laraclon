@@ -99,10 +99,8 @@ func NewDaemon(env *Env) (*Daemon, error) {
 	if err != nil {
 		return nil, fmt.Errorf("CA local: %w", err)
 	}
-	if created || !fileExists(env.Home.SSL("cacert-bundle.pem")) {
-		if err := authority.WriteBundle(install.MozillaBundle(env.Home), env.Home.SSL("cacert-bundle.pem")); err != nil {
-			return nil, err
-		}
+	if err := env.RefreshCABundle(authority, created); err != nil {
+		return nil, err
 	}
 	store, err := sites.LoadPorts(env.Home.State("site-ports.json"))
 	if err != nil {
@@ -507,6 +505,20 @@ func (d *Daemon) Rescan() error {
 	return nil
 }
 
+// waitGlobalPool waits until every php-cgi of the global pool accepts connections, so a switch
+// ends when the sites already answer with the new version (a first start can take seconds on a
+// slow machine, and meanwhile Apache would answer 503).
+func (d *Daemon) waitGlobalPool(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	for _, port := range php.PoolPorts(d.env.Cfg.PHP.BasePort, d.env.Cfg.PHP.PoolSize) {
+		if err := d.sup.WaitRunning(ctx, php.PoolName(port)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // UsePHP switches the global PHP: its pool restarts on the same ports, Apache is not touched. The
 // pools of the versions some sites pinned keep running.
 func (d *Daemon) UsePHP(want string) (versions.Version, error) {
@@ -527,6 +539,9 @@ func (d *Daemon) UsePHP(want string) (versions.Version, error) {
 	}
 	d.sup.StopMatching(func(n string) bool { return global[n] })
 	err := d.startPHP()
+	if err == nil {
+		err = d.waitGlobalPool(30 * time.Second)
+	}
 	d.setProblem("php", err)
 	if d.sup.PID(adminerService) != 0 {
 		d.setProblem("adminer", d.startAdminer(true)) // Adminer runs on the global PHP

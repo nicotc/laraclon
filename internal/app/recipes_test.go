@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/nicotc/laraclon/internal/sites"
 )
 
 func TestTheExampleRecipeReadsAsAProject(t *testing.T) {
@@ -67,5 +69,26 @@ func TestCopyTreeLeavesOutWhatTemplatesSkip(t *testing.T) {
 		"storage/app/.gitignore", "storage/framework/views/.gitignore", "storage/logs/.gitignore"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// On a fresh install config\recetas does not exist yet; «Guardar como plantilla» failed there.
+func TestSavingATemplateOnAFreshInstall(t *testing.T) {
+	src := t.TempDir()
+	os.WriteFile(filepath.Join(src, "artisan"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(src, ".env"), []byte("DB_CONNECTION=mysql\n"), 0o644)
+	d := &Daemon{env: testEnv(t), sites: []sites.Site{{Name: "demo", Host: "demo.test", Folder: src}}}
+	r, err := d.SaveTemplate("demo", "base demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ID != "base-demo" || r.Database != "mysql" || !fileExists(filepath.Join(d.templatesDir(), "base-demo", "artisan")) {
+		t.Fatalf("got %+v", r)
+	}
+	if got := readRecipe(filepath.Join(d.recipesDir(), "base-demo.toml")); got.Error != "" || got.Source.Type != "folder" {
+		t.Fatalf("the saved recipe reads as %+v", got)
+	}
+	if !fileExists(filepath.Join(d.recipesDir(), "laravel-filament.toml")) {
+		t.Fatal("the example recipe should be written along with the folder")
 	}
 }

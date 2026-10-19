@@ -1,5 +1,5 @@
-# Prueba de clon de punta a punta en un Windows limpio (Windows Sandbox).
-# La lanza probar-en-sandbox.ps1; los resultados quedan en C:\resultados (carpeta del host).
+# Prueba de clon de punta a punta en un Windows limpio: la VM de Hyper-V de crear-vm.ps1.
+# La lanza probar-en-vm.ps1, que recoge los resultados de C:\resultados.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $R = 'C:\resultados'
@@ -8,11 +8,10 @@ $clon = Join-Path $H 'clon.exe'
 $shims = Join-Path $H 'shims'
 $report = New-Object System.Collections.ArrayList
 $utf8 = New-Object System.Text.UTF8Encoding $false
-$Host.UI.RawUI.WindowTitle = 'clon - prueba en Windows Sandbox'
+$Host.UI.RawUI.WindowTitle = 'clon - prueba en la VM'
 Start-Transcript -Path (Join-Path $R 'transcript.txt') -Force | Out-Null
-# Closing the sandbox window discards the machine; a run was lost that way halfway through.
-Write-Host 'Prueba automática de clon: tarda unos 15-20 minutos.' -ForegroundColor Yellow
-Write-Host 'No cierres esta ventana ni el sandbox hasta que aparezca "Prueba terminada".' -ForegroundColor Yellow
+Write-Host 'Prueba automática de clon: tarda alrededor de una hora.' -ForegroundColor Yellow
+Write-Host 'No cierres esta ventana hasta que aparezca "Prueba terminada".' -ForegroundColor Yellow
 $stepNo = 0
 
 function Save-Report {
@@ -21,7 +20,7 @@ function Save-Report {
 
 function Step([string]$name, [scriptblock]$body) {
     $script:stepNo++
-    $Host.UI.RawUI.WindowTitle = "clon - paso $($script:stepNo): $name - NO CIERRES EL SANDBOX"
+    $Host.UI.RawUI.WindowTitle = "clon - paso $($script:stepNo): $name"
     Write-Host ''
     Write-Host "=== $name ===" -ForegroundColor Cyan
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -58,10 +57,9 @@ function Invoke-Curl([string]$arguments) {
     return $text.Trim()
 }
 
-Step 'Entorno del sandbox' {
-    # Windows Sandbox has died twice with 0x80370106 ("the virtual machine or container exited
-    # unexpectedly") right after installs or opening Edge; reports link it to Windows and Edge
-    # updating themselves inside the sandbox. This throwaway machine needs neither.
+Step 'Entorno de Windows' {
+    # Windows and Edge updating themselves in the middle of a run made test machines die or restart
+    # (Windows Sandbox: 0x80370106); a machine that goes back to a checkpoint needs neither.
     try {
         $edgeUpdate = 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate'
         New-Item -Path $edgeUpdate -Force | Out-Null
@@ -94,7 +92,7 @@ if (-not $script:vcBefore) {
     }
 }
 
-Step 'Importar Laragon (binarios compartidos en solo lectura)' { Invoke-Tool $clon 'import laragon' 180 }
+Step 'Importar Laragon (copia de su carpeta bin)' { Invoke-Tool $clon 'import laragon' 180 }
 
 Step 'clon setup: Node LTS con npm y npx, Composer y CAs públicas' { Invoke-Tool $clon 'setup' 900 }
 
@@ -289,9 +287,10 @@ Step 'Laravel por HTTPS: https://laravel-demo.test' {
 
 Step 'Edge abre https://demo.test sin aviso de certificado' {
     $edge = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
-    if (-not (Test-Path $edge)) { throw 'Edge no está en el sandbox' }
+    if (-not (Test-Path $edge)) { throw 'Edge no está instalado' }
     $dom = Join-Path $env:TEMP 'edge-dom.html'
-    $p = Start-Process $edge -ArgumentList '--headless=new --disable-gpu --no-first-run --user-data-dir=C:\edge-prueba --dump-dom https://demo.test/estado.php' `
+    # Started by an administrator, Edge restarts itself without rights and this one prints nothing.
+    $p = Start-Process $edge -ArgumentList '--headless=new --do-not-de-elevate --disable-gpu --no-first-run --user-data-dir=C:\edge-prueba --dump-dom https://demo.test/estado.php' `
         -NoNewWindow -PassThru -RedirectStandardOutput $dom
     $null = $p.Handle
     if (-not $p.WaitForExit(120000)) { try { $p.Kill() } catch {}; throw 'Edge tardó demasiado' }
@@ -312,22 +311,27 @@ Step 'Cambio de PHP en caliente (8.4 -> 8.3 -> 8.4)' {
 }
 
 Step 'PHP fijado por sitio: demo.test con PHP 7.2 y el resto con el global (clon site php)' {
-    Invoke-Tool $clon 'site php demo 7.2' 300 | Out-Null
-    $j = (Invoke-Curl 'https://demo.test/') | ConvertFrom-Json
-    if (-not "$($j.php)".StartsWith('7.2')) { throw "demo.test responde PHP $($j.php) en vez de 7.2" }
-    $up = Invoke-Curl '-o NUL -w %{http_code} https://laravel-demo.test/up'
-    if ($up -ne '200') { throw "laravel-demo.test (PHP global) respondió HTTP $up" }
-    # In the terminal, php and composer follow the folder: Composer 2.2 LTS for a PHP older than 7.2.5.
-    $inside = Invoke-Tool "$shims\php.exe" '-r "echo PHP_VERSION;"' 60 'C:\www\demo'
-    $outside = Invoke-Tool "$shims\php.exe" '-r "echo PHP_VERSION;"' 60 'C:\www\laravel-demo'
-    $composer = ((Invoke-Tool "$shims\composer.exe" '--version' 120 'C:\www\demo') -split "`n" | Select-Object -First 1).Trim()
-    if (-not $inside.StartsWith('7.2') -or $outside.StartsWith('7.2')) { throw "terminal: $inside dentro de demo, $outside fuera" }
-    # Switching the global PHP leaves the pinned site alone.
-    Invoke-Tool $clon 'php use 8.3' 120 | Out-Null
-    $while83 = ((Invoke-Curl 'https://demo.test/') | ConvertFrom-Json).php
-    Invoke-Tool $clon 'php use 8.4' 120 | Out-Null
-    if (-not "$while83".StartsWith('7.2')) { throw "con el PHP global en 8.3, demo.test respondió PHP $while83" }
-    Invoke-Tool $clon 'site php demo global' 120 | Out-Null
+    try {
+        Invoke-Tool $clon 'site php demo 7.2' 300 | Out-Null
+        $body = Invoke-Curl 'https://demo.test/'
+        $j = try { $body | ConvertFrom-Json } catch { throw "demo.test no devolvió JSON: $body" }
+        if (-not "$($j.php)".StartsWith('7.2')) { throw "demo.test responde PHP $($j.php) en vez de 7.2" }
+        $up = Invoke-Curl '-o NUL -w %{http_code} https://laravel-demo.test/up'
+        if ($up -ne '200') { throw "laravel-demo.test (PHP global) respondió HTTP $up" }
+        # In the terminal, php and composer follow the folder: Composer 2.2 LTS for a PHP older than 7.2.5.
+        $inside = Invoke-Tool "$shims\php.exe" '-r "echo PHP_VERSION;"' 60 'C:\www\demo'
+        $outside = Invoke-Tool "$shims\php.exe" '-r "echo PHP_VERSION;"' 60 'C:\www\laravel-demo'
+        $composer = ((Invoke-Tool "$shims\composer.exe" '--version' 120 'C:\www\demo') -split "`n" | Select-Object -First 1).Trim()
+        if (-not $inside.StartsWith('7.2') -or $outside.StartsWith('7.2')) { throw "terminal: $inside dentro de demo, $outside fuera" }
+        # Switching the global PHP leaves the pinned site alone.
+        Invoke-Tool $clon 'php use 8.3' 120 | Out-Null
+        $while83 = ((Invoke-Curl 'https://demo.test/') | ConvertFrom-Json).php
+        Invoke-Tool $clon 'php use 8.4' 120 | Out-Null
+        if (-not "$while83".StartsWith('7.2')) { throw "con el PHP global en 8.3, demo.test respondió PHP $while83" }
+    } finally {
+        # The next steps use demo.test with the global PHP, also when this one fails.
+        Invoke-Tool $clon 'site php demo global' 120 | Out-Null
+    }
     $back = ((Invoke-Curl 'https://demo.test/') | ConvertFrom-Json).php
     if (-not "$back".StartsWith('8.4')) { throw "de vuelta al global, demo.test respondió PHP $back" }
     "web: demo.test PHP $($j.php) (MySQL $($j.mysql)) · laravel-demo.test /up HTTP $up`n" +
@@ -380,7 +384,7 @@ Step 'Adminer en https://db.localhost: entra como root sin contraseña y ve lara
     "$(([regex]::Match($page, '<title>([^<]*)</title>')).Groups[1].Value) · entrada sin contraseña: HTTP $post · lista laravel_demo"
 }
 
-# The sandbox starts with the runtime of Visual Studio 2022 (14.44). Apache Lounge builds Apache with
+# The test installs the runtime of Visual Studio 2022 (14.44) first. Apache Lounge builds Apache with
 # Visual Studio 2026, for which Microsoft asks a newer runtime; it runs anyway, and clon recommends it.
 Step 'Apache de Apache Lounge desde el catálogo y cambio de versión (clon apache install / use)' {
     $out = Invoke-Tool $clon 'apache install' 900
@@ -488,6 +492,16 @@ Step 'Symfony con clon new --symfony --webapp: .htaccess de Apache, Doctrine en 
     "$((($out -split "`n") | Select-Object -Last 1).Trim())`nbienvenida de Symfony · /no-existe responde el router (el .htaccess reescribe) · Doctrine conectado a demo_symfony"
 }
 
+Step 'Plantilla propia: laravel-demo guardado como plantilla y un proyecto nuevo desde ella (clon site template)' {
+    Invoke-Tool $clon 'site template laravel-demo base-demo' 300 | Out-Null
+    $saved = 'C:\clon\config\plantillas\base-demo'
+    if ((Test-Path "$saved\vendor") -or (Test-Path "$saved\.env") -or -not (Test-Path "$saved\artisan")) { throw "la plantilla no quedó como debía en $saved" }
+    $out = Invoke-Tool $clon 'new desde-plantilla --receta base-demo' 1800
+    $code = Invoke-Curl '--resolve desde-plantilla.test:443:127.0.0.1 -o NUL -w %{http_code} https://desde-plantilla.test/'
+    if ($code -ne '200') { throw "desde-plantilla.test: HTTP $code`n$out" }
+    "$((($out -split "`n") | Select-Object -Last 1).Trim())`nplantilla sin vendor ni .env · https://desde-plantilla.test: HTTP $code"
+}
+
 Step 'Procesos del proyecto: Vite con HTTPS, cola y tareas (clon site proc)' {
     $hot = 'C:\www\laravel-demo\public\hot'
     Invoke-Tool $clon 'site proc laravel-demo vite on' 120 | Out-Null
@@ -523,7 +537,10 @@ Step 'Node, npm, npx, Composer y PHP desde shims\' {
 
 Step 'Reverb en wss://reverb.laravel-demo.test: evento de PHP a un cliente WebSocket (clon site proc reverb)' {
     $dir = 'C:\www\laravel-demo'
-    Invoke-Tool "$shims\php.exe" 'artisan install:broadcasting --reverb --no-interaction' 900 $dir | Out-Null
+    # Laravel's installer gives npm 60 s, too little on a slow machine: the frontend part goes apart.
+    Invoke-Tool "$shims\php.exe" 'artisan install:broadcasting --reverb --without-node --no-interaction' 900 $dir | Out-Null
+    Invoke-Tool "$shims\npm.exe" 'install --save-dev laravel-echo pusher-js --no-audit --no-fund' 1200 $dir | Out-Null
+    Invoke-Tool "$shims\npm.exe" 'run build' 600 $dir | Out-Null
     Invoke-Tool $clon 'rescan' 120 | Out-Null
     Invoke-Tool $clon 'site proc laravel-demo reverb on' 900 | Out-Null
     # reverb.laravel-demo.test goes to the hosts file like the site names.
@@ -571,6 +588,7 @@ Step 'Node: líneas de nodejs.org, otra versión, yarn y pnpm (clon node)' {
     if ((Invoke-Tool "$shims\node.exe" '-v' 60).Trim() -ne $global) { throw "el Node global cambió al instalar $v22" }
     Invoke-Tool $clon "node uninstall $v22" 120 | Out-Null
     if (Test-Path "$H\bin\node\$v22") { throw "quedó la carpeta de Node $v22" }
+    Invoke-Tool $clon 'node install pnpm' 600 | Out-Null # the Vue project above may have installed it already
     $yarn = Invoke-Tool $clon 'node install yarn' 600
     $versions = "pnpm $((Invoke-Tool "$shims\pnpm.exe" '--version' 120).Trim()) · yarn $((Invoke-Tool "$shims\yarn.exe" '--version' 120).Trim())"
     "$(($lines -split "`n" | Where-Object { $_ -match 'LTS|actual' }) -join ' |')`nNode $v22 instalado junto al global ($global) y borrado · $versions"
@@ -603,13 +621,13 @@ Copy-Item "$H\generated\apache\*\httpd.conf" "$R\config" -ErrorAction SilentlyCo
 
 $ok = @($report | Where-Object { $_.ok }).Count
 $bad = @($report | Where-Object { -not $_.ok }).Count
-$md = "# Prueba de clon en Windows Sandbox`n`n$(Get-Date -Format 'yyyy-MM-dd HH:mm') · $ok pasos bien, $bad con fallo`n`n| Paso | Resultado | Segundos |`n|---|---|---|`n"
+$md = "# Prueba de clon en una VM de Windows`n`n$(Get-Date -Format 'yyyy-MM-dd HH:mm') · $ok pasos bien, $bad con fallo`n`n| Paso | Resultado | Segundos |`n|---|---|---|`n"
 foreach ($s in $report) { $md += "| $($s.paso) | $(if ($s.ok) { 'OK' } else { 'FALLO' }) | $($s.segundos) |`n" }
 foreach ($s in $report) { $md += "`n## $($s.paso)`n`n``````text`n$($s.detalle)`n```````n" }
 [IO.File]::WriteAllText("$R\report.md", $md, $utf8)
 [IO.File]::WriteAllText("$R\done.json", (@{ ok = $ok; fallos = $bad; fin = (Get-Date -Format o) } | ConvertTo-Json), $utf8)
 
-# The last step closed clon to check that nothing was left behind; whoever looks at the sandbox
+# The last step closed clon to check that nothing was left behind; whoever looks at the VM
 # should find it running, so it starts again with the Laravel project and the panel open.
 $demo = 'clon sigue arrancado para que lo pruebes: su icono está junto al reloj (quizá bajo ^), y Edge tiene abiertos el proyecto Laravel y el panel.'
 try {
@@ -630,5 +648,5 @@ $Host.UI.RawUI.WindowTitle = 'clon - prueba terminada'
 Write-Host ''
 Write-Host "Prueba terminada: $ok pasos bien, $bad con fallo." -ForegroundColor Cyan
 Write-Host $demo -ForegroundColor Cyan
-Write-Host 'Al cerrar el sandbox se descarta todo lo de dentro.' -ForegroundColor Cyan
+Write-Host 'La próxima prueba vuelve la VM al checkpoint «limpia».' -ForegroundColor Cyan
 while ($true) { Start-Sleep -Seconds 3600 } # keeps this message on screen

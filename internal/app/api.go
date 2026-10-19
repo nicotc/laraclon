@@ -121,7 +121,20 @@ func (d *Daemon) Status() Status {
 	if content, err := os.ReadFile(hosts.Path()); err == nil {
 		st.HostsMissing = hosts.Missing(string(content), d.hostNames())
 	}
+	// The panel reads every list as an array: on a fresh install an empty one must not travel as
+	// null (it broke the whole panel).
+	st.Roots, st.PHPVersions, st.ApacheVersions = orEmpty(st.Roots), orEmpty(st.PHPVersions), orEmpty(st.ApacheVersions)
+	st.PHPPools, st.Databases, st.Jobs = orEmpty(st.PHPPools), orEmpty(st.Databases), orEmpty(st.Jobs)
+	st.HostsMissing, st.Services, st.Sites, st.Warnings = orEmpty(st.HostsMissing), orEmpty(st.Services), orEmpty(st.Sites), orEmpty(st.Warnings)
 	return st
+}
+
+// orEmpty turns a nil list into an empty one, so JSON has [] instead of null.
+func orEmpty[T any](list []T) []T {
+	if list == nil {
+		return []T{}
+	}
+	return list
 }
 
 // Handler serves the panel (https://localhost) and the JSON API used by the panel and the CLI.
