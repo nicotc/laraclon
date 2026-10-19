@@ -434,6 +434,14 @@ func cmdComposer(ctx context.Context, env *app.Env, args []string) error {
 		return err
 	}
 	fmt.Println("Composer en", path)
+	// Composer 2.2 LTS, for projects pinned to a PHP older than 7.2.5, stays up to date too.
+	if _, err := os.Stat(install.ComposerLTSPhar(env.Home)); err == nil {
+		if path, err := install.InstallComposerLTS(ctx, env.Home); err == nil {
+			fmt.Println("Composer 2.2 LTS en", path)
+		} else {
+			fmt.Println("No se pudo actualizar Composer 2.2 LTS:", err)
+		}
+	}
 	return refreshShims(env)
 }
 

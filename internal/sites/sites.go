@@ -31,8 +31,13 @@ type Site struct {
 	Kind    string   `json:"kind"`     // laravel, wordpress, symfony, php, static
 	Aliases []string `json:"aliases,omitempty"`
 	HTTPS   bool     `json:"https"`
-	Server  string   `json:"server"` // apache, nginx
-	Port    int      `json:"port"`   // internal port on its web server
+	Server  string   `json:"server"`        // apache, nginx, frankenphp
+	PHP     string   `json:"php,omitempty"` // PHP version the site pinned ("" = the global one)
+	Port    int      `json:"port"`          // internal port on its web server
+
+	// Filled in by clon when it plans the PHP pools.
+	PHPVersion string `json:"php_version,omitempty"` // the PHP that serves the site
+	Pool       string `json:"-"`                     // name of its php-cgi pool
 }
 
 // Warning explains why a folder did not become a site.
@@ -146,6 +151,7 @@ func Scan(cfg config.Config) ([]Site, []Warning) {
 				Aliases: settings.Aliases,
 				HTTPS:   cfg.HTTPSFor(name),
 				Server:  cfg.ServerFor(name),
+				PHP:     settings.PHP,
 			})
 		}
 	}

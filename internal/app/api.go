@@ -27,6 +27,7 @@ type Status struct {
 	Home           string              `json:"home"`
 	PHP            string              `json:"php"`
 	PHPVersions    []string            `json:"php_versions"`
+	PHPPools       []PoolStatus        `json:"php_pools"` // the global PHP's pool first, then the pinned versions'
 	Node           string              `json:"node"`
 	Apache         string              `json:"apache"`
 	ApacheVersions []string            `json:"apache_versions"`
@@ -73,6 +74,7 @@ func (d *Daemon) Status() Status {
 	for _, v := range d.env.Reg.List(versions.PHP) {
 		st.PHPVersions = append(st.PHPVersions, v.Version)
 	}
+	st.PHPPools = d.poolStatuses()
 	if v, err := d.env.GlobalNode(); err == nil {
 		st.Node = v.Version
 	}
@@ -217,6 +219,14 @@ func (d *Daemon) Handler() http.Handler {
 			return nil, err
 		}
 		err := d.SetSiteServer(req.Site, req.Server)
+		return d.Status(), err
+	})
+	api("POST /api/sites/php", func(r *http.Request) (any, error) {
+		var req struct{ Site, PHP string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		err := d.SetSitePHP(req.Site, req.PHP)
 		return d.Status(), err
 	})
 	api("GET /api/jobs", func(*http.Request) (any, error) { return d.Jobs(), nil })

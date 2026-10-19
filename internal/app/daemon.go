@@ -58,22 +58,25 @@ type Daemon struct {
 	fphp  *sites.PortStore // FrankenPHP port of the sites that use FrankenPHP
 	token string
 
-	mu          sync.Mutex
-	sites       []sites.Site
-	warnings    []sites.Warning
-	problems    map[string]string // component → last problem, shown in the panel and tray
-	proxyUp     bool
-	stopWatch   func()
-	phpPorts    []int
-	apacheConf  string
-	controlPort int
-	trusted     bool
-	trustedAt   time.Time
-	servicesOn  bool   // between «Iniciar todo» and «Detener todo»
-	nginxPath   string // folder of the nginx that is running
-	frankenPath string // folder of the FrankenPHP that is running
-	runtime     RuntimeStatus
-	runtimeAt   time.Time
+	mu              sync.Mutex
+	sites           []sites.Site
+	warnings        []sites.Warning
+	problems        map[string]string // component → last problem, shown in the panel and tray
+	proxyUp         bool
+	stopWatch       func()
+	phpPorts        []int
+	apacheConf      string
+	controlPort     int
+	trusted         bool
+	trustedAt       time.Time
+	servicesOn      bool   // between «Iniciar todo» and «Detener todo»
+	nginxPath       string // folder of the nginx that is running
+	frankenPath     string // folder of the FrankenPHP that is running
+	runtime         RuntimeStatus
+	runtimeAt       time.Time
+	pools           []phpPool      // the global PHP pool first, then one per pinned version
+	poolPorts       *poolStore     // ports of the pinned versions
+	poolPortVersion map[int]string // PHP version each pinned pool port runs
 
 	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
 	cfgMu sync.Mutex
@@ -107,20 +110,26 @@ func NewDaemon(env *Env) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	pools, err := loadPoolStore(env.Home.State("php-pools.json"))
+	if err != nil {
+		return nil, err
+	}
 	tok := make([]byte, 24)
 	rand.Read(tok)
 	d := &Daemon{
-		env:      env,
-		sup:      supervisor.New(),
-		ca:       authority,
-		table:    &proxy.Table{},
-		store:    store,
-		ngx:      ngx,
-		fphp:     fphp,
-		token:    hex.EncodeToString(tok),
-		problems: map[string]string{},
-		quit:     make(chan struct{}),
-		jobs:     jobList{jobs: map[string]*Job{}},
+		env:             env,
+		sup:             supervisor.New(),
+		ca:              authority,
+		table:           &proxy.Table{},
+		store:           store,
+		ngx:             ngx,
+		fphp:            fphp,
+		token:           hex.EncodeToString(tok),
+		problems:        map[string]string{},
+		quit:            make(chan struct{}),
+		jobs:            jobList{jobs: map[string]*Job{}},
+		poolPorts:       pools,
+		poolPortVersion: map[int]string{},
 	}
 	d.sup.OnChange = d.changed
 	return d, nil
@@ -358,17 +367,14 @@ func (d *Daemon) apacheOptions() (apache.Options, error) {
 	if err != nil {
 		return apache.Options{}, err
 	}
+	opt := apache.Options{Home: d.env.Home, Version: v, AdminPort: apacheAdminPort, Pools: d.apachePools()}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	opt := apache.Options{Home: d.env.Home, Version: v, AdminPort: apacheAdminPort, PHPPorts: d.phpPorts}
-	if len(opt.PHPPorts) == 0 {
-		opt.PHPPorts = php.PoolPorts(d.env.Cfg.PHP.BasePort, d.env.Cfg.PHP.PoolSize)
-	}
 	for _, s := range d.sites {
 		if s.Server != config.ServerApache {
 			continue
 		}
-		opt.Sites = append(opt.Sites, apache.Site{Host: s.Host, Aliases: s.Aliases, DocRoot: s.DocRoot, Port: s.Port, HTTPS: s.HTTPS})
+		opt.Sites = append(opt.Sites, apache.Site{Host: s.Host, Aliases: s.Aliases, DocRoot: s.DocRoot, Port: s.Port, HTTPS: s.HTTPS, Pool: s.Pool})
 	}
 	return opt, nil
 }
@@ -445,9 +451,16 @@ func (d *Daemon) Rescan() error {
 	if err := assignPorts(list, d.store, d.serverPorts(), own); err != nil {
 		return err
 	}
+	pools, notes := d.planPHP(list)
 	d.mu.Lock()
-	d.sites, d.warnings = list, warns
+	d.sites, d.warnings, d.pools = list, append(warns, notes...), pools
 	d.mu.Unlock()
+
+	// The pool of a pinned PHP runs before any server sends it requests, and stops after none does.
+	d.setProblem("php-fijado", d.startPinnedPools(pools))
+	defer d.stopUnusedPools(pools)
+	// Reloaded servers answer the next request with their new configuration.
+	defer proxy.ForgetConnections()
 
 	// The optional servers first: a site moving to one is served there before the proxy points to it.
 	d.setProblem("nginx", d.syncNginx())
@@ -472,7 +485,8 @@ func (d *Daemon) Rescan() error {
 	return nil
 }
 
-// UsePHP switches the global PHP: the pool restarts on the same ports, Apache is not touched.
+// UsePHP switches the global PHP: its pool restarts on the same ports, Apache is not touched. The
+// pools of the versions some sites pinned keep running.
 func (d *Daemon) UsePHP(want string) (versions.Version, error) {
 	v, ok := d.env.Reg.Find(versions.PHP, want)
 	if !ok {
@@ -485,9 +499,19 @@ func (d *Daemon) UsePHP(want string) (versions.Version, error) {
 	if _, err := d.env.RefreshShims(); err != nil {
 		return v, err
 	}
-	d.sup.StopMatching(func(n string) bool { return strings.HasPrefix(n, "php-cgi-") })
+	global := map[string]bool{}
+	for _, port := range php.PoolPorts(d.env.Cfg.PHP.BasePort, d.env.Cfg.PHP.PoolSize) {
+		global[php.PoolName(port)] = true
+	}
+	d.sup.StopMatching(func(n string) bool { return global[n] })
 	err := d.startPHP()
 	d.setProblem("php", err)
+	// A site that pinned the old or the new global version moves between pools.
+	if d.anyPinned() {
+		if err := d.Rescan(); err != nil {
+			d.setProblem("sitios", err)
+		}
+	}
 	d.changed()
 	return v, err
 }

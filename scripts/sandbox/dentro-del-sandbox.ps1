@@ -311,6 +311,30 @@ Step 'Cambio de PHP en caliente (8.4 -> 8.3 -> 8.4)' {
     $lines -join "`n"
 }
 
+Step 'PHP fijado por sitio: demo.test con PHP 7.2 y el resto con el global (clon site php)' {
+    Invoke-Tool $clon 'site php demo 7.2' 300 | Out-Null
+    $j = (Invoke-Curl 'https://demo.test/') | ConvertFrom-Json
+    if (-not "$($j.php)".StartsWith('7.2')) { throw "demo.test responde PHP $($j.php) en vez de 7.2" }
+    $up = Invoke-Curl '-o NUL -w %{http_code} https://laravel-demo.test/up'
+    if ($up -ne '200') { throw "laravel-demo.test (PHP global) respondió HTTP $up" }
+    # In the terminal, php and composer follow the folder: Composer 2.2 LTS for a PHP older than 7.2.5.
+    $inside = Invoke-Tool "$shims\php.exe" '-r "echo PHP_VERSION;"' 60 'C:\www\demo'
+    $outside = Invoke-Tool "$shims\php.exe" '-r "echo PHP_VERSION;"' 60 'C:\www\laravel-demo'
+    $composer = ((Invoke-Tool "$shims\composer.exe" '--version' 120 'C:\www\demo') -split "`n" | Select-Object -First 1).Trim()
+    if (-not $inside.StartsWith('7.2') -or $outside.StartsWith('7.2')) { throw "terminal: $inside dentro de demo, $outside fuera" }
+    # Switching the global PHP leaves the pinned site alone.
+    Invoke-Tool $clon 'php use 8.3' 120 | Out-Null
+    $while83 = ((Invoke-Curl 'https://demo.test/') | ConvertFrom-Json).php
+    Invoke-Tool $clon 'php use 8.4' 120 | Out-Null
+    if (-not "$while83".StartsWith('7.2')) { throw "con el PHP global en 8.3, demo.test respondió PHP $while83" }
+    Invoke-Tool $clon 'site php demo global' 120 | Out-Null
+    $back = ((Invoke-Curl 'https://demo.test/') | ConvertFrom-Json).php
+    if (-not "$back".StartsWith('8.4')) { throw "de vuelta al global, demo.test respondió PHP $back" }
+    "web: demo.test PHP $($j.php) (MySQL $($j.mysql)) · laravel-demo.test /up HTTP $up`n" +
+    "terminal: php $inside en C:\www\demo, $outside en C:\www\laravel-demo · $composer`n" +
+    "con el global en 8.3, demo.test siguió en $while83 · de vuelta al global: $back"
+}
+
 # The sandbox starts with the runtime of Visual Studio 2022 (14.44). Apache Lounge builds Apache with
 # Visual Studio 2026, for which Microsoft asks a newer runtime; it runs anyway, and clon recommends it.
 Step 'Apache de Apache Lounge desde el catálogo y cambio de versión (clon apache install / use)' {

@@ -129,6 +129,13 @@ type SiteSettings struct {
 	HTTPS     *bool    `toml:"https,omitempty"`
 	Ignore    bool     `toml:"ignore,omitempty"`
 	Server    string   `toml:"server,omitempty"` // "nginx" or "frankenphp"; empty means Apache
+	// PHP pins the site to a PHP version ("7.2") instead of the global one: the one exception to the
+	// global PHP, meant for older projects. Its requests go to a pool of php-cgi of that version.
+	PHP string `toml:"php,omitempty"`
+}
+
+func (s SiteSettings) empty() bool {
+	return len(s.Aliases) == 0 && s.PublicDir == "" && s.HTTPS == nil && !s.Ignore && s.Server == "" && s.PHP == ""
 }
 
 // ServerFor is the web server of a site: Apache unless the site chose another.
@@ -141,13 +148,29 @@ func (c Config) ServerFor(site string) string {
 
 // SetSiteServer stores a site's web server (Apache is the default and is not written).
 func (c *Config) SetSiteServer(site, server string) {
+	c.updateSite(site, func(s *SiteSettings) {
+		s.Server = server
+		if server == ServerApache {
+			s.Server = ""
+		}
+	})
+}
+
+// SetSitePHP pins a site's PHP version; "" goes back to the global PHP.
+func (c *Config) SetSitePHP(site, version string) {
+	c.updateSite(site, func(s *SiteSettings) { s.PHP = version })
+}
+
+// updateSite changes one site's settings and drops the entry when nothing is left in it.
+func (c *Config) updateSite(site string, fn func(*SiteSettings)) {
 	if c.Sites == nil {
 		c.Sites = map[string]SiteSettings{}
 	}
 	s := c.Sites[site]
-	s.Server = server
-	if server == ServerApache {
-		s.Server = ""
+	fn(&s)
+	if s.empty() {
+		delete(c.Sites, site)
+		return
 	}
 	c.Sites[site] = s
 }

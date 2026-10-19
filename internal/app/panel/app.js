@@ -157,6 +157,7 @@ function renderSites() {
     el('td', {}, el('a', { href: x.url, target: '_blank' }, x.host)),
     el('td', {}, x.kind),
     el('td', {}, serverPicker(x)),
+    el('td', {}, phpPicker(x)),
     el('td', { class: 'folder' }, x.doc_root),
     el('td', {}, String(x.port)),
   )));
@@ -173,6 +174,19 @@ function serverPicker(site) {
   const sel = el('select', { 'aria-label': 'Servidor de ' + site.host },
     ...Object.entries(names).map(([k, label]) => el('option', { value: k, selected: site.server === k }, label)));
   sel.addEventListener('change', () => act('POST', '/api/sites/server', { site: site.name, server: sel.value }));
+  return sel;
+}
+
+// phpPicker keeps a site on the global PHP or pins another installed version (older projects).
+function phpPicker(site) {
+  if (site.server === 'frankenphp') return el('span', { class: 'svc-sub' }, ('propio ' + (state.frankenphp_php || '')).trim());
+  const versions = [...(state.php_versions || [])];
+  if (site.php && !versions.includes(site.php)) versions.unshift(site.php);
+  const sel = el('select', { 'aria-label': 'PHP de ' + site.host, title: site.php ? `Fijado: PHP ${site.php_version || site.php}` : 'Usa el PHP global' },
+    el('option', { value: '', selected: !site.php }, `global (${state.php || '—'})`),
+    ...versions.map(v => el('option', { value: v, selected: site.php === v },
+      v === site.php && site.php_version && site.php_version !== v ? `${v} (${site.php_version})` : v)));
+  sel.addEventListener('change', () => act('POST', '/api/sites/php', { site: site.name, php: sel.value }));
   return sel;
 }
 
@@ -194,7 +208,7 @@ function renderServices() {
       chips(),
       el('span', { class: 'spacer' }),
       el('button', { onclick: openDialog }, '＋ Añadir servicio')),
-    phpBar(s),
+    ...phpBars(s),
     el('div', { class: 'group-title' }, 'Servidores web'),
     el('div', { class: 'grid3' }, apacheCard(s), serverCard(s, 'nginx'), serverCard(s, 'frankenphp')),
     ...section('Bases de datos', DB_KINDS),
@@ -210,16 +224,29 @@ function chips() {
 
 const passes = i => ui.filter === 'todos' || (ui.filter === 'marcha' ? i.state === 'en marcha' : i.state !== 'en marcha');
 
-function phpBar(s) {
-  const pool = (s.services || []).filter(x => x.name.startsWith('php-cgi-'));
-  const up = pool.filter(x => x.state === 'en marcha').length;
-  const label = !pool.length ? 'detenido' : up === pool.length ? 'en marcha' : `${up} de ${pool.length} en marcha`;
-  const range = pool.length ? ` (puertos ${pool[0].port}–${pool[pool.length - 1].port})` : '';
-  return el('div', { class: 'phpbar' },
-    statePill(label),
-    el('span', {}, el('b', {}, 'PHP global ' + (s.php || '—')), ` · grupo de ${pool.length} procesos `, el('span', { class: 'mono' }, 'php-cgi'), range),
+// phpBars shows the global PHP's pool and, below it, the pool of each version some site pinned.
+function phpBars(s) {
+  const pools = s.php_pools || [];
+  const procs = p => (s.services || []).filter(x => p.ports.some(port => x.name === 'php-cgi-' + port));
+  const label = list => {
+    const up = list.filter(x => x.state === 'en marcha').length;
+    return !list.length ? 'detenido' : up === list.length ? 'en marcha' : `${up} de ${list.length} en marcha`;
+  };
+  const range = p => p.ports.length ? ` (puertos ${p.ports[0]}–${p.ports[p.ports.length - 1]})` : '';
+  const global = pools.find(p => p.global) || { ports: [] };
+  const bars = [el('div', { class: 'phpbar' },
+    statePill(label(procs(global))),
+    el('span', {}, el('b', {}, 'PHP global ' + (s.php || '—')), ` · grupo de ${global.ports.length} procesos `, el('span', { class: 'mono' }, 'php-cgi'), range(global)),
     el('span', { class: 'spacer' }),
-    el('a', { href: '#php', onclick: e => { e.preventDefault(); showTab('php'); } }, 'Cambiar versión en «PHP y Node» →'));
+    el('a', { href: '#php', onclick: e => { e.preventDefault(); showTab('php'); } }, 'Cambiar versión en «PHP y Node» →'))];
+  for (const p of pools.filter(p => !p.global)) {
+    bars.push(el('div', { class: 'phpbar' },
+      statePill(label(procs(p))),
+      el('span', {}, el('b', {}, 'PHP ' + p.version), ` fijado por ${p.sites === 1 ? '1 sitio' : p.sites + ' sitios'} · ${p.ports.length} procesos `, el('span', { class: 'mono' }, 'php-cgi'), range(p)),
+      el('span', { class: 'spacer' }),
+      el('a', { href: '#sitios', onclick: e => { e.preventDefault(); showTab('sitios'); } }, 'Cambiarlo en «Sitios» →')));
+  }
+  return bars;
 }
 
 // apacheGroup describes the installed Apache versions like a database group. They are all series

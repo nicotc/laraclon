@@ -187,15 +187,9 @@ func (d *Daemon) nginxVersion() (versions.Version, error) {
 }
 
 func (d *Daemon) nginxOptions() (nginx.Options, error) {
-	opt := nginx.Options{Home: d.env.Home, AdminPort: nginxAdminPort}
+	opt := nginx.Options{Home: d.env.Home, AdminPort: nginxAdminPort, Pools: d.nginxPools()}
 	for _, s := range d.sitesOf(config.ServerNginx) {
-		opt.Sites = append(opt.Sites, nginx.Site{Host: s.Host, Aliases: s.Aliases, DocRoot: s.DocRoot, Port: s.Port, HTTPS: s.HTTPS, PublicPort: d.publicPort(s)})
-	}
-	d.mu.Lock()
-	opt.PHPPorts = d.phpPorts
-	d.mu.Unlock()
-	if len(opt.PHPPorts) == 0 {
-		opt.PHPPorts = php.PoolPorts(d.env.Cfg.PHP.BasePort, d.env.Cfg.PHP.PoolSize)
+		opt.Sites = append(opt.Sites, nginx.Site{Host: s.Host, Aliases: s.Aliases, DocRoot: s.DocRoot, Port: s.Port, HTTPS: s.HTTPS, PublicPort: d.publicPort(s), Pool: s.Pool})
 	}
 	v, err := d.nginxVersion()
 	opt.Version = v

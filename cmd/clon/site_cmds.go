@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -12,11 +13,15 @@ import (
 
 const siteUsage = `
   clon site server <sitio> apache|nginx|frankenphp   servidor web de un sitio (la dirección .test no cambia)
+  clon site php <sitio> <versión>|global             PHP propio para un proyecto antiguo, o vuelta al global
 `
 
 func cmdSite(env *app.Env, args []string) error {
-	if len(args) != 3 || args[0] != "server" {
+	if len(args) != 3 || (args[0] != "server" && args[0] != "php") {
 		return fmt.Errorf("uso:%s", siteUsage)
+	}
+	if args[0] == "php" {
+		return cmdSitePHP(env, args[1], args[2])
 	}
 	site, server := args[1], strings.ToLower(args[2])
 	if c, err := app.Connect(env.Home.Root); err == nil {
@@ -32,22 +37,71 @@ func cmdSite(env *app.Env, args []string) error {
 	if !known {
 		return fmt.Errorf("servidor desconocido %q: usa apache, nginx o frankenphp", server)
 	}
-	name := strings.TrimSuffix(strings.ToLower(site), "."+env.Cfg.TLD)
-	list, _ := sites.Scan(env.Cfg)
-	found := false
-	for _, s := range list {
-		found = found || s.Name == name
-	}
-	if !found {
-		return fmt.Errorf("no hay ningún sitio %s.%s", name, env.Cfg.TLD)
+	s, err := findSite(env, site)
+	if err != nil {
+		return err
 	}
 	if _, ok := env.Reg.Find(kind, ""); kind != "" && !ok {
 		return fmt.Errorf("%s no está instalado: 'clon service install %s <versión>'", kind.Name(), kind)
 	}
-	env.Cfg.SetSiteServer(name, server)
+	env.Cfg.SetSiteServer(s.Name, server)
 	if err := env.SaveConfig(); err != nil {
 		return err
 	}
-	fmt.Printf("%s.%s usará %s cuando inicies clon\n", name, env.Cfg.TLD, server)
+	fmt.Printf("%s usará %s cuando inicies clon\n", s.Host, server)
 	return nil
+}
+
+// cmdSitePHP pins a site's PHP version ("global" goes back to the global PHP).
+func cmdSitePHP(env *app.Env, site, want string) error {
+	if strings.EqualFold(want, "global") {
+		want = ""
+	}
+	if c, err := app.Connect(env.Home.Root); err == nil {
+		if err := c.Call("POST", "/api/sites/php", map[string]string{"site": site, "php": want}, nil); err != nil {
+			return err
+		}
+	} else {
+		s, err := findSite(env, site)
+		if err != nil {
+			return err
+		}
+		if want != "" {
+			if s.Server == config.ServerFrankenPHP {
+				return fmt.Errorf("%s usa FrankenPHP, que trae su propio PHP; pásalo a Apache o Nginx para fijarle otro", s.Host)
+			}
+			v, ok := env.Reg.Find(versions.PHP, want)
+			if !ok {
+				return fmt.Errorf("PHP %s no está instalado (instálalo con 'clon php install %s')", want, versions.MajorMinor(want))
+			}
+			if err := env.EnsureComposerFor(context.Background(), v.Version); err != nil {
+				fmt.Println("No se pudo descargar Composer 2.2 LTS (para PHP anterior a 7.2.5):", err)
+			}
+		}
+		env.Cfg.SetSitePHP(s.Name, want)
+		if err := env.SaveConfig(); err != nil {
+			return err
+		}
+		if err := refreshShims(env); err != nil {
+			return err
+		}
+	}
+	if want == "" {
+		fmt.Printf("%s vuelve al PHP global\n", site)
+		return nil
+	}
+	fmt.Printf("%s usa PHP %s: en la web y, dentro de su carpeta, con php, composer y artisan\n", site, want)
+	return nil
+}
+
+// findSite resolves "tienda" or "tienda.test" among the sites of the project roots.
+func findSite(env *app.Env, site string) (sites.Site, error) {
+	name := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(site)), "."+env.Cfg.TLD)
+	list, _ := sites.Scan(env.Cfg)
+	for _, s := range list {
+		if s.Name == name {
+			return s, nil
+		}
+	}
+	return sites.Site{}, fmt.Errorf("no hay ningún sitio %s.%s", name, env.Cfg.TLD)
 }

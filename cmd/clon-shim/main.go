@@ -22,6 +22,29 @@ type target struct {
 	Env         map[string]string `json:"env"`
 	ForceEnv    map[string]string `json:"force_env"`
 	PathPrepend []string          `json:"path_prepend"`
+	Dirs        []dirTarget       `json:"dirs"`
+}
+
+// dirTarget replaces the program inside a folder: a project that pinned its own PHP.
+type dirTarget struct {
+	Dir      string            `json:"dir"`
+	Exe      string            `json:"exe"`
+	Args     []string          `json:"args"`
+	ForceEnv map[string]string `json:"force_env"`
+}
+
+// pickDir returns the target of the deepest folder that contains wd.
+func pickDir(dirs []dirTarget, wd string) (dirTarget, bool) {
+	wd = strings.ToLower(filepath.Clean(wd))
+	best := -1
+	var out dirTarget
+	for _, d := range dirs {
+		dir := strings.ToLower(filepath.Clean(d.Dir))
+		if (wd == dir || strings.HasPrefix(wd, strings.TrimRight(dir, `\`)+`\`)) && len(dir) > best {
+			best, out = len(dir), d
+		}
+	}
+	return out, best >= 0
 }
 
 func main() {
@@ -41,6 +64,17 @@ func main() {
 	t, ok := targets[name]
 	if !ok {
 		fail(fmt.Errorf("%s no está configurado; ejecuta 'clon shims' para regenerar los atajos", name))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		if d, ok := pickDir(t.Dirs, wd); ok {
+			t.Exe, t.Args = d.Exe, d.Args
+			for k, v := range d.ForceEnv {
+				if t.ForceEnv == nil {
+					t.ForceEnv = map[string]string{}
+				}
+				t.ForceEnv[k] = v
+			}
+		}
 	}
 
 	cmdline := syscall.EscapeArg(t.Exe)

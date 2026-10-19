@@ -94,6 +94,10 @@ var transport = &http.Transport{
 	ResponseHeaderTimeout: 0, // a request paused in Xdebug may take minutes
 }
 
+// ForgetConnections drops the idle connections to the web servers, so the next requests reach a
+// server that has just reloaded its configuration instead of one of its old processes.
+func ForgetConnections() { transport.CloseIdleConnections() }
+
 // Start opens the listeners. Errors are returned when a port cannot be bound.
 func (s *Server) Start() error {
 	tlsConf := &tls.Config{

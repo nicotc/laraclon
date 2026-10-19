@@ -15,10 +15,10 @@ func TestWriteGeneratesOneServerPerSite(t *testing.T) {
 		Home:      home,
 		Version:   versions.Version{Component: versions.Nginx, Version: "1.30.6", Path: `C:\clon\bin\nginx\1.30.6`},
 		AdminPort: 30000,
-		PHPPorts:  []int{9100, 9101},
+		Pools:     []Pool{{Name: GlobalPool, Ports: []int{9100, 9101}}, {Name: "php-7-2-0", Ports: []int{9200, 9201}}},
 		Sites: []Site{
 			{Host: "tienda.test", Aliases: []string{"admin.tienda.test"}, DocRoot: `E:\www\mi tienda\public`, Port: 30001, HTTPS: true, PublicPort: 443},
-			{Host: "viejo.test", DocRoot: `E:\www\viejo`, Port: 30002, HTTPS: false, PublicPort: 80},
+			{Host: "viejo.test", DocRoot: `E:\www\viejo`, Port: 30002, HTTPS: false, PublicPort: 80, Pool: "php-7-2-0"},
 		},
 	})
 	if err != nil {
@@ -30,8 +30,11 @@ func TestWriteGeneratesOneServerPerSite(t *testing.T) {
 	}
 	text := string(data)
 	for _, want := range []string{
+		"upstream clon_php {",
 		"server 127.0.0.1:9100 max_fails=0;",
 		"server 127.0.0.1:9101 max_fails=0;",
+		"upstream clon_php_7_2_0 {",
+		"server 127.0.0.1:9200 max_fails=0;",
 		"listen 127.0.0.1:30000;",
 		"listen 127.0.0.1:30001;",
 		"server_name tienda.test *.tienda.test admin.tienda.test;",
@@ -48,10 +51,14 @@ func TestWriteGeneratesOneServerPerSite(t *testing.T) {
 			t.Errorf("nginx.conf no contiene %q", want)
 		}
 	}
-	// The plain-HTTP site must not claim HTTPS.
+	// The plain-HTTP site must not claim HTTPS, and it goes to the PHP it pinned.
+	tienda := text[strings.Index(text, "# tienda.test"):strings.Index(text, "# viejo.test")]
 	viejo := text[strings.Index(text, "# viejo.test"):]
 	if strings.Contains(viejo, "HTTPS on") {
 		t.Error("viejo.test no usa HTTPS")
+	}
+	if !strings.Contains(tienda, "fastcgi_pass clon_php;") || !strings.Contains(viejo, "fastcgi_pass clon_php_7_2_0;") {
+		t.Error("cada sitio debe ir a su grupo de PHP")
 	}
 	for _, d := range []string{"temp/fastcgi", "temp/client_body", "logs"} {
 		if _, err := os.Stat(Prefix(home) + "/" + d); err != nil {

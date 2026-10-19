@@ -1,5 +1,5 @@
 // Package nginx writes nginx.conf (one internal port per site that chose Nginx, PHP over FastCGI to
-// the global pool) and controls nginx for Windows.
+// the pool of the global PHP or of the version the site pinned) and controls nginx for Windows.
 package nginx
 
 import (
@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
@@ -28,19 +29,32 @@ type Site struct {
 	DocRoot    string
 	Port       int
 	HTTPS      bool
-	PublicPort int // the port the browser uses (443, or the proxy's), handed to PHP as SERVER_PORT
+	PublicPort int    // the port the browser uses (443, or the proxy's), handed to PHP as SERVER_PORT
+	Pool       string // the PHP pool of the site ("" = the global one)
 }
+
+// Pool is a group of php-cgi processes: the global PHP's, or one of a version some site pinned.
+type Pool struct {
+	Name  string // "php" for the global PHP
+	Ports []int
+}
+
+// GlobalPool is the name of the global PHP's pool.
+const GlobalPool = "php"
 
 // Options describe one generated configuration.
 type Options struct {
 	Home      paths.Home
 	Version   versions.Version
 	AdminPort int // health-check listener, so nginx always has one
-	PHPPorts  []int
+	Pools     []Pool
 	Sites     []Site
 }
 
-var confTemplate = template.Must(template.New("nginx").Funcs(template.FuncMap{"q": strconv.Quote}).Parse(`# Generado por clon el {{.Now}}. No lo edites: se regenera al cambiar sitios o versiones.
+// upstream turns a pool name into an nginx upstream name ("php-7-2-0" → "clon_php_7_2_0").
+func upstream(pool string) string { return "clon_" + strings.ReplaceAll(pool, "-", "_") }
+
+var confTemplate = template.Must(template.New("nginx").Funcs(template.FuncMap{"q": strconv.Quote, "upstream": upstream}).Parse(`# Generado por clon el {{.Now}}. No lo edites: se regenera al cambiar sitios o versiones.
 # nginx para Windows atiende con un solo proceso de trabajo.
 worker_processes 1;
 error_log {{q .ErrorLog}} warn;
@@ -65,13 +79,14 @@ http {
     uwsgi_temp_path {{q (printf "%s/uwsgi" .Temp)}};
     scgi_temp_path {{q (printf "%s/scgi" .Temp)}};
 
-    # PHP global: el mismo grupo de php-cgi que usa Apache. Cada php-cgi atiende una petición a la
-    # vez; max_fails=0 evita que un cambio de PHP deje un proceso marcado como caído 10 segundos.
-    upstream clon_php {
+    # PHP: los mismos grupos de php-cgi que usa Apache (el global y el de cada versión fijada). Cada
+    # php-cgi atiende una petición a la vez; max_fails=0 evita que un cambio de PHP deje un proceso
+    # marcado como caído 10 segundos.
+{{range .Pools}}    upstream {{upstream .Name}} {
         least_conn;
-{{range .PHPPorts}}        server 127.0.0.1:{{.}} max_fails=0;
+{{range .Ports}}        server 127.0.0.1:{{.}} max_fails=0;
 {{end}}    }
-
+{{end}}
     # Comprobación de salud de clon
     server {
         listen 127.0.0.1:{{.AdminPort}};
@@ -93,7 +108,7 @@ http {
         location ~ \.php$ {
             try_files $uri =404;
             fastcgi_split_path_info ^(.+\.php)(/.+)$;
-            fastcgi_pass clon_php;
+            fastcgi_pass {{upstream .Pool}};
             fastcgi_index index.php;
             include {{q $.FastCGIParams}};
             fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
@@ -133,9 +148,19 @@ func Write(o Options) (string, error) {
 			return "", err
 		}
 	}
+	known := map[string]bool{}
+	for _, p := range o.Pools {
+		known[p.Name] = len(p.Ports) > 0
+	}
+	if !known[GlobalPool] {
+		return "", fmt.Errorf("falta el grupo de PHP global")
+	}
 	sites := make([]Site, len(o.Sites))
 	for i, s := range o.Sites {
 		s.DocRoot = paths.Slash(s.DocRoot)
+		if !known[s.Pool] {
+			s.Pool = GlobalPool
+		}
 		sites[i] = s
 	}
 	var buf bytes.Buffer
@@ -147,7 +172,7 @@ func Write(o Options) (string, error) {
 		"MimeTypes":     paths.Slash(filepath.Join(o.Version.Path, "conf", "mime.types")),
 		"FastCGIParams": paths.Slash(filepath.Join(o.Version.Path, "conf", "fastcgi_params")),
 		"Temp":          paths.Slash(temp),
-		"PHPPorts":      o.PHPPorts,
+		"Pools":         o.Pools,
 		"AdminPort":     o.AdminPort,
 		"Sites":         sites,
 	})

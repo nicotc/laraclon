@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"text/template"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -29,14 +30,24 @@ type Site struct {
 	DocRoot string
 	Port    int
 	HTTPS   bool
+	Pool    string // the PHP pool of the site ("" = the global one)
 }
+
+// Pool is a group of php-cgi processes: the global PHP's, or one of a version some site pinned.
+type Pool struct {
+	Name  string // "php" for the global PHP
+	Ports []int
+}
+
+// GlobalPool is the name of the global PHP's pool.
+const GlobalPool = "php"
 
 // Options describe one generated configuration.
 type Options struct {
 	Home      paths.Home
 	Version   versions.Version
 	AdminPort int // internal health-check port, always present so Apache has a listener
-	PHPPorts  []int
+	Pools     []Pool
 	Sites     []Site
 }
 
@@ -88,16 +99,17 @@ CustomLog "{{.Logs}}/apache-access.log" clon
     Require all denied
 </Files>
 
-# PHP global: pool de php-cgi con reparto por ocupación
+# PHP: un grupo de php-cgi por versión (el PHP global y el que fija algún sitio), con reparto por ocupación
 ProxyTimeout 3600
 # mod_proxy_fcgi sends SCRIPT_FILENAME as "proxy:fcgi://127.0.0.1:9100/E:/…" (PHP-FPM strips that
 # prefix itself; php-cgi on Windows does not), so clon hands php-cgi the plain "E:/…" path.
 ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^(?:proxy:fcgi://[^/]*)?/([A-Za-z]:/.*)$#" SCRIPT_FILENAME "$1"
 ProxyFCGISetEnvIf "reqenv('PATH_TRANSLATED') =~ m#^(?:proxy:fcgi://[^/]*)?/([A-Za-z]:/.*)$#" PATH_TRANSLATED "$1"
-<Proxy "balancer://php">
-{{range .PHPPorts}}    BalancerMember "fcgi://127.0.0.1:{{.}}" retry=1
+{{range .Pools}}<Proxy "balancer://{{.Name}}">
+{{range .Ports}}    BalancerMember "fcgi://127.0.0.1:{{.}}" retry=1
 {{end}}    ProxySet lbmethod=bybusyness
 </Proxy>
+{{end}}
 
 # Comprobación de salud de clon
 Listen 127.0.0.1:{{.AdminPort}}
@@ -124,7 +136,7 @@ Listen 127.0.0.1:{{.Port}}
     <FilesMatch "\.php$">
         <If "-f %{REQUEST_FILENAME}">
             # The trailing slash matters: Apache appends the script path to this URL.
-            SetHandler "proxy:balancer://php/"
+            SetHandler "proxy:balancer://{{.Pool}}/"
         </If>
     </FilesMatch>
 </VirtualHost>
@@ -158,9 +170,19 @@ func Write(o Options) (string, error) {
 			return "", err
 		}
 	}
+	known := map[string]bool{}
+	for _, p := range o.Pools {
+		known[p.Name] = len(p.Ports) > 0
+	}
+	if !known[GlobalPool] {
+		return "", fmt.Errorf("falta el grupo de PHP global")
+	}
 	sites := make([]Site, len(o.Sites))
 	for i, s := range o.Sites {
 		s.DocRoot = paths.Slash(s.DocRoot)
+		if !known[s.Pool] {
+			s.Pool = GlobalPool
+		}
 		sites[i] = s
 	}
 	// CLON_APACHE_LOGLEVEL (for example "warn proxy_fcgi:trace8") helps diagnose FastCGI problems.
@@ -177,7 +199,7 @@ func Write(o Options) (string, error) {
 		"Logs":      paths.Slash(o.Home.Logs()),
 		"EmptyRoot": paths.Slash(empty),
 		"Modules":   mods,
-		"PHPPorts":  o.PHPPorts,
+		"Pools":     o.Pools,
 		"AdminPort": o.AdminPort,
 		"Sites":     sites,
 	})
@@ -228,8 +250,48 @@ func signal(pid int, what string) error {
 	return windows.SetEvent(h)
 }
 
-// GracefulRestart reloads the configuration without dropping requests in flight.
-func GracefulRestart(pid int) error { return signal(pid, "restart") }
+// GracefulRestart reloads the configuration without dropping requests in flight. Apache answers
+// with the new configuration once a new child process takes over, which this waits for (a few
+// seconds at most), so the caller can rely on it.
+func GracefulRestart(pid int) error {
+	since := time.Now()
+	if err := signal(pid, "restart"); err != nil {
+		return err
+	}
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if childSince(pid, since) {
+			break
+		}
+	}
+	return nil
+}
+
+// childSince reports whether the process has a child created after since.
+func childSince(parent int, since time.Time) bool {
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(snap)
+	var e windows.ProcessEntry32
+	e.Size = uint32(unsafe.Sizeof(e))
+	for err := windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
+		if int(e.ParentProcessID) != parent {
+			continue
+		}
+		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, e.ProcessID)
+		if err != nil {
+			continue
+		}
+		var created, exited, kernel, user windows.Filetime
+		err = windows.GetProcessTimes(h, &created, &exited, &kernel, &user)
+		windows.CloseHandle(h)
+		if err == nil && time.Unix(0, created.Nanoseconds()).After(since) {
+			return true
+		}
+	}
+	return false
+}
 
 // GracefulStop lets current requests finish, then exits.
 func GracefulStop(pid int) error { return signal(pid, "shutdown") }

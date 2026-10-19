@@ -25,6 +25,17 @@ type Target struct {
 	Env         map[string]string `json:"env,omitempty"`
 	ForceEnv    map[string]string `json:"force_env,omitempty"`
 	PathPrepend []string          `json:"path_prepend,omitempty"`
+	// Dirs replace Exe, Args and ForceEnv when the command runs inside one of their folders: the
+	// projects that pinned their own PHP get it in the terminal too.
+	Dirs []DirTarget `json:"dirs,omitempty"`
+}
+
+// DirTarget is what a shim runs inside one folder (and its subfolders).
+type DirTarget struct {
+	Dir      string            `json:"dir"`
+	Exe      string            `json:"exe"`
+	Args     []string          `json:"args,omitempty"`
+	ForceEnv map[string]string `json:"force_env,omitempty"`
 }
 
 // TargetsFile is read by clon-shim.exe at every invocation.

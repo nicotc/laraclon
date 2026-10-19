@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/nicotc/laraclon/internal/postgres"
 	"github.com/nicotc/laraclon/internal/redis"
 	"github.com/nicotc/laraclon/internal/shims"
+	"github.com/nicotc/laraclon/internal/sites"
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
@@ -94,6 +96,16 @@ func (e *Env) IniOptions() php.IniOptions {
 	return php.IniOptions{CABundle: e.CABundle(), SMTPPort: 1025}
 }
 
+// EnsureComposerFor downloads Composer 2.2 LTS when a pinned PHP is too old for the current
+// Composer and it is not there yet.
+func (e *Env) EnsureComposerFor(ctx context.Context, phpVersion string) error {
+	if !install.NeedsComposerLTS(phpVersion) || fileExists(install.ComposerLTSPhar(e.Home)) {
+		return nil
+	}
+	_, err := install.InstallComposerLTS(ctx, e.Home)
+	return err
+}
+
 // ShimTemplate is clon-shim.exe, installed next to clon.exe.
 func (e *Env) ShimTemplate() string { return e.Home.Path("clon-shim.exe") }
 
@@ -143,9 +155,33 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 			return nil, err
 		}
 		phpExe := filepath.Join(v.Path, "php.exe")
-		targets["php"] = shims.Target{Exe: phpExe, Args: []string{"-c", ini}, ForceEnv: phpEnv(ini)}
-		if phar := install.ComposerPhar(e.Home); fileExists(phar) {
-			targets["composer"] = shims.Target{Exe: phpExe, Args: []string{"-c", ini, phar}, ForceEnv: phpEnv(ini)}
+		phar := install.ComposerPhar(e.Home)
+		phpT := shims.Target{Exe: phpExe, Args: []string{"-c", ini}, ForceEnv: phpEnv(ini)}
+		composerT := shims.Target{Exe: phpExe, Args: []string{"-c", ini, phar}, ForceEnv: phpEnv(ini)}
+		// Inside a project that pinned its own PHP, php and composer (and so Artisan) use that one.
+		list, _ := sites.Scan(e.Cfg)
+		for _, s := range list {
+			if s.PHP == "" || s.Server == config.ServerFrankenPHP {
+				continue
+			}
+			pv, ok := e.Reg.Find(versions.PHP, s.PHP)
+			if !ok || pv.Version == v.Version {
+				continue
+			}
+			pini, err := iniFor(pv)
+			if err != nil {
+				return nil, err
+			}
+			pexe := filepath.Join(pv.Path, "php.exe")
+			phpT.Dirs = append(phpT.Dirs, shims.DirTarget{Dir: s.Folder, Exe: pexe, Args: []string{"-c", pini}, ForceEnv: phpEnv(pini)})
+			// PHP older than 7.2.5 needs Composer 2.2 LTS (fetched when the site is pinned).
+			if pphar := install.ComposerFor(e.Home, pv.Version); fileExists(pphar) {
+				composerT.Dirs = append(composerT.Dirs, shims.DirTarget{Dir: s.Folder, Exe: pexe, Args: []string{"-c", pini, pphar}, ForceEnv: phpEnv(pini)})
+			}
+		}
+		targets["php"] = phpT
+		if fileExists(phar) {
+			targets["composer"] = composerT
 		}
 	}
 
