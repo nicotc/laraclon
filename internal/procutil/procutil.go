@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -89,10 +90,24 @@ func exitHintOf(err error) string {
 // keep running.
 func RunTree(ctx context.Context, dir string, env []string, out io.Writer, exe string, args ...string) error {
 	cmd := exec.Command(exe, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	return runTree(ctx, cmd, dir, env, out, exe)
+}
+
+// RunShell is RunTree for a command line run by cmd.exe exactly as written, quotes included (Go's
+// own quoting of an argument escapes inner quotes in a way cmd.exe does not understand).
+func RunShell(ctx context.Context, dir string, env []string, out io.Writer, command string) error {
+	comspec := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
+	cmd := exec.Command(comspec)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW,
+		CmdLine: `"` + comspec + `" /d /s /c "` + command + `"`}
+	return runTree(ctx, cmd, dir, env, out, "cmd.exe")
+}
+
+func runTree(ctx context.Context, cmd *exec.Cmd, dir string, env []string, out io.Writer, exe string) error {
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdout, cmd.Stderr = out, out
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	if err := cmd.Start(); err != nil {
 		return err
 	}

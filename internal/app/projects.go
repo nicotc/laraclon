@@ -39,6 +39,10 @@ type NewProject struct {
 	Locale string `json:"locale,omitempty"`
 	// Webapp adds Symfony's webapp pack (Twig, Doctrine, forms, security…) to the skeleton.
 	Webapp bool `json:"webapp,omitempty"`
+	// Recipe creates the project from config\recetas\<Recipe>.toml.
+	Recipe string `json:"recipe,omitempty"`
+
+	recipe *Recipe
 	// Git clones a repository instead (Kit is then ignored), on its default branch or Branch.
 	Git    string `json:"git,omitempty"`
 	Branch string `json:"branch,omitempty"`
@@ -84,6 +88,15 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	}
 	cancelled := "creación cancelada (la carpeta a medio crear queda en " + dir + ")"
 	p.DB = strings.ToLower(strings.TrimSpace(p.DB))
+	if p.Recipe != "" {
+		r, err := d.findRecipe(p.Recipe)
+		if err != nil {
+			return Job{}, err
+		}
+		if p = fromRecipe(p, r); r.Source.Type == "composer" || r.Source.Type == "folder" {
+			return d.createFromSource(p, name, root, dir, cancelled)
+		}
+	}
 	switch strings.ToLower(strings.TrimSpace(p.Type)) {
 	case "", "laravel":
 	case "wordpress", "wp":
@@ -142,7 +155,7 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 		}
 	}
 	if p.Git != "" {
-		return d.startProjectJob(name, "Git", "nuevo-"+name, cancelled,
+		return d.startCreateJob(p, name, dir, "Git", cancelled,
 			func(ctx context.Context, phase func(string), log *os.File) (string, error) {
 				phase("clonando " + p.Git)
 				args := []string{"clone"}
@@ -156,7 +169,7 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 				return "", d.prepareProject(ctx, dir, name, p.DB, phase, log)
 			})
 	}
-	return d.startProjectJob(name, kitLabels[p.Kit], "nuevo-"+name, cancelled,
+	return d.startCreateJob(p, name, dir, kitLabels[p.Kit], cancelled,
 		func(ctx context.Context, phase func(string), log *os.File) (string, error) {
 			return "", d.buildProject(ctx, p, name, dir, phase, log)
 		})
@@ -310,7 +323,7 @@ func (d *Daemon) buildProject(ctx context.Context, p NewProject, name, dir strin
 		case strings.HasPrefix(h, "@composer "):
 			err = runPHP(dir, append([]string{install.ComposerPhar(d.env.Home)}, noInteraction(strings.Fields(strings.TrimPrefix(h, "@composer ")))...)...)
 		default:
-			err = procutil.RunTree(ctx, dir, env, log, filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), "/d", "/s", "/c", h)
+			err = procutil.RunShell(ctx, dir, env, log, h)
 		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", h, err)

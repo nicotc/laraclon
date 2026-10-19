@@ -210,7 +210,8 @@ function renderSites() {
   const q = document.getElementById('filter').value.toLowerCase();
   const list = (state.sites || []).filter(x => !q || x.host.includes(q) || x.folder.toLowerCase().includes(q));
   tbody.replaceChildren(...list.map(x => el('tr', {},
-    el('td', {}, el('a', { href: x.url, target: '_blank' }, x.host)),
+    el('td', {}, el('a', { href: x.url, target: '_blank' }, x.host), ' ',
+      el('button', { class: 'ghost', title: 'Guardar como plantilla para proyectos nuevos', onclick: () => saveTemplate(x) }, '⧉')),
     el('td', {}, x.kind),
     el('td', {}, serverPicker(x)),
     el('td', {}, phpPicker(x)),
@@ -901,7 +902,8 @@ function renderProjectDialog() {
   const fromGit = p.source === 'git';
   const wordpress = p.source === 'wordpress';
   const symfony = p.source === 'symfony';
-  const sources = el('div', { class: 'chips' }, ...[['laravel', 'Laravel nuevo'], ['wordpress', 'WordPress'], ['symfony', 'Symfony'], ['git', 'Desde Git']].map(([k, label]) =>
+  const recipe = p.source === 'recipe';
+  const sources = el('div', { class: 'chips' }, ...[['laravel', 'Laravel nuevo'], ['wordpress', 'WordPress'], ['symfony', 'Symfony'], ['git', 'Desde Git'], ['recipe', 'Plantilla']].map(([k, label]) =>
     el('span', { class: 'chip' + (p.source === k ? ' on' : ''), onclick: () => {
       p.source = k;
       if (k === 'git' && p.db === 'sqlite') p.db = '';
@@ -909,6 +911,7 @@ function renderProjectDialog() {
       // WordPress runs on MySQL or MariaDB only.
       if (k === 'wordpress' && !['mysql', 'mariadb'].includes(p.db)) p.db = (projectDBOptions().find(([d]) => d === 'mysql' || d === 'mariadb') || [''])[0];
       if (k !== 'wordpress' && p.source !== 'git' && !p.db) p.db = 'sqlite';
+      if (k === 'recipe') { p.db = ''; loadRecipes(); }
       renderProjectDialog();
     } }, label)));
   let kits;
@@ -924,6 +927,18 @@ function renderProjectDialog() {
     branch.addEventListener('input', () => { p.branch = branch.value; });
     kits = el('div', { class: 'field' }, el('span', {}, 'Repositorio'), url,
       el('div', { class: 'row' }, el('span', { class: 'svc-sub' }, 'Rama'), branch));
+  } else if (recipe) {
+    const list = ui.recipes || [];
+    const usable = list.filter(r => !r.error);
+    if (!p.recipe && usable.length) p.recipe = usable[0].id;
+    const sel = el('select', { 'aria-label': 'Plantilla' }, ...usable.map(r => el('option', { value: r.id, selected: p.recipe === r.id }, r.name)));
+    sel.addEventListener('change', () => { p.recipe = sel.value; renderProjectDialog(); });
+    const chosen = usable.find(r => r.id === p.recipe);
+    const broken = list.filter(r => r.error).map(r => el('div', { class: 'row-error' }, `${r.id}.toml: ${r.error}`));
+    kits = el('div', { class: 'field' }, el('span', {}, 'Plantilla'),
+      ui.recipes ? (usable.length ? sel : el('div', { class: 'svc-sub' }, 'No hay plantillas todavía.')) : el('div', { class: 'svc-sub' }, 'Cargando…'),
+      chosen ? el('div', { class: 'svc-sub' }, recipeSummary(chosen)) : null, ...broken,
+      el('div', { class: 'svc-sub' }, 'Son archivos .toml en config\\recetas, o un proyecto guardado con «⧉» en la lista de sitios.'));
   } else if (symfony) {
     const webapp = el('input', { type: 'checkbox', checked: p.webapp });
     webapp.addEventListener('change', () => { p.webapp = webapp.checked; renderProjectDialog(); });
@@ -944,13 +959,14 @@ function renderProjectDialog() {
   }
   let dbOptions = projectDBOptions();
   if (fromGit) dbOptions.unshift(['', 'La que diga el proyecto (.env.example)']);
+  if (recipe) dbOptions.unshift(['', 'La que diga la plantilla']);
   if (wordpress) dbOptions = dbOptions.filter(([k]) => k === 'mysql' || k === 'mariadb');
   const dbSel = el('select', { 'aria-label': 'Base de datos' }, ...dbOptions.map(([k, label]) => el('option', { value: k, selected: p.db === k }, label)));
   dbSel.addEventListener('change', () => { p.db = dbSel.value; });
   name.addEventListener('input', () => { p.nameTouched = true; });
   const pmSel = el('select', { 'aria-label': 'Gestor de paquetes' }, ...PMS.map(([k, label]) => el('option', { value: k, selected: (p.pm || 'npm') === k }, label)));
   pmSel.addEventListener('change', () => { p.pm = pmSel.value; });
-  const pmField = fromGit || wordpress || symfony ? null : el('label', { class: 'field' }, el('span', {}, 'Paquetes de JavaScript'), pmSel,
+  const pmField = fromGit || wordpress || symfony || recipe ? null : el('label', { class: 'field' }, el('span', {}, 'Paquetes de JavaScript'), pmSel,
     el('div', { class: 'svc-sub' }, 'Instala y compila el frontend. pnpm y yarn se instalan solos si hacen falta.'));
   let rootField = null;
   if (roots.length > 1) {
@@ -981,6 +997,7 @@ async function createProject() {
     if (p.source === 'git') Object.assign(body, { kit: '', git: p.git, branch: p.branch });
     if (p.source === 'wordpress') Object.assign(body, { type: 'wordpress', kit: '', pm: '', locale: p.locale });
     if (p.source === 'symfony') Object.assign(body, { type: 'symfony', kit: '', pm: '', webapp: p.webapp, db: p.webapp ? p.db : '' });
+    if (p.source === 'recipe') Object.assign(body, { kit: '', pm: '', recipe: p.recipe });
     const j = await call('POST', '/api/projects', body);
     p.job = j.id;
     await refresh();
@@ -988,6 +1005,39 @@ async function createProject() {
     p.error = e.message;
   }
   renderProjectDialog();
+}
+
+// ---------- Plantillas (recetas) ----------
+
+const RECIPE_SOURCES = { laravel: 'Laravel', wordpress: 'WordPress', symfony: 'Symfony', composer: 'paquete de Composer', git: 'repositorio Git', folder: 'proyecto guardado' };
+
+function recipeSummary(r) {
+  const s = r.source || {};
+  const from = s.type === 'laravel' && s.kit ? `Laravel con ${s.kit}` : s.type === 'composer' ? `${RECIPE_SOURCES.composer} ${s.package}` : RECIPE_SOURCES[s.type] || s.type;
+  const steps = (r.steps || []).length;
+  return `${from}${r.database ? ' · ' + r.database : ''}${steps ? ` · ${steps} paso${steps > 1 ? 's' : ''}: ${r.steps.join(' · ')}` : ''}`;
+}
+
+async function loadRecipes() {
+  try {
+    ui.recipes = await call('GET', '/api/recipes');
+  } catch (e) {
+    ui.recipes = [];
+    ui.project.error = e.message;
+  }
+  if (ui.projectOpen) renderProjectDialog();
+}
+
+async function saveTemplate(site) {
+  const name = prompt(`Guardar ${site.host} como plantilla. Se copia sin vendor, node_modules ni .env.\nNombre de la plantilla:`, site.name);
+  if (!name) return;
+  try {
+    const r = await call('POST', '/api/sites/template', { site: site.name, name });
+    toast(`Plantilla «${r.name}» guardada: está en «Nuevo proyecto → Plantilla»`);
+    ui.recipes = null;
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 // ---------- «Añadir servicio» ----------

@@ -59,7 +59,7 @@ func (d *Daemon) createWordPress(p NewProject, name, dir, cancelled string) (Job
 	if !localeRe.MatchString(locale) {
 		return Job{}, fmt.Errorf("idioma no válido %q: usa uno de WordPress, por ejemplo es_ES, es_MX o en_US", locale)
 	}
-	return d.startProjectJob(name, "WordPress", "nuevo-"+name, cancelled,
+	return d.startCreateJob(p, name, dir, "WordPress", cancelled,
 		func(ctx context.Context, phase func(string), log *os.File) (string, error) {
 			return d.buildWordPress(ctx, p, name, dir, ref, locale, phase, log)
 		})

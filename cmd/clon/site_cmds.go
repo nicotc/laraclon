@@ -14,6 +14,7 @@ import (
 const siteUsage = `
   clon site server <sitio> apache|nginx|frankenphp   servidor web de un sitio (la dirección .test no cambia)
   clon site php <sitio> <versión>|global             PHP propio para un proyecto antiguo, o vuelta al global
+  clon site template <sitio> [nombre]     guarda el proyecto como plantilla (sin vendor, node_modules ni .env)
   clon site proc <sitio> vite|queue|schedule|reverb on|off
                                           npm run dev (con HTTPS), queue:work, schedule:work o Reverb (wss://reverb.<sitio>.test)
   clon site debug <sitio> on|off                     Xdebug solo para ese sitio (el editor escucha en el 9003)
@@ -23,6 +24,13 @@ const siteUsage = `
 func cmdSite(env *app.Env, args []string) error {
 	if len(args) == 4 && args[0] == "proc" {
 		return cmdSiteProc(env, args[1], strings.ToLower(args[2]), args[3])
+	}
+	if (len(args) == 2 || len(args) == 3) && args[0] == "template" {
+		name := ""
+		if len(args) == 3 {
+			name = args[2]
+		}
+		return cmdSiteTemplate(env, args[1], name)
 	}
 	if len(args) >= 2 && args[0] == "setup" {
 		db := ""

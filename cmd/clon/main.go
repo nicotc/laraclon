@@ -92,6 +92,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdSite(env, args[1:])
 	case "new":
 		return cmdNew(env, args[1:])
+	case "recipe", "recipes", "receta", "recetas":
+		return cmdRecipes(env, args[1:])
 	case "version":
 		fmt.Println("clon 0.1.0 (fase 1) · instalación:", env.Home.Root)
 		return nil

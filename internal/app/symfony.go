@@ -38,7 +38,7 @@ func (d *Daemon) createSymfony(p NewProject, name, root, dir, cancelled string) 
 	if p.Webapp {
 		label = "Symfony webapp"
 	}
-	return d.startProjectJob(name, label, "nuevo-"+name, cancelled,
+	return d.startCreateJob(p, name, dir, label, cancelled,
 		func(ctx context.Context, phase func(string), log *os.File) (string, error) {
 			return "", d.buildSymfony(ctx, p, name, root, dir, ref, phase, log)
 		})

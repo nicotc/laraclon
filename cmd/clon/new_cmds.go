@@ -17,6 +17,8 @@ const newUsage = `
                                           Symfony (symfony/skeleton; --webapp añade Twig, Doctrine, formularios…)
   clon new <nombre> --git <url> [--rama <rama>] [--db …]
                                           clona un repositorio y lo prepara (Composer, .env, base de datos, Vite)
+  clon new <nombre> --receta <archivo> [--db …]
+                                          desde una plantilla propia de config\recetas ('clon recipe list')
 `
 
 // cmdNew creates a project through the running clon, which owns the databases it needs.
@@ -57,6 +59,8 @@ func cmdNew(env *app.Env, args []string) error {
 			p.Branch = value
 		case "--idioma", "--locale":
 			p.Locale = value
+		case "--receta", "--recipe":
+			p.Recipe = value
 		default:
 			if strings.HasPrefix(flag, "--") || p.Name != "" {
 				return fmt.Errorf("uso:%s", newUsage)

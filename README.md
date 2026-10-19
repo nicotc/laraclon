@@ -2,7 +2,7 @@
 
 Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e inspirado en Laragon. Escrito en Go. No está afiliado a Laragon ni a sus autores.
 
-**Estado:** fases 1 (núcleo) y 2 (versiones y servicios) completas, y buena parte de la 3 (proyectos). Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
+**Estado:** fases 1 (núcleo) y 2 (versiones y servicios) completas; de la 3 (proyectos) solo falta compartir los sitios por Internet. Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
 
 ## Qué hace hoy
 
@@ -20,6 +20,10 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
   - `composer create-project symfony/skeleton` (Composer elige la versión que admite tu PHP) y, con «webapp», Twig, Doctrine, formularios, seguridad y correo.
   - Para Apache añade `symfony/apache-pack`, cuyo `.htaccess` manda las rutas a `public/index.php`, y no agrega archivos de Docker.
   - Escribe `.env.local` con la dirección del sitio (`DEFAULT_URI`), la base de datos elegida (`DATABASE_URL`, que clon crea) y Mailpit (`MAILER_DSN`).
+- **Plantillas propias (recetas):** «Nuevo proyecto → Plantilla», o `clon new panel --receta laravel-filament`.
+  - Cada receta es un archivo `.toml` en `config\recetas`: de dónde sale el proyecto (Laravel con su kit, WordPress, Symfony, Git, un paquete de Composer o un proyecto guardado), su base de datos, los pasos que lo terminan (por ejemplo `composer require filament/filament`) y valores para el `.env`.
+  - Los pasos corren en la carpeta del proyecto con el `php`, `composer` y `npm` de clon. La primera vez clon deja una receta de ejemplo con Filament.
+  - «⧉» junto a un sitio (o `clon site template tienda`) lo guarda como plantilla, sin `vendor`, `node_modules`, `.env`, la base SQLite ni lo que Laravel deja en `storage`. Los proyectos que salen de ella se preparan como uno recién clonado.
 - **Proyectos existentes y desde Git:**
   - Un proyecto copiado o clonado al que le falta algo muestra «Preparar» en la pestaña «Sitios» (o `clon site setup tienda`).
   - clon instala los paquetes de Composer con el PHP del sitio y crea el `.env` desde `.env.example`, con la base de datos que pide el proyecto apuntando a las de clon.
@@ -151,6 +155,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon new blog --wordpress [--idioma es_ES] [--db mysql\|mariadb]` | WordPress en `https://blog.test`, con usuario admin y contraseña generada |
 | `clon new api --symfony [--webapp] [--db sqlite\|mysql\|mariadb\|postgresql]` | Symfony en `https://api.test`, con su `.env.local` |
 | `clon new tienda --git <url> [--rama <rama>]` · `clon site setup tienda` | Clona y prepara un proyecto · prepara uno que ya está en la carpeta |
+| `clon new panel --receta laravel-filament` · `clon recipe list` · `clon site template tienda [nombre]` | Proyecto desde una plantilla propia · las plantillas · guardar un sitio como plantilla |
 | `clon start` · `stop` · `restart` · `quit` | Servicios on/off; `quit` cierra clon |
 | `clon status` · `sites` · `versions` | Estado, sitios y versiones instaladas |
 | `clon php list` · `remote` · `install 8.4` · `use 8.3` | Versiones de PHP |
@@ -202,7 +207,7 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
 - Edge sin avisos, cambio de PHP y cierre.
 
-Tarda unos 45 minutos. No cierres la ventana del sandbox hasta que diga «Prueba terminada»: al cerrarla se descarta todo lo de dentro. Al terminar, clon queda arrancado con el proyecto Laravel y el panel abiertos en Edge, para probarlo a mano. El informe queda en `dist\sandbox\<fecha>\resultados\report.md`. Los instaladores de Visual C++ se descargan en el equipo anfitrión (`dist\cache`) y se comparten con el sandbox, porque dentro su descarga resultó poco fiable. Primero se instala a propósito el de Visual Studio 2022 (14.44) y después el más reciente.
+Tarda alrededor de una hora. No cierres la ventana del sandbox hasta que diga «Prueba terminada»: al cerrarla se descarta todo lo de dentro. Al terminar, clon queda arrancado con el proyecto Laravel y el panel abiertos en Edge, para probarlo a mano. El informe queda en `dist\sandbox\<fecha>\resultados\report.md`. Los instaladores de Visual C++ se descargan en el equipo anfitrión (`dist\cache`) y se comparten con el sandbox, porque dentro su descarga resultó poco fiable. Primero se instala a propósito el de Visual Studio 2022 (14.44) y después el más reciente.
 
 ## Estructura
 
@@ -263,6 +268,7 @@ En Windows 11, junto a Laragon y en puertos alternativos:
   - «Preparar» sobre un proyecto al que solo le faltaba el frontend lo deja listo en 48 s.
   - `clon new "Blog de Prueba" --wordpress` instala WordPress 7.1 en 53 s: portada y escritorio en español, «¡Hola, mundo!» en `/hola-mundo/` y el usuario admin entra con la contraseña generada.
   - `clon new demo-symfony --symfony --webapp --db mysql` deja Symfony 8.1 en 2,5 minutos: la página de bienvenida, una ruta inexistente respondida por el router de Symfony con la URL `https` correcta (el `.htaccess` reescribe) y Doctrine conectado a su base en MySQL.
+  - Un sitio guardado como plantilla da proyectos nuevos en 2 minutos y medio: copia sin `vendor` ni datos, Composer, `.env` desde `.env.example`, clave nueva, base SQLite nueva migrada y el frontend con el pnpm de la plantilla.
   - Probado: wordpress.org ya no publica cada versión empaquetada en cada idioma, y en Windows el `.tar.gz` que baja WP-CLI no se puede extraer (PharData falla con un nombre largo de WordPress 7.1 y su plan B, `tar`, arranca sin variables de entorno). Por eso clon baja el zip y la traducción por su cuenta.
   - Cancelar una creación corta todo el árbol de procesos (Composer, Artisan, npm).
 - **Procesos del proyecto:**
@@ -291,8 +297,8 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
   - Sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch.
   - Apache de Apache Lounge en varias versiones; PHP fijado por sitio para proyectos antiguos (como PHP va por FastCGI, no hace falta un Apache viejo para un PHP viejo); extensiones de PHP con casillas; Adminer en `https://db.localhost`.
 - **Fase 3 (en marcha):**
-  - Hecho: proyectos Laravel nuevos con sus starter kits, WordPress, Symfony y desde Git, «Preparar» para proyectos existentes, `.env` automático, procesos del proyecto (Vite con HTTPS, cola, tareas y Reverb), Xdebug por sitio, y Node al día con pnpm y yarn.
-  - Falta: compartir con ngrok y recetas propias.
+  - Hecho: proyectos Laravel nuevos con sus starter kits, WordPress, Symfony, desde Git y desde plantillas propias, «Preparar» para proyectos existentes, `.env` automático, procesos del proyecto (Vite con HTTPS, cola, tareas y Reverb), Xdebug por sitio, y Node al día con pnpm y yarn.
+  - Falta: compartir con ngrok.
 - **Fase 4:** DNS comodín para `*.sitio.test`, modo worker de FrankenPHP, actualizador y firma de código.
 
 ## Licencia
