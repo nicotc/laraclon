@@ -62,7 +62,7 @@
 - **PHP global con cambio en caliente.** Funciona con cualquier versión, incluida la 7.2. PHP corre por FastCGI (un pool de `php-cgi`), así que Apache no se reinicia al cambiarlo, y la terminal, Composer y Artisan siguen al mismo PHP.
   - Excepción para proyectos antiguos: un sitio puede fijar su propia versión en la pestaña «Sitios» o con `nido site php tienda 7.2`.
   - Ese sitio corre en un grupo de `php-cgi` propio, con Apache o Nginx, y sigue igual aunque cambies el PHP global.
-  - Dentro de su carpeta, `php`, `composer` y `artisan` usan esa versión. Si es anterior a 7.2.5, Nido usa Composer 2.2 LTS, el último que la admite.
+  - Dentro de su carpeta, `php`, `composer` y `artisan` usan esa versión, también en un proyecto recién creado con su PHP elegido. Si es anterior a 7.2.5, Nido usa Composer 2.2 LTS, el último que la admite.
   - PHP 5.x necesita además el runtime de Visual C++ de su época (2012 para PHP 5.5 y 5.6).
 - **Extensiones de PHP con casillas:** pestaña «PHP y Node» o `nido php ext on soap`, por versión de PHP.
   - Xdebug y MongoDB se descargan de sus repositorios oficiales: las compilaciones para Windows que publican para PIE, con su SHA-256.
@@ -97,6 +97,8 @@
 - **Node incluido y al día:** versiones oficiales de nodejs.org, con su SHA-256 comprobado, cada una con `npm` y `npx`.
   - La pestaña «PHP y Node» (o `nido node`) instala, cambia y borra versiones. Al cambiar, los servidores de Vite se reinician con la nueva, y los paquetes globales de npm se conservan.
   - Avisa cuando sale una LTS nueva o una versión que corrige fallos de seguridad de la tuya, con un botón para actualizar.
+  - **Node por sitio:** un proyecto puede fijar su versión en su ficha, al crearlo o con `nido site node tienda 18`. Su Vite, la compilación de su frontend y, dentro de su carpeta, `node`, `npm`, `npx`, `pnpm`, `yarn` y los scripts de npm usan esa versión; los demás siguen con la global.
+  - Si el proyecto pide una versión en `.nvmrc` o `.node-version` y no es la que usa, su ficha la ofrece con un botón (y la instala si falta).
 - **pnpm y yarn** se instalan con un botón (o `nido node install pnpm`), como paquetes globales de npm, con sus atajos.
   - Cada proyecto usa su gestor, según su lockfile o el campo `packageManager`: Vite, «Preparar» y «Nuevo proyecto» lo respetan y lo instalan si falta.
   - Los proyectos de Yarn 2 o posterior van por Corepack, que Nido instala aparte cuando el Node ya no lo trae (desde Node 25).
@@ -308,6 +310,7 @@ En Windows 11, en puertos alternativos (junto a otro entorno local):
   - Se rechazan, sin tocar el archivo: un `.env` con un valor con espacios sin comillas, una directiva inventada en el `.htaccess` (con el mensaje de Apache), `extension=` o una línea rota en un `.user.ini`, directivas inventadas para Apache o Nginx y una variable inexistente en el `my.ini` de MySQL 5.7 y de MariaDB.
   - Se aplican al guardar y vuelven atrás con «Deshacer»: el nombre del `.env` en el título de la página, una cabecera desde el `.htaccess` y desde las directivas de Apache y de Nginx, `memory_limit` desde el `.user.ini` (300M, y 512M al deshacer), `max_input_time` desde el `php.ini` de PHP 8.3, y `max_connections` de MariaDB, que se reinicia con 321 y vuelve a 151.
   - Probado: FrankenPHP no lee `.user.ini` (Apache y Nginx sí, con `php-cgi`), y `nginx -s reload` vuelve antes de que el proceso nuevo atienda, por eso Nido espera a ver la configuración nueva antes de dar el cambio por aplicado.
+- **Node por sitio:** con Node 22 fijado en un sitio, dentro de su carpeta `node -v` y `npm exec -- node -v` dan v22.11.0 y `php` su 8.3.12; en otra carpeta, la v24.22.0 y el PHP global. Un `.nvmrc` con «22» hace que la ficha ofrezca «Usar Node 22.11.0».
 - **Xdebug por sitio:**
   - El sitio depurado carga Xdebug y los demás no.
   - Sin editor escuchando, la página responde en 0,25 s; con uno en el 9003, Xdebug se conecta y le envía el `init` de DBGp con la ruta del script.
@@ -331,8 +334,7 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
 - **Fase 3 (en marcha):**
   - Hecho: proyectos Laravel nuevos con sus starter kits, WordPress, Symfony, desde Git y desde plantillas propias, «Preparar» para proyectos existentes, `.env` automático, procesos del proyecto (Vite con HTTPS, cola, tareas y Reverb), Xdebug por sitio, y Node al día con pnpm y yarn.
   - Falta: compartir con ngrok.
-  - Nombre e identidad propios (Nido), salud del entorno, progreso visible de los trabajos largos, proyecto nuevo con su entorno elegido y ficha de cada sitio con sus archivos de configuración.
-  - Siguiente: Node por sitio.
+  - Nombre e identidad propios (Nido), salud del entorno, progreso visible de los trabajos largos, proyecto nuevo con su entorno elegido, ficha de cada sitio con sus archivos de configuración y Node por sitio.
 - **Fase 4:** DNS comodín para `*.sitio.test`, modo worker de FrankenPHP, actualizador y firma de código.
 
 ## Licencia

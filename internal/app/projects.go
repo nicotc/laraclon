@@ -52,6 +52,8 @@ type NewProject struct {
 	// "frankenphp") and a PHP version of its own ("" = the global one), which also builds it.
 	Server string `json:"server,omitempty"`
 	PHP    string `json:"php,omitempty"`
+	// Node pins a Node version ("" = the global one), which also installs and builds the frontend.
+	Node string `json:"node,omitempty"`
 	// DBKey picks an installed database server ("mysql-8.0") instead of its kind's default, DBName
 	// names the database (the project's name with _ when empty), DBUser gives the project a user of
 	// its own with a generated password instead of root, and Seed runs Laravel's seeders.
@@ -164,7 +166,7 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	if _, err := os.Stat(install.ComposerPhar(d.env.Home)); err != nil {
 		return Job{}, fmt.Errorf("falta Composer: instálalo con 'nido composer install'")
 	}
-	if p.Git == "" {
+	if p.Git == "" && p.Node == "" { // a Node chosen for the project was checked with the rest
 		if _, err := d.env.GlobalNode(); err != nil {
 			return Job{}, fmt.Errorf("hace falta Node para compilar el frontend: %w", err)
 		}
@@ -226,6 +228,14 @@ func (d *Daemon) checkSiteEnv(p *NewProject) error {
 			return fmt.Errorf("PHP %s no está instalado (instálalo con 'nido php install %s')", p.PHP, versions.MajorMinor(p.PHP))
 		}
 		p.PHP = v.Version
+	}
+	if p.Node = strings.TrimPrefix(strings.TrimSpace(p.Node), "v"); strings.EqualFold(p.Node, "global") {
+		p.Node = ""
+	}
+	if p.Node != "" {
+		if _, ok := d.env.Reg.Find(versions.Node, p.Node); !ok {
+			return fmt.Errorf("Node %s no está instalado (instálalo en «PHP y Node» o con 'nido node install %s')", p.Node, p.Node)
+		}
 	}
 	if key := strings.ToLower(strings.TrimSpace(p.DBKey)); key != "" && p.DB == "" {
 		p.DB, _, _ = strings.Cut(key, "-") // "mysql-8.0" is a MySQL

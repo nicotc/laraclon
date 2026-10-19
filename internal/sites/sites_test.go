@@ -111,3 +111,26 @@ func TestNormalize(t *testing.T) {
 		t.Error("a name without letters or digits must be rejected")
 	}
 }
+
+func TestNodeWantedReadsNvmrcAndNodeVersion(t *testing.T) {
+	for files, want := range map[[2]string]string{
+		{"v18\n", ""}:         "18",
+		{"20.11.1\r\n", ""}:   "20.11.1",
+		{"", "22.4"}:          "22.4",
+		{"lts/iron\n", "22"}:  "22", // nvm's aliases are left out
+		{"\uFEFFv24.1.0", ""}: "24.1.0",
+		{"node", ""}:          "",
+		{"", ""}:              "",
+	} {
+		dir := t.TempDir()
+		if files[0] != "" {
+			os.WriteFile(filepath.Join(dir, ".nvmrc"), []byte(files[0]), 0o644)
+		}
+		if files[1] != "" {
+			os.WriteFile(filepath.Join(dir, ".node-version"), []byte(files[1]), 0o644)
+		}
+		if got := NodeWanted(dir); got != want {
+			t.Errorf("NodeWanted(.nvmrc=%q, .node-version=%q) = %q, quiero %q", files[0], files[1], got, want)
+		}
+	}
+}

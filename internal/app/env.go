@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/nicotc/laraclon/internal/ca"
 	"github.com/nicotc/laraclon/internal/config"
@@ -30,6 +31,8 @@ type Env struct {
 	Home paths.Home
 	Cfg  config.Config
 	Reg  *versions.Registry
+
+	shimsMu sync.Mutex // shims\ is rewritten by one caller at a time
 }
 
 // Open resolves the installation folder, creates its layout and loads settings and versions.
@@ -89,6 +92,35 @@ func (e *Env) GlobalNode() (versions.Version, error) {
 		return v, fmt.Errorf("no hay ninguna versión de Node instalada (usa 'nido node install lts')")
 	}
 	return v, nil
+}
+
+// NodeFor is the Node a project folder uses: the version its site pinned, or the global one.
+func (e *Env) NodeFor(dir string) (versions.Version, error) {
+	want := e.siteNodeOf(dir)
+	if want == "" {
+		return e.GlobalNode()
+	}
+	v, ok := e.Reg.Find(versions.Node, want)
+	if !ok {
+		return v, fmt.Errorf("el sitio usa Node %s, que no está instalado: instálalo en «PHP y Node» (o con 'nido node install %s') o vuelve al Node global en la ficha del sitio", want, want)
+	}
+	return v, nil
+}
+
+// siteNodeOf is the Node version pinned by the site whose folder holds dir, "" when none: the site
+// is the first folder below a project root, named as sites.Scan names it.
+func (e *Env) siteNodeOf(dir string) string {
+	for _, root := range e.Cfg.Roots {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		first, _, _ := strings.Cut(rel, string(filepath.Separator))
+		if name, ok := sites.Normalize(first); ok {
+			return e.Cfg.Sites[name].Node
+		}
+	}
+	return ""
 }
 
 // RefreshCABundle rewrites ssl\cacert-bundle.pem, the public roots plus Nido's CA that PHP and
@@ -186,7 +218,11 @@ func (e *Env) RunNPM(ctx context.Context, dir string, out io.Writer, args ...str
 
 // RefreshShims regenerates php.ini for every PHP version and rewrites the launchers in shims\.
 func (e *Env) RefreshShims() (map[string]shims.Target, error) {
+	e.shimsMu.Lock()
+	defer e.shimsMu.Unlock()
 	targets := map[string]shims.Target{}
+	// Inside the folder of a site that pinned its own PHP or Node, the launchers use that one.
+	list, _ := sites.Scan(e.Cfg)
 
 	inis := map[string]string{}
 	iniFor := func(v versions.Version) (string, error) {
@@ -227,7 +263,6 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 		wp := install.WPCLIPhar(e.Home)
 		wpT := shims.Target{Exe: phpExe, Args: []string{"-c", ini, wp}, ForceEnv: phpEnv(ini)}
 		// Inside a project that pinned its own PHP, php and composer (and so Artisan) use that one.
-		list, _ := sites.Scan(e.Cfg)
 		for _, s := range list {
 			if s.PHP == "" || s.Server == config.ServerFrankenPHP {
 				continue
@@ -288,6 +323,32 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 						targets[cmd] = shims.Target{Exe: exe, Args: args, Env: env}
 					}
 				}
+			}
+		}
+		// Inside a project that pinned its own Node, node, npm, npx and the scripts of pnpm and yarn
+		// run with that one (and so do the npm scripts, which find node through these launchers).
+		for _, s := range list {
+			nv, ok := e.Reg.Find(versions.Node, s.Node)
+			if s.Node == "" || !ok || nv.Version == v.Version {
+				continue
+			}
+			pinned := filepath.Join(nv.Path, "node.exe")
+			for cmd, t := range targets {
+				var args []string
+				switch {
+				case cmd == "node":
+				case cmd == "npm" || cmd == "npx":
+					args = []string{filepath.Join(nv.Path, "node_modules", "npm", "bin", cmd+"-cli.js")}
+					if !fileExists(args[0]) {
+						continue
+					}
+				case t.Exe == nodeExe && len(t.Args) > 0: // a script of pnpm or yarn
+					args = t.Args
+				default:
+					continue
+				}
+				t.Dirs = append(t.Dirs, shims.DirTarget{Dir: s.Folder, Exe: pinned, Args: args})
+				targets[cmd] = t
 			}
 		}
 	}

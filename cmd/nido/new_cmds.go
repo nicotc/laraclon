@@ -21,8 +21,8 @@ const newUsage = `
                                           desde una plantilla propia de config\recetas ('nido recipe list')
 
   Entorno y base de datos, para cualquiera de los anteriores:
-           [--servidor apache|nginx|frankenphp] [--php 8.3]
-                                          servidor web y PHP propio del sitio desde el inicio
+           [--servidor apache|nginx|frankenphp] [--php 8.3] [--node 22]
+                                          servidor web, PHP y Node propios del sitio desde el inicio
            [--instancia mysql-8.0] [--base tienda_db] [--usuario-propio] [--sembrar]
                                           qué servidor de bases de datos, el nombre de la base, un usuario
                                           propio con contraseña generada y los datos de ejemplo (seeders)
@@ -78,6 +78,8 @@ func cmdNew(env *app.Env, args []string) error {
 			p.Server = value
 		case "--php":
 			p.PHP = value
+		case "--node":
+			p.Node = value
 		case "--instancia", "--db-key":
 			p.DBKey = value
 		case "--base", "--db-name":

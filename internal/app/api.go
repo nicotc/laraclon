@@ -31,6 +31,7 @@ type Status struct {
 	PHPVersions    []string             `json:"php_versions"`
 	PHPPools       []PoolStatus         `json:"php_pools"` // the global PHP's pool first, then the pinned versions'
 	Node           string               `json:"node"`
+	NodeVersions   []string             `json:"node_versions"`          // installed, newest first
 	NodeUpdates    []install.NodeUpdate `json:"node_updates,omitempty"` // newer releases than the global Node
 	Apache         string               `json:"apache"`
 	ApacheVersions []string             `json:"apache_versions"`
@@ -86,6 +87,9 @@ func (d *Daemon) Status() Status {
 	if v, err := d.env.GlobalNode(); err == nil {
 		st.Node = v.Version
 	}
+	for _, v := range d.env.Reg.List(versions.Node) {
+		st.NodeVersions = append(st.NodeVersions, v.Version)
+	}
 	if v, err := d.apacheVersion(); err == nil {
 		st.Apache = v.Version
 	}
@@ -130,6 +134,7 @@ func (d *Daemon) Status() Status {
 	// The panel reads every list as an array: on a fresh install an empty one must not travel as
 	// null (it broke the whole panel).
 	st.Roots, st.PHPVersions, st.ApacheVersions = orEmpty(st.Roots), orEmpty(st.PHPVersions), orEmpty(st.ApacheVersions)
+	st.NodeVersions = orEmpty(st.NodeVersions)
 	st.PHPPools, st.Databases, st.Jobs = orEmpty(st.PHPPools), orEmpty(st.Databases), orEmpty(st.Jobs)
 	st.HostsMissing, st.Services, st.Sites, st.Warnings = orEmpty(st.HostsMissing), orEmpty(st.Services), orEmpty(st.Sites), orEmpty(st.Warnings)
 	return st
@@ -338,6 +343,14 @@ func (d *Daemon) Handler() http.Handler {
 			return nil, err
 		}
 		err := d.SetSiteProcess(req.Site, req.ID, req.On)
+		return d.Status(), err
+	})
+	api("POST /api/sites/node", func(r *http.Request) (any, error) {
+		var req struct{ Site, Node string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		err := d.SetSiteNode(req.Site, req.Node)
 		return d.Status(), err
 	})
 	api("POST /api/sites/open", func(r *http.Request) (any, error) {

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -31,11 +32,14 @@ type Site struct {
 	Kind    string   `json:"kind"`     // laravel, wordpress, symfony, php, static
 	Aliases []string `json:"aliases,omitempty"`
 	HTTPS   bool     `json:"https"`
-	Server  string   `json:"server"`           // apache, nginx, frankenphp
-	PHP     string   `json:"php,omitempty"`    // PHP version the site pinned ("" = the global one)
-	Vite    bool     `json:"vite,omitempty"`   // has a Vite config and package.json (npm run dev)
-	Reverb  bool     `json:"reverb,omitempty"` // requires laravel/reverb (WebSockets at reverb.<host>)
-	Debug   bool     `json:"debug,omitempty"`  // runs with Xdebug
+	Server  string   `json:"server"`         // apache, nginx, frankenphp
+	PHP     string   `json:"php,omitempty"`  // PHP version the site pinned ("" = the global one)
+	Node    string   `json:"node,omitempty"` // Node version the site pinned ("" = the global one)
+	// NodeWant is the Node the project asks for in .nvmrc or .node-version ("18"), "" when it says none.
+	NodeWant string `json:"node_want,omitempty"`
+	Vite     bool   `json:"vite,omitempty"`   // has a Vite config and package.json (npm run dev)
+	Reverb   bool   `json:"reverb,omitempty"` // requires laravel/reverb (WebSockets at reverb.<host>)
+	Debug    bool   `json:"debug,omitempty"`  // runs with Xdebug
 	// Missing lists what the project lacks to run here: "vendor" (Composer packages), ".env" and
 	// "frontend" (the build Laravel's @vite reads). «Preparar» takes care of them.
 	Missing []string `json:"missing,omitempty"`
@@ -196,6 +200,24 @@ func LockFiles(except string) []string {
 	return out
 }
 
+var nodeVersionRe = regexp.MustCompile(`^\d+(\.\d+){0,2}$`)
+
+// NodeWanted is the Node version a project asks for in .nvmrc or .node-version ("18", "20.11.1"),
+// as nvm and other version managers read them; "" when it says none or uses an alias ("lts/*").
+func NodeWanted(folder string) string {
+	for _, name := range []string{".nvmrc", ".node-version"} {
+		data, err := os.ReadFile(filepath.Join(folder, name))
+		if err != nil {
+			continue
+		}
+		first, _, _ := strings.Cut(strings.TrimPrefix(string(data), "\uFEFF"), "\n")
+		if v := strings.TrimPrefix(strings.TrimSpace(first), "v"); nodeVersionRe.MatchString(v) {
+			return v
+		}
+	}
+	return ""
+}
+
 // hasVite reports whether a project runs a Vite dev server (npm run dev).
 func hasVite(folder string) bool {
 	if !exists(filepath.Join(folder, "package.json")) {
@@ -241,19 +263,21 @@ func Scan(cfg config.Config) ([]Site, []Warning) {
 			seen[name] = folder
 			docRoot, kind := detect(folder, settings.PublicDir)
 			out = append(out, Site{
-				Name:    name,
-				Host:    name + "." + cfg.TLD,
-				Folder:  folder,
-				DocRoot: docRoot,
-				Kind:    kind,
-				Aliases: settings.Aliases,
-				HTTPS:   cfg.HTTPSFor(name),
-				Server:  cfg.ServerFor(name),
-				PHP:     settings.PHP,
-				Vite:    hasVite(folder),
-				Reverb:  kind == "laravel" && hasReverb(folder),
-				Debug:   settings.Debug,
-				Missing: Missing(folder, kind),
+				Name:     name,
+				Host:     name + "." + cfg.TLD,
+				Folder:   folder,
+				DocRoot:  docRoot,
+				Kind:     kind,
+				Aliases:  settings.Aliases,
+				HTTPS:    cfg.HTTPSFor(name),
+				Server:   cfg.ServerFor(name),
+				PHP:      settings.PHP,
+				Node:     settings.Node,
+				NodeWant: NodeWanted(folder),
+				Vite:     hasVite(folder),
+				Reverb:   kind == "laravel" && hasReverb(folder),
+				Debug:    settings.Debug,
+				Missing:  Missing(folder, kind),
 			})
 		}
 	}

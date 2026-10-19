@@ -10,6 +10,7 @@ import (
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/sites"
 	"github.com/nicotc/laraclon/internal/supervisor"
+	"github.com/nicotc/laraclon/internal/versions"
 )
 
 func TestCheckDotenvFindsWhatBreaksIt(t *testing.T) {
@@ -194,5 +195,43 @@ func TestBackupsKeepTheLastVersions(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(list[len(list)-1]); string(data) != string(rune('a'+keepBackups+2)) {
 		t.Errorf("la última versión es la más nueva: %q", data)
+	}
+}
+
+func TestNodeForFollowsTheSiteThatHoldsTheFolder(t *testing.T) {
+	root := t.TempDir()
+	env := testEnv(t,
+		versions.Version{Component: versions.Node, Version: "24.22.0", Path: `C:\nido\bin\node\24.22.0`},
+		versions.Version{Component: versions.Node, Version: "18.20.8", Path: `C:\nido\bin\node\18.20.8`})
+	env.Cfg.Roots = []string{root}
+	env.Cfg.Node.Version = "24.22.0"
+	env.Cfg.SetSiteNode("tienda-vieja", "18")
+	for dir, want := range map[string]string{
+		filepath.Join(root, "Tienda Vieja"):                    "18.20.8", // named as its site: tienda-vieja
+		filepath.Join(root, "Tienda Vieja", "resources", "js"): "18.20.8",
+		filepath.Join(root, "otra"):                            "24.22.0",
+		root:                                                   "24.22.0",
+		filepath.Join(filepath.Dir(root), "fuera", "Tienda Vieja"): "24.22.0",
+	} {
+		v, err := env.NodeFor(dir)
+		if err != nil || v.Version != want {
+			t.Errorf("NodeFor(%s) = %s, %v; quiero %s", dir, v.Version, err, want)
+		}
+	}
+	env.Cfg.SetSiteNode("tienda-vieja", "16")
+	if _, err := env.NodeFor(filepath.Join(root, "Tienda Vieja")); err == nil || !strings.Contains(err.Error(), "Node 16") {
+		t.Errorf("un Node fijado que no está instalado debe decirlo: %v", err)
+	}
+}
+
+func TestPinSignatureChangesWithThePinnedSites(t *testing.T) {
+	list := []sites.Site{{Name: "a", Folder: `E:\www\a`}, {Name: "b", Folder: `E:\www\b`, PHP: "8.3.12"}}
+	before := pinSignature(list)
+	list = append(list, sites.Site{Name: "c", Folder: `E:\www\c`, Node: "18"})
+	if pinSignature(list) == before {
+		t.Error("un sitio nuevo con Node fijado cambia la firma")
+	}
+	if pinSignature(list[:1]) != "" {
+		t.Error("sin versiones fijadas, la firma está vacía")
 	}
 }

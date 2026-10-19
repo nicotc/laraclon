@@ -14,6 +14,7 @@ import (
 const siteUsage = `
   nido site server <sitio> apache|nginx|frankenphp   servidor web de un sitio (la dirección .test no cambia)
   nido site php <sitio> <versión>|global             PHP propio para un proyecto antiguo, o vuelta al global
+  nido site node <sitio> <versión>|global            Node propio (Vite, el frontend y node/npm en su carpeta)
   nido site template <sitio> [nombre]     guarda el proyecto como plantilla (sin vendor, node_modules ni .env)
   nido site proc <sitio> vite|queue|schedule|reverb on|off
                                           npm run dev (con HTTPS), queue:work, schedule:work o Reverb (wss://reverb.<sitio>.test)
@@ -64,6 +65,9 @@ func cmdSite(env *app.Env, args []string) error {
 			fmt.Printf("%s vuelve a correr sin Xdebug\n", args[1])
 		}
 		return nil
+	}
+	if len(args) == 3 && args[0] == "node" {
+		return cmdSiteNode(env, args[1], args[2])
 	}
 	if len(args) != 3 || (args[0] != "server" && args[0] != "php") {
 		return fmt.Errorf("uso:%s", siteUsage)
@@ -139,6 +143,40 @@ func cmdSitePHP(env *app.Env, site, want string) error {
 		return nil
 	}
 	fmt.Printf("%s usa PHP %s: en la web y, dentro de su carpeta, con php, composer y artisan\n", site, want)
+	return nil
+}
+
+// cmdSiteNode pins a site's Node version ("global" goes back to the global Node).
+func cmdSiteNode(env *app.Env, site, want string) error {
+	want = strings.TrimPrefix(strings.TrimSpace(want), "v")
+	if strings.EqualFold(want, "global") {
+		want = ""
+	}
+	if c, err := app.Connect(env.Home.Root); err == nil {
+		if err := c.Call("POST", "/api/sites/node", map[string]string{"site": site, "node": want}, nil); err != nil {
+			return err
+		}
+	} else {
+		s, err := findSite(env, site)
+		if err != nil {
+			return err
+		}
+		if _, ok := env.Reg.Find(versions.Node, want); want != "" && !ok {
+			return fmt.Errorf("Node %s no está instalado (instálalo con 'nido node install %s')", want, want)
+		}
+		env.Cfg.SetSiteNode(s.Name, want)
+		if err := env.SaveConfig(); err != nil {
+			return err
+		}
+		if err := refreshShims(env); err != nil {
+			return err
+		}
+	}
+	if want == "" {
+		fmt.Printf("%s vuelve al Node global\n", site)
+		return nil
+	}
+	fmt.Printf("%s usa Node %s: su Vite, su frontend y, dentro de su carpeta, node, npm, npx, pnpm y yarn\n", site, want)
 	return nil
 }
 

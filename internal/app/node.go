@@ -187,6 +187,40 @@ func (d *Daemon) UninstallNode(version string) error {
 	return err
 }
 
+// SetSiteNode pins a site's Node version ("" or "global" goes back to the global Node): its Vite
+// server, its frontend builds and node, npm, npx, pnpm and yarn inside its folder use it.
+func (d *Daemon) SetSiteNode(site, want string) error {
+	want = strings.TrimPrefix(strings.TrimSpace(want), "v")
+	if strings.EqualFold(want, "global") {
+		want = ""
+	}
+	s, err := d.findSite(site)
+	if err != nil {
+		return err
+	}
+	if want != "" {
+		if _, ok := d.env.Reg.Find(versions.Node, want); !ok {
+			return fmt.Errorf("Node %s no está instalado: instálalo en «PHP y Node» o con 'nido node install %s'", want, want)
+		}
+	}
+	d.cfgMu.Lock()
+	d.env.Cfg.SetSiteNode(s.Name, want)
+	err = d.env.SaveConfig()
+	d.cfgMu.Unlock()
+	if err != nil {
+		return err
+	}
+	d.refreshShims()
+	err = d.Rescan()
+	// Its Vite server restarts with the other Node.
+	if name := processService("vite", s.Name); d.sup.PID(name) != 0 {
+		d.stopProcess(s, "vite")
+		d.setProblem(name, d.startProcess(s, "vite"))
+	}
+	d.changed()
+	return err
+}
+
 // restartNodeProcesses restarts the running Vite servers, after a Node change.
 func (d *Daemon) restartNodeProcesses() {
 	d.mu.Lock()
@@ -349,9 +383,9 @@ func projectManager(dir string) string {
 	return "npm"
 }
 
-// jsRunner is the package manager pm for the project in dir.
+// jsRunner is the package manager pm for the project in dir, with the Node its site uses.
 func (d *Daemon) jsRunner(pm, dir string) (jsRunner, error) {
-	node, err := d.env.GlobalNode()
+	node, err := d.env.NodeFor(dir)
 	if err != nil {
 		return jsRunner{}, err
 	}

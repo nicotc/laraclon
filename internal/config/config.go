@@ -171,6 +171,9 @@ type SiteSettings struct {
 	// PHP pins the site to a PHP version ("7.2") instead of the global one: the one exception to the
 	// global PHP, meant for older projects. Its requests go to a pool of php-cgi of that version.
 	PHP string `toml:"php,omitempty"`
+	// Node pins the site to a Node version ("18", "22.11.0"): its Vite server, its frontend builds and
+	// node, npm, npx, pnpm and yarn inside its folder use it instead of the global one.
+	Node string `toml:"node,omitempty"`
 	// Processes start with Nido's services: "vite" (npm run dev), "queue", "schedule".
 	Processes []string `toml:"processes,omitempty"`
 	// Debug sends the site to a pool of its PHP with Xdebug; the other sites stay without it.
@@ -179,7 +182,7 @@ type SiteSettings struct {
 
 func (s SiteSettings) empty() bool {
 	return len(s.Aliases) == 0 && s.PublicDir == "" && s.HTTPS == nil && !s.Ignore && s.Server == "" && s.PHP == "" &&
-		len(s.Processes) == 0 && !s.Debug
+		s.Node == "" && len(s.Processes) == 0 && !s.Debug
 }
 
 // SetSiteDebug turns Xdebug on or off for one site.
@@ -218,6 +221,11 @@ func (c *Config) SetSiteServer(site, server string) {
 // SetSitePHP pins a site's PHP version; "" goes back to the global PHP.
 func (c *Config) SetSitePHP(site, version string) {
 	c.updateSite(site, func(s *SiteSettings) { s.PHP = version })
+}
+
+// SetSiteNode pins a site's Node version; "" goes back to the global Node.
+func (c *Config) SetSiteNode(site, version string) {
+	c.updateSite(site, func(s *SiteSettings) { s.Node = version })
 }
 
 // updateSite changes one site's settings and drops the entry when nothing is left in it.

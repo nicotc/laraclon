@@ -90,6 +90,7 @@ type Daemon struct {
 	// filesMu serialises the saves of configuration files made in the panel.
 	filesMu sync.Mutex
 	jobs    jobList
+	pins    string // the PHP and Node versions sites pinned, as shims\ knows them (guarded by mu)
 
 	// OnChange is called after anything visible changes (tray menu refresh).
 	OnChange func()
@@ -484,7 +485,15 @@ func (d *Daemon) Rescan() error {
 	pools, notes := d.planPHP(list)
 	d.mu.Lock()
 	d.sites, d.warnings, d.pools = list, append(warns, notes...), pools
+	pins := pinSignature(list)
+	pinsChanged := pins != d.pins
+	d.pins = pins
 	d.mu.Unlock()
+	// php, composer, node and npm follow the version a site pinned inside its folder: a project that
+	// appears with one (a new project pins it before its folder exists) or goes away changes them.
+	if pinsChanged {
+		go d.refreshShims()
+	}
 	d.stopOrphanProcesses(list)
 
 	// The pool of a pinned PHP runs before any server sends it requests, and stops after none does.
@@ -514,6 +523,17 @@ func (d *Daemon) Rescan() error {
 		return apache.GracefulRestart(pid)
 	}
 	return nil
+}
+
+// pinSignature sums up the folders of the sites that pinned a PHP or Node version, and which.
+func pinSignature(list []sites.Site) string {
+	var b strings.Builder
+	for _, s := range list {
+		if s.PHP != "" || s.Node != "" {
+			fmt.Fprintf(&b, "%s|%s|%s\n", s.Folder, s.PHP, s.Node)
+		}
+	}
+	return b.String()
 }
 
 // waitGlobalPool waits until every php-cgi of the global pool accepts connections, so a switch

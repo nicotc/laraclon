@@ -938,7 +938,7 @@ const KITS = [
   ['livewire', 'Livewire', 'Livewire y Tailwind'],
 ];
 ui.project = { source: 'laravel', name: '', kit: '', db: 'sqlite', pm: 'npm', locale: 'es_ES', webapp: true, root: '', git: '', branch: '',
-  server: '', php: '', dbName: '', dbUser: false, seed: false, job: null, error: null };
+  server: '', php: '', node: '', dbName: '', dbUser: false, seed: false, job: null, error: null };
 // WordPress languages offered first (any WordPress locale works from 'nido new --idioma').
 const WP_LOCALES = [['es_ES', 'Español (España)'], ['es_MX', 'Español (México)'], ['es_AR', 'Español (Argentina)'], ['es_CO', 'Español (Colombia)'],
   ['es_CL', 'Español (Chile)'], ['en_US', 'English (US)'], ['pt_BR', 'Português (Brasil)'], ['fr_FR', 'Français'], ['de_DE', 'Deutsch'], ['it_IT', 'Italiano']];
@@ -994,7 +994,7 @@ function renderProjectDialog() {
   const job = p.job && (state.jobs || []).find(j => j.id === p.job);
   const again = () => {
     ui.project = { source: p.source, name: '', kit: p.kit, db: p.db, pm: p.pm, locale: p.locale, webapp: p.webapp, root: p.root, git: '', branch: '',
-      server: p.server, php: p.php, dbName: '', dbUser: p.dbUser, seed: p.seed, job: null, error: null };
+      server: p.server, php: p.php, node: p.node, dbName: '', dbUser: p.dbUser, seed: p.seed, job: null, error: null };
     renderProjectDialog();
   };
   if (job && job.finished && !job.error) {
@@ -1122,10 +1122,16 @@ function renderProjectDialog() {
   const pmSel = el('select', { 'aria-label': 'Gestor de paquetes' }, ...PMS.map(([k, label]) => el('option', { value: k, selected: (p.pm || 'npm') === k }, label)));
   pmSel.addEventListener('change', () => { p.pm = pmSel.value; });
   const pmField = fromGit || wordpress || symfony || recipe ? null : el('label', { class: 'field' }, el('span', {}, 'Paquetes de JavaScript'), pmSel);
+  // The Node of the new site, which also installs and builds its frontend (WordPress and Symfony build none).
+  const nodeSel = el('select', { 'aria-label': 'Node' },
+    ...options([['', `el global (${state.node || '—'})`], ...(state.node_versions || []).filter(v => v !== state.node).map(v => [v, `${v} (solo este sitio)`])], p.node));
+  nodeSel.addEventListener('change', () => { p.node = nodeSel.value; });
+  const nodeField = wordpress || symfony ? null : el('label', { class: 'field' }, el('span', {}, 'Node'), nodeSel);
   const envBox = el('div', { class: 'box' }, el('h4', {}, 'Entorno'),
     el('div', { class: 'cols' },
       el('label', { class: 'field' }, el('span', {}, 'Servidor web'), serverSel),
       el('label', { class: 'field' }, el('span', {}, 'PHP'), phpSel),
+      nodeField,
       pmField),
     el('div', { class: 'svc-sub' }, 'Se pueden cambiar después en la lista de sitios. pnpm y yarn se instalan solos si hacen falta.'));
   let rootField = null;
@@ -1152,12 +1158,12 @@ async function createProject() {
   const p = ui.project;
   p.error = null;
   try {
-    const body = { name: p.name, kit: p.kit, db: dbKind(p.db), pm: p.pm, root: p.root, server: p.server, php: p.php };
+    const body = { name: p.name, kit: p.kit, db: dbKind(p.db), pm: p.pm, root: p.root, server: p.server, php: p.php, node: p.node };
     if (p.db && p.db !== 'sqlite') Object.assign(body, { db_key: p.db, db_name: p.dbName.trim(), db_user: p.dbUser });
     if (p.seed && !['git', 'recipe', 'wordpress', 'symfony'].includes(p.source)) body.seed = true;
     if (p.source === 'git') Object.assign(body, { kit: '', git: p.git, branch: p.branch });
-    if (p.source === 'wordpress') Object.assign(body, { type: 'wordpress', kit: '', pm: '', locale: p.locale });
-    if (p.source === 'symfony') Object.assign(body, { type: 'symfony', kit: '', pm: '', webapp: p.webapp, db: p.webapp ? dbKind(p.db) : '' });
+    if (p.source === 'wordpress') Object.assign(body, { type: 'wordpress', kit: '', pm: '', node: '', locale: p.locale });
+    if (p.source === 'symfony') Object.assign(body, { type: 'symfony', kit: '', pm: '', node: '', webapp: p.webapp, db: p.webapp ? dbKind(p.db) : '' });
     if (p.source === 'recipe') Object.assign(body, { kit: '', pm: '', recipe: p.recipe });
     const j = await call('POST', '/api/projects', body);
     p.job = j.id;
@@ -1265,6 +1271,7 @@ function renderSiteSheet() {
       el('div', { class: 'sheet-grid' },
         el('span', { class: 'k' }, 'Servidor web'), el('div', {}, serverPicker(site)),
         el('span', { class: 'k' }, 'PHP'), phpPicker(site),
+        el('span', { class: 'k' }, 'Node'), nodePicker(site),
         el('span', { class: 'k' }, 'Procesos'), processToggles(site),
         el('span', { class: 'k' }, 'Carpeta'), el('code', {}, site.folder),
         el('span', { class: 'k' }, 'Carpeta pública'), el('code', {}, site.doc_root),
@@ -1276,6 +1283,44 @@ function renderSiteSheet() {
     el('p', { class: 'muted' }, 'Nido revisa cada cambio con el programa que lo lee antes de aplicarlo, y guarda la versión anterior para deshacerlo.'),
     sheet.error ? el('div', { class: 'file-result bad' }, sheet.error) : null,
     sheet.files ? el('div', { class: 'file-list' }, ...sheet.files.map(f => fileRow(f, 'sheet'))) : el('p', { class: 'muted' }, 'Cargando…'));
+}
+
+// nodeMatches tells whether a Node version satisfies what a project asks for ("18" takes any 18.x).
+const nodeMatches = (version, want) => version === want || String(version).startsWith(want + '.');
+
+// nodePicker keeps a site on the global Node or pins an installed one. When the project asks for a
+// version in .nvmrc that is not the one it gets, it offers it (installing it first if needed).
+function nodePicker(site) {
+  const installed = state.node_versions || [];
+  const versions = [...installed];
+  if (site.node && !versions.includes(site.node)) versions.unshift(site.node);
+  const key = 'node-' + site.name;
+  const sel = el('select', { 'aria-label': 'Node de ' + site.host, disabled: !!ui.pending[key],
+    title: 'Su Vite, su frontend y node, npm, npx, pnpm y yarn dentro de su carpeta' },
+    el('option', { value: '', selected: !site.node }, `global (${state.node || '—'})`),
+    ...versions.map(v => el('option', { value: v, selected: site.node === v }, v)));
+  sel.addEventListener('change', () => act('POST', '/api/sites/node', { site: site.name, node: sel.value }, key));
+  const want = site.node_want;
+  const current = installed.find(v => nodeMatches(v, site.node)) || site.node || state.node || '';
+  if (!want || nodeMatches(current, want)) return el('div', { class: 'procs' }, sel);
+  const have = installed.find(v => nodeMatches(v, want));
+  const installing = (state.jobs || []).find(j => j.kind === 'node' && !j.finished);
+  const button = have
+    ? el('button', { class: 'small', onclick: () => act('POST', '/api/sites/node', { site: site.name, node: want }, key) }, `Usar Node ${have}`)
+    : el('button', { class: 'small secondary', disabled: !!installing, onclick: () => installNodeFor(want) },
+      installing ? `Instalando Node ${installing.version || want}…` : `Instalar Node ${want}`);
+  return el('div', {}, el('div', { class: 'procs' }, sel),
+    el('div', { class: 'file-note' }, `El proyecto pide Node ${want} (su .nvmrc o .node-version). `, button));
+}
+
+async function installNodeFor(want) {
+  try {
+    await call('POST', '/api/node/install', { version: want, use: false });
+    toast(`Instalando Node ${want}: cuando termine, aparece aquí para usarlo`);
+  } catch (e) {
+    alert(e.message);
+  }
+  await refresh();
 }
 
 function fileRow(f, back) {
