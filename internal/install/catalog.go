@@ -30,10 +30,20 @@ type Release struct {
 	Size    int64              `json:"size,omitempty"`
 	Note    string             `json:"note,omitempty"` // "LTS", "Innovation", "estable"…
 	Source  string             `json:"source"`
+	// Extras are installed with the release into a subfolder (MongoDB's shell, for example).
+	Extras []Extra `json:"extras,omitempty"`
+}
+
+// Extra is a companion download of a release.
+type Extra struct {
+	Name   string `json:"name"`
+	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
+	Dir    string `json:"dir"`
 }
 
 // Installable lists what the catalog can install.
-var Installable = []versions.Component{versions.MySQL, versions.MariaDB, versions.Nginx, versions.FrankenPHP}
+var Installable = []versions.Component{versions.MySQL, versions.MariaDB, versions.Nginx, versions.FrankenPHP, versions.MongoDB}
 
 const catalogTTL = 6 * time.Hour
 
@@ -63,6 +73,8 @@ func Catalog(ctx context.Context, home paths.Home, kind versions.Component, refr
 		list, err = nginxCatalog(ctx)
 	case versions.FrankenPHP:
 		list, err = frankenphpCatalog(ctx)
+	case versions.MongoDB:
+		list, err = mongodbCatalog(ctx)
 	default:
 		return nil, fmt.Errorf("%s no se puede instalar desde el catálogo", kind.Name())
 	}
@@ -451,6 +463,113 @@ func pickFrankenPHP(rels []githubRelease) []Release {
 	return out
 }
 
+// ---- MongoDB ----
+
+// MongoDB lists every release with its files and SHA-256 in one JSON document; its shell (mongosh)
+// is published in the releases of its own official repository.
+const (
+	mongoFullURL       = "https://downloads.mongodb.org/full.json"
+	mongoshReleasesURL = "https://api.github.com/repos/mongodb-js/mongosh/releases?per_page=10"
+)
+
+type mongoFull struct {
+	Versions []struct {
+		Version    string `json:"version"`
+		Production bool   `json:"production_release"`
+		Downloads  []struct {
+			Target  string `json:"target"`
+			Arch    string `json:"arch"`
+			Edition string `json:"edition"`
+			Archive struct {
+				URL    string `json:"url"`
+				SHA256 string `json:"sha256"`
+			} `json:"archive"`
+		} `json:"downloads"`
+	} `json:"versions"`
+}
+
+var plainVersionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
+func mongodbCatalog(ctx context.Context) ([]Release, error) {
+	var full mongoFull
+	if err := download.JSON(ctx, mongoFullURL, &full); err != nil {
+		return nil, fmt.Errorf("no se pudo leer la lista de versiones de MongoDB (downloads.mongodb.org): %w", err)
+	}
+	list := pickMongoDB(full)
+	if len(list) == 0 {
+		return nil, fmt.Errorf("downloads.mongodb.org no devolvió versiones para Windows")
+	}
+	var rels []githubRelease
+	if err := download.JSON(ctx, mongoshReleasesURL, &rels); err == nil {
+		if shell, ok := pickMongosh(rels); ok {
+			for i := range list {
+				list[i].Extras = []Extra{shell}
+			}
+		}
+	}
+	return list, nil
+}
+
+// pickMongoDB keeps the newest release of the three newest major series (9.0, 8.0…), plus the
+// newest rapid release (8.3…) when it is newer than all of them.
+func pickMongoDB(full mongoFull) []Release {
+	newest := map[string]Release{}
+	for _, v := range full.Versions {
+		if !v.Production || !plainVersionRe.MatchString(v.Version) {
+			continue
+		}
+		for _, dl := range v.Downloads {
+			if dl.Target != "windows" || dl.Arch != "x86_64" || dl.Edition != "base" || dl.Archive.URL == "" || len(dl.Archive.SHA256) != 64 {
+				continue
+			}
+			s := versions.MajorMinor(v.Version)
+			if cur, seen := newest[s]; !seen || versions.Compare(v.Version, cur.Version) > 0 {
+				newest[s] = Release{Kind: versions.MongoDB, Series: s, Version: v.Version, URL: dl.Archive.URL, SHA256: dl.Archive.SHA256, Source: "mongodb.org"}
+			}
+		}
+	}
+	var series []string
+	for s := range newest {
+		series = append(series, s)
+	}
+	sort.Slice(series, func(i, j int) bool { return versions.Compare(series[i], series[j]) > 0 })
+	var out []Release
+	majors := 0
+	for _, s := range series {
+		r := newest[s]
+		isMajor := strings.HasSuffix(s, ".0")
+		switch {
+		case !isMajor && len(out) == 0:
+			r.Note = "rapid release"
+		case isMajor && majors < 3:
+			r.Note = "versión mayor"
+			majors++
+		default:
+			continue
+		}
+		out = append(out, r)
+	}
+	if len(out) > 0 && out[0].Note == "versión mayor" {
+		out[0].Note = "la más reciente"
+	}
+	return out
+}
+
+func pickMongosh(rels []githubRelease) (Extra, bool) {
+	for _, r := range rels {
+		if r.Draft || r.Prerelease {
+			continue
+		}
+		for _, a := range r.Assets {
+			sum, ok := strings.CutPrefix(a.Digest, "sha256:")
+			if ok && len(sum) == 64 && strings.HasSuffix(a.Name, "-win32-x64.zip") {
+				return Extra{Name: "mongosh", URL: a.URL, SHA256: sum, Dir: "mongosh"}, true
+			}
+		}
+	}
+	return Extra{}, false
+}
+
 // ---- Install ----
 
 // InstallRelease downloads a release, checks it and unpacks it into bin\<kind>\<version>. Zips must
@@ -491,6 +610,18 @@ func InstallRelease(ctx context.Context, home paths.Home, rel Release, phase fun
 	}
 	if v.Component != rel.Kind || v.Version != rel.Version {
 		return fail(fmt.Errorf("el zip contiene %s y se esperaba %s %s", v.Label(), rel.Kind.Name(), rel.Version))
+	}
+	for _, x := range rel.Extras {
+		say("descargando " + x.Name)
+		zip := home.Cache("downloads", path.Base(x.URL))
+		if _, err := download.File(ctx, x.URL, zip, x.SHA256, progress); err != nil {
+			return fail(fmt.Errorf("%s: %w", x.Name, err))
+		}
+		err := unpackFresh(zip, filepath.Join(dest, x.Dir))
+		os.Remove(zip)
+		if err != nil {
+			return fail(fmt.Errorf("%s: %w", x.Name, err))
+		}
 	}
 	v.Source = "download"
 	return v, nil

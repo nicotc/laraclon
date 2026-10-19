@@ -104,6 +104,15 @@ func ClientExe(v versions.Version) string {
 // LogPath is the log of the instance's server.
 func (i Instance) LogPath() string { return i.Home.Logs(i.Key() + ".log") }
 
+// Ports are the ports the server listens on.
+func (i Instance) Ports() []int { return []int{i.Port} }
+
+// Prepare writes my.ini.
+func (i Instance) Prepare() error { return i.WriteIni() }
+
+// ExternalDir is the existing data folder the instance opens ("" for clon's own).
+func (i Instance) ExternalDir() string { return i.External }
+
 var iniTemplate = template.Must(template.New("my.ini").Parse(`# Generado por clon. Pon tus cambios en {{.Overrides}}
 [client]
 host=127.0.0.1

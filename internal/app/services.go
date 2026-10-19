@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/nicotc/laraclon/internal/install"
-	"github.com/nicotc/laraclon/internal/mysql"
 	"github.com/nicotc/laraclon/internal/ports"
 	"github.com/nicotc/laraclon/internal/versions"
 	"github.com/nicotc/laraclon/internal/winx"
@@ -52,10 +51,10 @@ func (d *Daemon) dbGroups(problems map[string]string) []DBGroup {
 		byName[s.Name] = supervisorState{state: string(s.State), pid: s.PID, err: s.LastError}
 	}
 	var out []DBGroup
-	for _, kind := range DBKinds {
+	for _, kind := range ServiceKinds {
 		svc := d.env.Cfg.Service(string(kind))
 		g := DBGroup{Kind: string(kind), Name: kind.Name(), Default: svc.Default}
-		for _, ref := range d.env.DBInstances(kind) {
+		for _, ref := range d.env.Instances(kind) {
 			key := ref.Key()
 			st := InstanceStatus{
 				Key: key, Series: ref.Series, Version: ref.Version.Version, Source: ref.Version.Source,
@@ -87,57 +86,44 @@ type supervisorState struct {
 	pid        int
 }
 
-// dbInstance builds the runnable instance of a series.
-func (d *Daemon) dbInstance(kind versions.Component, series string) (*mysql.Instance, error) {
-	key := InstanceKey(kind, series)
-	cfg, ok := d.env.Cfg.Service(string(kind)).Instances[series]
-	if !ok {
-		return nil, fmt.Errorf("%s no está configurado", key)
-	}
-	if cfg.DataDir != "" && cfg.Version == "" {
-		return nil, fmt.Errorf("%s usa la carpeta de datos %s pero no indica de qué versión es (version = \"x.y.z\" en clon.toml); clon no la abre con otra versión porque la actualizaría", key, cfg.DataDir)
-	}
-	v, err := d.env.InstanceVersion(kind, series)
-	if err != nil {
-		return nil, err
-	}
-	return &mysql.Instance{Home: d.env.Home, Version: v, Port: cfg.Port, External: cfg.DataDir}, nil
-}
-
-// startDB starts one instance: writes my.ini, creates the data folder the first time and launches
-// the server under the supervisor.
+// startDB starts one instance: writes its configuration, creates its data the first time and
+// launches it under the supervisor.
 func (d *Daemon) startDB(kind versions.Component, series string) error {
-	inst, err := d.dbInstance(kind, series)
+	r, err := d.runnerFor(kind, series)
 	if err != nil {
 		return err
 	}
-	if d.sup.PID(inst.ServiceName()) != 0 {
+	if d.sup.PID(r.Key()) != 0 {
 		return nil
 	}
-	if pid, exe, busy := inst.InUseBy(); busy {
-		return fmt.Errorf("otro servidor ya usa la carpeta de datos %s: %s (PID %d). Detenlo (por ejemplo, cierra Laragon) antes de iniciar el de clon", inst.DataDir(), exe, pid)
+	if x, ok := r.(externalData); ok {
+		if pid, exe, busy := x.InUseBy(); busy {
+			return fmt.Errorf("otro servidor ya usa la carpeta de datos %s: %s (PID %d). Detenlo (por ejemplo, cierra Laragon) antes de iniciar el de clon", r.DataDir(), exe, pid)
+		}
+		if x.ExternalDir() != "" && !x.Initialized() {
+			return fmt.Errorf("%s no contiene datos de MySQL", r.DataDir())
+		}
 	}
-	if inst.External != "" && !inst.Initialized() {
-		return fmt.Errorf("%s no contiene datos de MySQL", inst.DataDir())
+	for _, p := range r.Ports() {
+		if err := ports.Check(p); err != nil {
+			return fmt.Errorf("%s no puede usar su puerto: %w. Cámbialo en el panel (Servicios) o con 'clon service port %s <puerto>'", r.Key(), err, r.Key())
+		}
 	}
-	if err := ports.Check(inst.Port); err != nil {
-		return fmt.Errorf("%s no puede usar su puerto: %w. Cámbialo en el panel (Servicios) o con 'clon service port %s <puerto>'", inst.Key(), err, inst.Key())
-	}
-	if err := inst.WriteIni(); err != nil {
+	if err := r.Prepare(); err != nil {
 		return err
 	}
-	if err := inst.Initialize(); err != nil {
+	if err := r.Initialize(); err != nil {
 		return err
 	}
-	return d.sup.Start(inst.Spec())
+	return d.sup.Start(r.Spec())
 }
 
 // startDatabases starts the default instance of each kind and the ones marked to start with
 // «Iniciar todo». Each instance reports its own problem.
 func (d *Daemon) startDatabases() {
-	for _, kind := range DBKinds {
+	for _, kind := range ServiceKinds {
 		svc := d.env.Cfg.Service(string(kind))
-		for _, ref := range d.env.DBInstances(kind) {
+		for _, ref := range d.env.Instances(kind) {
 			if ref.Series == svc.Default || ref.Instance.Autostart {
 				d.setProblem(ref.Key(), d.startDB(kind, ref.Series))
 			}
@@ -195,8 +181,11 @@ func (d *Daemon) ServiceSettings(key string, port *int, autostart *bool) error {
 	}
 	restart := false
 	if port != nil && *port != inst.Port {
-		if err := d.env.CheckDBPort(key, *port); err != nil {
+		if err := d.env.CheckPort(key, *port); err != nil {
 			return err
+		}
+		if site := d.siteOnPort(*port); site != "" {
+			return fmt.Errorf("el puerto %d lo usa el sitio %s", *port, site)
 		}
 		inst.Port = *port
 		restart = d.sup.PID(key) != 0
@@ -215,6 +204,18 @@ func (d *Daemon) ServiceSettings(key string, port *int, autostart *bool) error {
 	}
 	d.changed()
 	return err
+}
+
+// siteOnPort is the site whose web server listens on port ("" when none does).
+func (d *Daemon) siteOnPort(port int) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, s := range d.sites {
+		if s.Port == port {
+			return s.Host
+		}
+	}
+	return ""
 }
 
 // SetDefaultService makes an instance the default of its kind. When the previous default had the
@@ -239,7 +240,7 @@ func (d *Daemon) SetDefaultService(key string) error {
 	oldKey := InstanceKey(kind, old)
 	oldWasRunning := old != "" && d.sup.PID(oldKey) != 0
 	var restart []string
-	if oldInst, ok := svc.Instances[old]; ok && oldInst.Port == DBStandardPort {
+	if oldInst, ok := svc.Instances[old]; ok && oldInst.Port == StandardPort(kind) {
 		oldInst.Port, inst.Port = inst.Port, oldInst.Port
 		svc.Instances[old] = oldInst
 		for _, k := range []string{oldKey, key} {
@@ -295,7 +296,7 @@ func (d *Daemon) UninstallService(key string) error {
 	d.sup.Stop(key)
 	binRoot := strings.ToLower(d.env.Home.Bin()) + `\`
 	for _, v := range d.env.Reg.List(kind) {
-		if versions.MajorMinor(v.Version) != series {
+		if versions.Series(kind, v.Version) != series {
 			continue
 		}
 		if v.Source == "download" && strings.HasPrefix(strings.ToLower(filepath.Clean(v.Path))+`\`, binRoot) {
@@ -314,8 +315,8 @@ func (d *Daemon) UninstallService(key string) error {
 			svc.Default = rest[0]
 			// The new default takes over the standard port when it can do so without a restart.
 			next := svc.Instances[rest[0]]
-			if removed.Port == DBStandardPort && d.sup.PID(InstanceKey(kind, rest[0])) == 0 {
-				next.Port = DBStandardPort
+			if removed.Port == StandardPort(kind) && d.sup.PID(InstanceKey(kind, rest[0])) == 0 {
+				next.Port = StandardPort(kind)
 				svc.Instances[rest[0]] = next
 			}
 		}
@@ -339,13 +340,13 @@ func (d *Daemon) OpenPath(key, what string) error {
 	if err != nil {
 		return err
 	}
-	inst, err := d.dbInstance(kind, series)
+	r, err := d.runnerFor(kind, series)
 	if err != nil {
 		return err
 	}
-	target := inst.DataDir()
+	target := r.DataDir()
 	if what == "log" {
-		target = inst.LogPath()
+		target = r.LogPath()
 	}
 	if _, err := os.Stat(target); err != nil {
 		return fmt.Errorf("todavía no existe %s (se crea al iniciar %s por primera vez)", target, key)
@@ -475,7 +476,7 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release) {
 	})
 	switch {
 	// The first version of a database becomes its default, which runs while clon's services do.
-	case err == nil && isDBKind(rel.Kind) && isDefault:
+	case err == nil && isServiceKind(rel.Kind) && isDefault:
 		d.StartService(InstanceKey(rel.Kind, rel.Series))
 	// Sites waiting for a web server start using it.
 	case err == nil && (rel.Kind == versions.Nginx || rel.Kind == versions.FrankenPHP):

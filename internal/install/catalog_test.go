@@ -118,6 +118,32 @@ func TestPickFrankenPHP(t *testing.T) {
 	}
 }
 
+func TestPickMongoDB(t *testing.T) {
+	const doc = `{"versions": [
+	  {"version": "9.0.4", "production_release": true, "downloads": [
+	    {"target": "windows", "arch": "x86_64", "edition": "base", "archive": {"url": "https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-9.0.4.zip", "sha256": "1e6234c8c33e75de3659a7e1104cb12f1cb68ae41cba60b625537c1ed9256d43"}},
+	    {"target": "ubuntu2404", "arch": "x86_64", "edition": "base", "archive": {"url": "https://x/linux.tgz", "sha256": "1e6234c8c33e75de3659a7e1104cb12f1cb68ae41cba60b625537c1ed9256d43"}}]},
+	  {"version": "9.0.2", "production_release": true, "downloads": [{"target": "windows", "arch": "x86_64", "edition": "base", "archive": {"url": "https://x/9.0.2.zip", "sha256": "2cabba2e80b90bcd1c1096845711975199104148c849a007984cb3ee4d237406"}}]},
+	  {"version": "9.1.0-rc0", "production_release": false, "downloads": []},
+	  {"version": "8.3.13", "production_release": true, "downloads": [{"target": "windows", "arch": "x86_64", "edition": "base", "archive": {"url": "https://x/8.3.13.zip", "sha256": "61fcc2b2ac3a295ba2d8c80f678f01502b96647d835f0159b694c507035b5238"}}]},
+	  {"version": "8.0.34", "production_release": true, "downloads": [{"target": "windows", "arch": "x86_64", "edition": "base", "archive": {"url": "https://x/8.0.34.zip", "sha256": "61fcc2b2ac3a295ba2d8c80f678f01502b96647d835f0159b694c507035b5238"}}]},
+	  {"version": "7.0.45", "production_release": true, "downloads": [{"target": "windows", "arch": "x86_64", "edition": "base", "archive": {"url": "https://x/7.0.45.zip", "sha256": "61fcc2b2ac3a295ba2d8c80f678f01502b96647d835f0159b694c507035b5238"}}]},
+	  {"version": "6.0.27", "production_release": true, "downloads": [{"target": "windows", "arch": "x86_64", "edition": "base", "archive": {"url": "https://x/6.0.27.zip", "sha256": "61fcc2b2ac3a295ba2d8c80f678f01502b96647d835f0159b694c507035b5238"}}]}
+	]}`
+	var full mongoFull
+	if err := json.Unmarshal([]byte(doc), &full); err != nil {
+		t.Fatal(err)
+	}
+	var desc []string
+	for _, r := range pickMongoDB(full) {
+		desc = append(desc, r.Version+" "+r.Note)
+	}
+	want := []string{"9.0.4 la más reciente", "8.0.34 versión mayor", "7.0.45 versión mayor"}
+	if !reflect.DeepEqual(desc, want) {
+		t.Fatalf("got %v, want %v (no rapid release older than the newest major, no release candidates)", desc, want)
+	}
+}
+
 func TestFindRelease(t *testing.T) {
 	list := []Release{{Kind: versions.MySQL, Series: "8.4", Version: "8.4.11"}, {Kind: versions.MySQL, Series: "8.0", Version: "8.0.46"}}
 	if r, err := FindRelease(list, "8.0"); err != nil || r.Version != "8.0.46" {

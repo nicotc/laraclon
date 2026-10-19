@@ -26,7 +26,11 @@ const (
 	Redis    Component = "redis"
 	Composer Component = "composer"
 
-	FrankenPHP Component = "frankenphp"
+	FrankenPHP  Component = "frankenphp"
+	PostgreSQL  Component = "postgresql"
+	MongoDB     Component = "mongodb"
+	Mailpit     Component = "mailpit"
+	Meilisearch Component = "meilisearch"
 )
 
 // Version is one installed (or referenced) copy of a component.
@@ -40,7 +44,11 @@ type Version struct {
 	PHP        string    `json:"php,omitempty"` // PHP built into the program (FrankenPHP)
 }
 
-var componentNames = map[Component]string{PHP: "PHP", Apache: "Apache", MySQL: "MySQL", MariaDB: "MariaDB", Nginx: "Nginx", Node: "Node", Redis: "Redis", Composer: "Composer", FrankenPHP: "FrankenPHP"}
+var componentNames = map[Component]string{
+	PHP: "PHP", Apache: "Apache", MySQL: "MySQL", MariaDB: "MariaDB", Nginx: "Nginx", Node: "Node", Redis: "Redis",
+	Composer: "Composer", FrankenPHP: "FrankenPHP", PostgreSQL: "PostgreSQL", MongoDB: "MongoDB", Mailpit: "Mailpit",
+	Meilisearch: "Meilisearch",
+}
 
 // Name is the product name shown to the user, e.g. "MariaDB".
 func (c Component) Name() string {
@@ -184,6 +192,16 @@ func Compare(a, b string) int {
 		}
 	}
 	return 0
+}
+
+// Series is the part of a version that shares data and settings: "8.4" for MySQL 8.4.16, but "18"
+// for PostgreSQL 18.6, whose second number is already a patch release.
+func Series(c Component, v string) string {
+	if c == PostgreSQL {
+		major, _, _ := strings.Cut(v, ".")
+		return major
+	}
+	return MajorMinor(v)
 }
 
 // MajorMinor returns "8.4" for "8.4.16".

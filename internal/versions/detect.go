@@ -149,6 +149,25 @@ func DetectRedis(dir string) (Version, error) {
 	return Version{Component: Redis, Version: m[1], Path: dir}, nil
 }
 
+var mongoRe = regexp.MustCompile(`db version v(\d+\.\d+\.\d+)`)
+
+// DetectMongoDB reads "mongod --version" ("db version v9.0.4").
+func DetectMongoDB(dir string) (Version, error) {
+	exe := filepath.Join(dir, "bin", "mongod.exe")
+	if !exists(exe) {
+		return Version{}, fmt.Errorf("no hay bin\\mongod.exe en %s", dir)
+	}
+	out, err := procutil.Output(probeTimeout, dir, exe, "--version")
+	if err != nil {
+		return Version{}, err
+	}
+	m := mongoRe.FindStringSubmatch(out)
+	if m == nil {
+		return Version{}, fmt.Errorf("versión de MongoDB no reconocida: %q", out)
+	}
+	return Version{Component: MongoDB, Version: m[1], Path: dir, Arch: "x64"}, nil
+}
+
 var frankenRe = regexp.MustCompile(`FrankenPHP v?(\d+\.\d+\.\d+)\s+PHP (\d+\.\d+\.\d+)`)
 
 // DetectFrankenPHP reads "frankenphp version" ("FrankenPHP 1.13.1 PHP 8.5.11 Caddy v2.11.7 …").
@@ -185,6 +204,8 @@ func Detect(c Component, dir string) (Version, error) {
 		return DetectRedis(dir)
 	case FrankenPHP:
 		return DetectFrankenPHP(dir)
+	case MongoDB:
+		return DetectMongoDB(dir)
 	}
 	return Version{}, fmt.Errorf("componente desconocido: %s", c)
 }

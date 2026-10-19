@@ -109,21 +109,21 @@ func TestPinnedVersionIsNeverReplacedByANewerPatch(t *testing.T) {
 	}
 }
 
-func TestCheckDBPort(t *testing.T) {
+func TestCheckPort(t *testing.T) {
 	e := testEnv(t, mysqlV("8.4.11", "download"), mysqlV("5.7.44", "download"))
 	e.SyncServices()
-	if err := e.CheckDBPort("mysql-5.7", 3306); err == nil {
+	if err := e.CheckPort("mysql-5.7", 3306); err == nil {
 		t.Fatal("3306 belongs to mysql-8.4")
 	}
-	if err := e.CheckDBPort("mysql-8.4", 3306); err != nil {
+	if err := e.CheckPort("mysql-8.4", 3306); err != nil {
 		t.Fatalf("an instance may keep its own port: %v", err)
 	}
-	for _, p := range []int{80, 443, 9100, 20000, 25000, 99999} {
-		if err := e.CheckDBPort("mysql-5.7", p); err == nil {
+	for _, p := range []int{80, 443, 9100, 20000, 30000, 40000, 99999} {
+		if err := e.CheckPort("mysql-5.7", p); err == nil {
 			t.Fatalf("port %d must be refused", p)
 		}
 	}
-	if err := e.CheckDBPort("mysql-5.7", 3320); err != nil {
+	if err := e.CheckPort("mysql-5.7", 3320); err != nil {
 		t.Fatalf("3320 should be fine: %v", err)
 	}
 }

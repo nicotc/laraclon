@@ -22,6 +22,7 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
   - MariaDB de mariadb.org, con su SHA-256 comprobado.
 
   Cada versión tiene su puerto, su carpeta de datos y su interruptor. Una por tipo es la predeterminada: usa el 3306, arranca con «Iniciar todo» y es la que abre el atajo `mysql`. También puede usar las bases de una instalación de Laragon sin copiarlas (`clon mysql laragon-data`), sin abrirlas nunca a la vez que Laragon.
+- **MongoDB.** Se instala desde el catálogo (mongodb.org, con su SHA-256 comprobado) junto con `mongosh`, que queda como atajo en la terminal. Cada versión tiene su puerto (27017 la predeterminada) y sus datos, y se detiene de forma ordenada.
 - **Node incluido:** descarga la LTS oficial, verificada, con `npm` y `npx`. Los paquetes globales de npm sobreviven a los cambios de versión.
 - **Composer** actualizado y atajos de terminal (`php`, `php84`, `php83`…, `composer`, `node`, `npm`, `npx`, `mysql`) en una sola carpeta `shims\`. Los procesos PHP que lanzan Composer o Artisan heredan el mismo `php.ini`.
 - **Importación desde Laragon.** Usa en su sitio, sin copiar ni modificar, sus versiones de PHP, Apache, MySQL, Nginx, Node y Redis, y sus carpetas de proyectos.
@@ -93,7 +94,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon composer install` | Descarga o actualiza Composer |
 | `clon vcredist status` · `install [instalador.exe]` | Runtime de Visual C++ que necesitan PHP, Apache y MySQL |
 | `clon import laragon [ruta]` | Importa versiones y carpetas de Laragon |
-| `clon service list` · `remote` · `install mysql 8.4` | Bases de datos instaladas · catálogo · instalar una versión |
+| `clon service list` · `remote` · `install mysql 8.4` · `install mongodb latest` | Servicios instalados · catálogo · instalar una versión |
 | `clon service start` · `stop` · `default` · `uninstall mysql-8.4` | Una instancia: iniciar, detener, hacerla predeterminada o quitarla (los datos se conservan) |
 | `clon service port mysql-8.4 3307` · `autostart mysql-8.4 on` | Su puerto y si arranca con «Iniciar todo» |
 | `clon mysql laragon-data` · `own-data` | Usa las bases de Laragon o la carpeta de datos propia |
@@ -133,6 +134,7 @@ internal/apache  httpd.conf y control         internal/supervisor  procesos y jo
 internal/php     php.ini y pool de php-cgi    internal/ports       puertos libres y reservados
 internal/mysql   MySQL y MariaDB: my.ini      internal/install     descargas oficiales verificadas
 internal/nginx   nginx.conf y control         internal/frankenphp  Caddyfile y control
+internal/mongodb mongod y parada con mongosh
 internal/laragon importación de Laragon       internal/versions    catálogo de versiones
 ```
 
@@ -157,12 +159,14 @@ En Windows 11, junto a Laragon y en puertos alternativos:
   - Cancelar una descarga no deja restos. Desinstalar borra los programas descargados, conserva los datos y nunca toca los archivos de Laragon.
 - **Nginx:** un sitio pasa de Apache a Nginx (el 1.22 de Laragon y el 1.30 descargado) y vuelve, y PHP ve lo mismo con los dos: `HTTPS=on`, el puerto público y la URI enrutada a `index.php`. Al instalar otra versión, Nginx cambia a ella solo, y se detiene cuando ningún sitio lo usa.
 - **FrankenPHP:** un sitio con FrankenPHP 1.13 responde con su PHP 8.5 propio, `HTTPS=on`, MySQL y OPcache. Tres sitios corren a la vez, uno con cada servidor (Apache, Nginx y FrankenPHP).
+- **MongoDB:** la 9.0 se instala con `mongosh`, arranca como predeterminada, responde desde el atajo `mongosh` y se detiene de forma ordenada («shutdown complete», código 0).
 
-En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 25 pasos de `probar-en-sandbox.ps1`:
+En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 pasos de `probar-en-sandbox.ps1`:
 
 - Instalación del runtime de Visual C++ y PHP descargado de windows.php.net.
 - Proyecto Laravel 13 nuevo con MySQL, migraciones y `npm run build`.
 - MariaDB instalada desde el catálogo, corriendo a la vez que MySQL.
+- Nginx y FrankenPHP instalados desde el catálogo: Laravel servido por Nginx y otro sitio por FrankenPHP con su PHP 8.5.
 - Archivo `hosts` y CA local de confianza: Edge abre los sitios sin avisos de certificado.
 - Cambio de PHP en caliente, panel, atajos y cierre sin procesos sueltos.
 
@@ -170,8 +174,8 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 25 p
 
 - **Fase 1 (núcleo), pendiente:** descarga directa de Apache.
 - **Fase 2, en este orden:**
-  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio.
-  - MongoDB, PostgreSQL, Redis, Mailpit y Meilisearch.
+  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; MongoDB.
+  - PostgreSQL, Redis, Mailpit y Meilisearch.
   - Varias versiones de Apache, incluidos perfiles legacy con su propio PHP.
 - **Fase 3:**
   - Instaladores: Laravel con sus starter kits, WordPress, Symfony, desde Git y recetas propias.

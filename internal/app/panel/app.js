@@ -4,7 +4,19 @@ let state = null;
 // Lo que el usuario está haciendo y debe sobrevivir a cada refresco del estado.
 const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {} };
 
-const INSTALLABLE = ['mysql', 'mariadb', 'nginx', 'frankenphp'];
+const INSTALLABLE = ['mysql', 'mariadb', 'nginx', 'frankenphp', 'mongodb'];
+// Services by section of the Servicios tab, in display order.
+const DB_KINDS = ['mysql', 'mariadb', 'postgresql', 'mongodb'];
+const OTHER_KINDS = ['redis', 'mailpit', 'meilisearch'];
+const KIND_INFO = {
+  mysql: { name: 'MySQL', desc: 'Base de datos · compatible con MySQL' },
+  mariadb: { name: 'MariaDB', desc: 'Base de datos · compatible con MySQL' },
+  postgresql: { name: 'PostgreSQL', desc: 'Base de datos · puerto 5432' },
+  mongodb: { name: 'MongoDB', desc: 'Base de datos de documentos · puerto 27017, con mongosh' },
+  redis: { name: 'Redis', desc: 'Caché y colas · puerto 6379' },
+  mailpit: { name: 'Mailpit', desc: 'Correo de prueba: lo que envía Laravel, visto en el navegador' },
+  meilisearch: { name: 'Meilisearch', desc: 'Búsqueda para Laravel Scout · puerto 7700' },
+};
 // Web servers a site can choose besides Apache; they only run while some site uses them.
 const SERVERS = {
   nginx: { name: 'Nginx', version: s => s.nginx, php: () => 'con el mismo PHP global',
@@ -12,19 +24,16 @@ const SERVERS = {
   frankenphp: { name: 'FrankenPHP', version: s => s.frankenphp, php: s => `con su propio PHP ${s.frankenphp_php || ''}`.trim(),
     desc: 'Servidor con su propio PHP integrado; más adelante, modo worker para Laravel Octane.' },
 };
-const LOGO = { apache: 'A', nginx: 'N', frankenphp: 'F', mysql: 'My', mariadb: 'Ma', postgres: 'Pg', mongodb: 'Mo', redis: 'R', mailpit: '✉', meilisearch: 'Me' };
-const SOON = {
-  web: [],
-  db: [
-    { kind: 'postgres', name: 'PostgreSQL', desc: 'Base de datos · puerto 5432' },
-    { kind: 'mongodb', name: 'MongoDB', desc: 'Base de datos · puerto 27017' },
-  ],
-  other: [
-    { kind: 'redis', name: 'Redis', desc: 'Caché y colas · puerto 6379' },
-    { kind: 'mailpit', name: 'Mailpit', desc: 'Correo de prueba: lo que envía Laravel, visto en el navegador.' },
-    { kind: 'meilisearch', name: 'Meilisearch', desc: 'Búsqueda para Laravel Scout · puerto 7700' },
-  ],
-};
+const LOGO = { apache: 'A', nginx: 'N', frankenphp: 'F', mysql: 'My', mariadb: 'Ma', postgresql: 'Pg', mongodb: 'Mo', redis: 'R', mailpit: '✉', meilisearch: 'Me' };
+
+// A kind is shown as a full card when it can be installed or something of it is installed.
+function isAvailable(g) {
+  return INSTALLABLE.includes(g.kind) || g.instances.length > 0 || (state.jobs || []).some(j => j.kind === g.kind);
+}
+
+function groupOf(kind) {
+  return (state.databases || []).find(g => g.kind === kind) || { kind, name: KIND_INFO[kind].name, instances: [] };
+}
 
 async function call(method, path, body) {
   const res = await fetch(path, {
@@ -161,7 +170,13 @@ function serverPicker(site) {
 function renderServices() {
   if (!state) return;
   const s = state;
-  const dbs = s.databases || [];
+  // Each section: full cards for what can be installed, small «próximamente» cards for the rest.
+  const section = (title, kinds) => {
+    const groups = kinds.map(groupOf);
+    const soon = groups.filter(g => !isAvailable(g));
+    return [el('div', { class: 'group-title' }, title), ...groups.filter(isAvailable).map(dbCard),
+      soon.length ? el('div', { class: 'grid3' }, ...soon.map(g => soonCard({ kind: g.kind, name: KIND_INFO[g.kind].name, desc: KIND_INFO[g.kind].desc }))) : null];
+  };
   document.getElementById('services-view').replaceChildren(
     el('div', { class: 'toolbar' },
       el('h2', {}, 'Servicios'),
@@ -170,12 +185,9 @@ function renderServices() {
       el('button', { onclick: openDialog }, '＋ Añadir servicio')),
     phpBar(s),
     el('div', { class: 'group-title' }, 'Servidores web'),
-    el('div', { class: 'grid3' }, apacheCard(s), serverCard(s, 'nginx'), serverCard(s, 'frankenphp'), ...SOON.web.map(soonCard)),
-    el('div', { class: 'group-title' }, 'Bases de datos'),
-    ...dbs.map(dbCard),
-    el('div', { class: 'grid3' }, ...SOON.db.map(soonCard)),
-    el('div', { class: 'group-title' }, 'Caché, búsqueda y correo'),
-    el('div', { class: 'grid3' }, ...SOON.other.map(soonCard)),
+    el('div', { class: 'grid3' }, apacheCard(s), serverCard(s, 'nginx'), serverCard(s, 'frankenphp')),
+    ...section('Bases de datos', DB_KINDS),
+    ...section('Caché, búsqueda y correo', OTHER_KINDS),
   );
 }
 
@@ -376,9 +388,20 @@ function uninstall(g, i) {
   if (confirm(msg)) act('POST', '/api/services/uninstall', { key: i.key }, i.key);
 }
 
+// envLines is what a Laravel .env needs to reach an instance.
+function envLines(kind, port) {
+  switch (kind) {
+    case 'postgresql': return ['DB_CONNECTION=pgsql', 'DB_HOST=127.0.0.1', `DB_PORT=${port}`, 'DB_DATABASE=', 'DB_USERNAME=postgres', 'DB_PASSWORD='];
+    case 'mongodb': return [`MONGODB_URI=mongodb://127.0.0.1:${port}`];
+    case 'redis': return ['REDIS_CLIENT=predis', 'REDIS_HOST=127.0.0.1', `REDIS_PORT=${port}`, 'REDIS_PASSWORD=null'];
+    case 'mailpit': return ['MAIL_MAILER=smtp', 'MAIL_HOST=127.0.0.1', `MAIL_PORT=${port}`, 'MAIL_USERNAME=null', 'MAIL_PASSWORD=null'];
+    case 'meilisearch': return ['SCOUT_DRIVER=meilisearch', `MEILISEARCH_HOST=http://127.0.0.1:${port}`];
+  }
+  return [`DB_CONNECTION=${kind === 'mariadb' ? 'mariadb' : 'mysql'}`, 'DB_HOST=127.0.0.1', `DB_PORT=${port}`, 'DB_DATABASE=', 'DB_USERNAME=root', 'DB_PASSWORD='];
+}
+
 async function copyEnv(g, i) {
-  const text = [`DB_CONNECTION=${g.kind === 'mariadb' ? 'mariadb' : 'mysql'}`, 'DB_HOST=127.0.0.1', `DB_PORT=${i.port}`,
-    'DB_DATABASE=', 'DB_USERNAME=root', 'DB_PASSWORD='].join('\n');
+  const text = envLines(g.kind, i.port).join('\n');
   try {
     await navigator.clipboard.writeText(text);
     toast('Datos de conexión copiados: pégalos en el .env de tu proyecto');
@@ -428,7 +451,8 @@ function closeDialog() {
 
 function renderDialog() {
   if (!state) return;
-  const groups = [serverGroup(state, 'nginx'), serverGroup(state, 'frankenphp'), ...(state.databases || [])];
+  const all = [...DB_KINDS, ...OTHER_KINDS].map(groupOf);
+  const groups = [serverGroup(state, 'nginx'), serverGroup(state, 'frankenphp'), ...all.filter(isAvailable)];
   const tiles = groups.map(g => {
     const job = (state.jobs || []).find(j => j.kind === g.kind && !j.finished);
     const cat = ui.catalog[g.kind];
@@ -436,13 +460,13 @@ function renderDialog() {
     return el('div', { class: 'tile' + (job ? ' busy' : '') },
       el('div', { class: 'top' }, logo(g.kind),
         el('div', {}, el('div', { class: 'name' }, g.name, ' ', n ? el('span', { class: 'pill' }, n === 1 ? '1 instalada' : `${n} instaladas`) : null),
-          el('div', { class: 'desc' }, { nginx: 'Servidor web · por sitio', frankenphp: 'Servidor web con su propio PHP · por sitio' }[g.kind] || 'Base de datos · compatible con MySQL'))),
+          el('div', { class: 'desc' }, { nginx: 'Servidor web · por sitio', frankenphp: 'Servidor web con su propio PHP · por sitio' }[g.kind] || KIND_INFO[g.kind].desc))),
       job ? jobLine(job, g.name) : el('div', { class: 'act' }, ...installPicker(g)),
       el('div', { class: 'src' }, cat && cat.length ? `Descarga de ${cat[0].source}` : ''));
   });
-  const soon = [...SOON.web, ...SOON.db, ...SOON.other].map(x => el('div', { class: 'tile soon' },
-    el('div', { class: 'top' }, logo(x.kind), el('div', {}, el('div', { class: 'name' }, x.name, ' ', el('span', { class: 'pill' }, 'próximamente')),
-      el('div', { class: 'desc' }, x.desc)))));
+  const soon = all.filter(g => !isAvailable(g)).map(g => el('div', { class: 'tile soon' },
+    el('div', { class: 'top' }, logo(g.kind), el('div', {}, el('div', { class: 'name' }, KIND_INFO[g.kind].name, ' ', el('span', { class: 'pill' }, 'próximamente')),
+      el('div', { class: 'desc' }, KIND_INFO[g.kind].desc)))));
   document.getElementById('dialog-body').replaceChildren(...tiles, ...soon);
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/install"
+	"github.com/nicotc/laraclon/internal/mongodb"
 	"github.com/nicotc/laraclon/internal/mysql"
 	"github.com/nicotc/laraclon/internal/paths"
 	"github.com/nicotc/laraclon/internal/php"
@@ -165,6 +166,16 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 	if db, ok := e.DefaultDB(); ok {
 		if client := mysql.ClientExe(db.Version); client != "" {
 			targets["mysql"] = shims.Target{Exe: client, Args: []string{"--host=127.0.0.1", fmt.Sprintf("--port=%d", db.Instance.Port), "--user=root"}}
+		}
+	}
+	// `mongosh` opens the default MongoDB (its standard port needs no option, which keeps URIs usable).
+	if ref, ok := e.DefaultInstance(versions.MongoDB); ok {
+		if shell := mongodb.Shell(ref.Version); shell != "" {
+			t := shims.Target{Exe: shell}
+			if ref.Instance.Port != StandardPort(versions.MongoDB) {
+				t.Args = []string{"--port", fmt.Sprint(ref.Instance.Port)}
+			}
+			targets["mongosh"] = t
 		}
 	}
 

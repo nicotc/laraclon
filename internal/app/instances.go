@@ -10,23 +10,54 @@ import (
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
-// DBKinds are the databases clon runs as services, in the order the panel shows them.
-var DBKinds = []versions.Component{versions.MySQL, versions.MariaDB}
+// serviceKind describes a kind of service clon runs as instances, one per series.
+type serviceKind struct {
+	kind   versions.Component
+	port   int // standard port: the default instance gets it when free
+	portTo int // last port tried for the other instances
+	// autoDefault makes the first series of the kind its default even when it was imported (from
+	// Laragon); otherwise only a version installed through clon becomes the default by itself, so
+	// importing Laragon does not start services nobody asked for.
+	autoDefault bool
+}
 
-// DBStandardPort is the port MySQL and MariaDB clients assume. The default instance gets it; the
-// other instances get the next free ports up to dbPortTo.
-const (
-	DBStandardPort = 3306
-	dbPortTo       = 3399
-)
+// serviceKinds only lists the kinds clon knows how to run (see runnerFor).
+var serviceKinds = []serviceKind{
+	{versions.MySQL, 3306, 3399, true},
+	{versions.MariaDB, 3306, 3399, true},
+	{versions.MongoDB, 27017, 27099, false},
+}
 
-func isDBKind(c versions.Component) bool {
-	for _, k := range DBKinds {
-		if k == c {
-			return true
+// ServiceKinds are the services clon runs as instances, in the order the panel shows them.
+var ServiceKinds = func() []versions.Component {
+	var out []versions.Component
+	for _, k := range serviceKinds {
+		out = append(out, k.kind)
+	}
+	return out
+}()
+
+// DBStandardPort is the port MySQL and MariaDB clients assume.
+const DBStandardPort = 3306
+
+func kindInfo(c versions.Component) (serviceKind, bool) {
+	for _, k := range serviceKinds {
+		if k.kind == c {
+			return k, true
 		}
 	}
-	return false
+	return serviceKind{}, false
+}
+
+func isServiceKind(c versions.Component) bool {
+	_, ok := kindInfo(c)
+	return ok
+}
+
+// StandardPort is the port clients of a kind of service assume (3306, 5432, 27017…).
+func StandardPort(c versions.Component) int {
+	k, _ := kindInfo(c)
+	return k.port
 }
 
 // InstanceKey names an instance by kind and series, e.g. "mysql-8.4". It is also its service name,
@@ -37,28 +68,29 @@ func InstanceKey(kind versions.Component, series string) string { return string(
 func ParseInstanceKey(key string) (versions.Component, string, error) {
 	kind, series, ok := strings.Cut(strings.ToLower(strings.TrimSpace(key)), "-")
 	c := versions.Component(kind)
-	if !ok || !isDBKind(c) || series == "" {
-		return "", "", fmt.Errorf("servicio desconocido %q (por ejemplo mysql-8.4 o mariadb-11.8)", key)
+	if !ok || !isServiceKind(c) || series == "" {
+		return "", "", fmt.Errorf("servicio desconocido %q (por ejemplo mysql-8.4, postgresql-18 o redis-8.10)", key)
 	}
 	return c, series, nil
 }
 
-// DBRef is one configured instance with the version it runs.
-type DBRef struct {
+// InstanceRef is one configured instance with the version it runs.
+type InstanceRef struct {
 	Kind     versions.Component
 	Series   string
 	Instance config.ServiceInstance
 	Version  versions.Version
 }
 
-func (r DBRef) Key() string { return InstanceKey(r.Kind, r.Series) }
+func (r InstanceRef) Key() string { return InstanceKey(r.Kind, r.Series) }
 
-// SeriesInstalled lists the series ("8.4") of the installed versions of a kind, newest first.
+// SeriesInstalled lists the series ("8.4", or "18" for PostgreSQL) of the installed versions of a
+// kind, newest first.
 func (e *Env) SeriesInstalled(kind versions.Component) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, v := range e.Reg.List(kind) {
-		s := versions.MajorMinor(v.Version)
+		s := versions.Series(kind, v.Version)
 		if !seen[s] {
 			seen[s] = true
 			out = append(out, s)
@@ -74,7 +106,7 @@ func (e *Env) InstanceVersion(kind versions.Component, series string) (versions.
 	if inst.Version != "" {
 		want = inst.Version
 	}
-	if v, ok := e.Reg.Find(kind, want); ok && versions.MajorMinor(v.Version) == series {
+	if v, ok := e.Reg.Find(kind, want); ok && versions.Series(kind, v.Version) == series {
 		return v, nil
 	}
 	if inst.Version != "" {
@@ -83,12 +115,12 @@ func (e *Env) InstanceVersion(kind versions.Component, series string) (versions.
 	return versions.Version{}, fmt.Errorf("no hay ninguna versión %s de %s instalada", series, kind.Name())
 }
 
-// DBInstances lists the configured instances of a kind: the default first, then newest series first.
-func (e *Env) DBInstances(kind versions.Component) []DBRef {
+// Instances lists the configured instances of a kind: the default first, then newest series first.
+func (e *Env) Instances(kind versions.Component) []InstanceRef {
 	svc := e.Cfg.Service(string(kind))
-	var out []DBRef
+	var out []InstanceRef
 	for series, inst := range svc.Instances {
-		ref := DBRef{Kind: kind, Series: series, Instance: inst}
+		ref := InstanceRef{Kind: kind, Series: series, Instance: inst}
 		ref.Version, _ = e.InstanceVersion(kind, series)
 		out = append(out, ref)
 	}
@@ -101,22 +133,29 @@ func (e *Env) DBInstances(kind versions.Component) []DBRef {
 	return out
 }
 
-// DefaultDB is the instance the `mysql` shortcut and the status line use: the default MySQL, or
-// else the default MariaDB.
-func (e *Env) DefaultDB() (DBRef, bool) {
-	for _, kind := range DBKinds {
-		svc := e.Cfg.Service(string(kind))
-		inst, ok := svc.Instances[svc.Default]
-		if svc.Default == "" || !ok {
-			continue
-		}
-		v, err := e.InstanceVersion(kind, svc.Default)
-		if err != nil {
-			continue
-		}
-		return DBRef{Kind: kind, Series: svc.Default, Instance: inst, Version: v}, true
+// DefaultInstance is the default instance of a kind (ok is false when it has none).
+func (e *Env) DefaultInstance(kind versions.Component) (InstanceRef, bool) {
+	svc := e.Cfg.Service(string(kind))
+	inst, ok := svc.Instances[svc.Default]
+	if svc.Default == "" || !ok {
+		return InstanceRef{}, false
 	}
-	return DBRef{}, false
+	v, err := e.InstanceVersion(kind, svc.Default)
+	if err != nil {
+		return InstanceRef{}, false
+	}
+	return InstanceRef{Kind: kind, Series: svc.Default, Instance: inst, Version: v}, true
+}
+
+// DefaultDB is the database the `mysql` shortcut and the status line use: the default MySQL, or
+// else the default MariaDB.
+func (e *Env) DefaultDB() (InstanceRef, bool) {
+	for _, kind := range []versions.Component{versions.MySQL, versions.MariaDB} {
+		if ref, ok := e.DefaultInstance(kind); ok {
+			return ref, true
+		}
+	}
+	return InstanceRef{}, false
 }
 
 // SyncServices brings the service settings up to date with the installed versions: it moves the
@@ -173,18 +212,21 @@ func (e *Env) migrateLegacyMySQL() bool {
 }
 
 // ensureInstances creates the missing instances. The newest series of a kind without settings
-// becomes its default; the default gets the standard port when no other instance has it.
+// becomes its default (see serviceKind.autoDefault); the default gets the standard port when no
+// other instance has it.
 func (e *Env) ensureInstances() bool {
 	changed := false
-	for _, kind := range DBKinds {
-		series := e.SeriesInstalled(kind)
+	for _, k := range serviceKinds {
+		series := e.SeriesInstalled(k.kind)
 		if len(series) == 0 {
 			continue
 		}
-		svc := e.Cfg.Service(string(kind))
+		svc := e.Cfg.Service(string(k.kind))
 		if svc.Default == "" && len(svc.Instances) == 0 {
-			svc.Default = series[0]
-			changed = true
+			if newest, _ := e.Reg.Find(k.kind, series[0]); k.autoDefault || newest.Source == "download" {
+				svc.Default = series[0]
+				changed = true
+			}
 		}
 		// The default goes first so it can claim the standard port.
 		sort.SliceStable(series, func(i, j int) bool { return series[i] == svc.Default && series[j] != svc.Default })
@@ -192,69 +234,93 @@ func (e *Env) ensureInstances() bool {
 			if _, ok := svc.Instances[s]; ok {
 				continue
 			}
-			e.Cfg.SetService(string(kind), svc)
-			svc.Instances[s] = config.ServiceInstance{Port: e.freeDBPort(s == svc.Default, "")}
+			e.Cfg.SetService(string(k.kind), svc)
+			svc.Instances[s] = config.ServiceInstance{Port: e.freePort(k.kind, s == svc.Default, "")}
 			changed = true
 		}
-		e.Cfg.SetService(string(kind), svc)
+		e.Cfg.SetService(string(k.kind), svc)
 	}
 	return changed
 }
 
-// usedDBPorts returns the ports of every configured instance except skip.
-func (e *Env) usedDBPorts(skip string) map[int]bool {
+// usedPorts returns the ports of every configured instance except skip, with the second port of
+// the services that have one (Mailpit's web page).
+func (e *Env) usedPorts(skip string) map[int]bool {
 	used := map[int]bool{}
 	for kind, svc := range e.Cfg.Services {
 		for s, inst := range svc.Instances {
 			if inst.Port != 0 && InstanceKey(versions.Component(kind), s) != skip {
 				used[inst.Port] = true
+				if p := secondPort(versions.Component(kind), inst.Port); p != 0 {
+					used[p] = true
+				}
 			}
 		}
 	}
 	return used
 }
 
-// freeDBPort picks a port no other instance is configured with. Only configured ports count, not
+// secondPort is the extra port some services need next to their main one: Mailpit serves its web
+// page on 8025 while it receives mail on 1025 (and 8026 for 1026…).
+func secondPort(kind versions.Component, port int) int {
+	if kind == versions.Mailpit {
+		return port + 7000
+	}
+	return 0
+}
+
+// freePort picks a port no other instance is configured with. Only configured ports count, not
 // programs running right now: a port Laragon holds today is free once Laragon is closed, and a
 // clash is reported clearly when the instance starts.
-func (e *Env) freeDBPort(standard bool, skip string) int {
-	used := e.usedDBPorts(skip)
-	if standard && !used[DBStandardPort] {
-		return DBStandardPort
+func (e *Env) freePort(kind versions.Component, standard bool, skip string) int {
+	k, _ := kindInfo(kind)
+	used := e.usedPorts(skip)
+	if standard && !used[k.port] {
+		return k.port
 	}
-	for p := DBStandardPort + 1; p <= dbPortTo; p++ {
-		if !used[p] && !ports.Reserved(p) {
+	for p := k.port + 1; p <= k.portTo; p++ {
+		if !used[p] && !used[secondPort(kind, p)] && !ports.Reserved(p) {
 			return p
 		}
 	}
 	return 0
 }
 
-// CheckDBPort explains why an instance cannot use a port (another instance, clon's own ports or a
+// CheckPort explains why an instance cannot use a port (another instance, clon's own ports or a
 // range Windows reserves), or returns nil. Programs currently listening are checked at start.
-func (e *Env) CheckDBPort(key string, port int) error {
+func (e *Env) CheckPort(key string, port int) error {
 	if port < 1024 || port > 65535 {
 		return fmt.Errorf("el puerto %d no es válido: usa uno entre 1024 y 65535", port)
 	}
-	for kind, svc := range e.Cfg.Services {
+	kind, _, _ := ParseInstanceKey(key)
+	wanted := []int{port}
+	if p := secondPort(kind, port); p != 0 {
+		wanted = append(wanted, p)
+	}
+	for k, svc := range e.Cfg.Services {
 		for s, inst := range svc.Instances {
-			if other := InstanceKey(versions.Component(kind), s); other != key && inst.Port == port {
-				return fmt.Errorf("el puerto %d ya es de %s", port, other)
+			other := InstanceKey(versions.Component(k), s)
+			if other == key {
+				continue
+			}
+			for _, w := range wanted {
+				if inst.Port == w || secondPort(versions.Component(k), inst.Port) == w {
+					return fmt.Errorf("el puerto %d ya es de %s", w, other)
+				}
 			}
 		}
 	}
-	own := map[int]string{e.Cfg.Proxy.HTTPPort: "el proxy", e.Cfg.Proxy.HTTPSPort: "el proxy", apacheAdminPort: "Apache"}
+	own := map[int]string{e.Cfg.Proxy.HTTPPort: "el proxy", e.Cfg.Proxy.HTTPSPort: "el proxy", apacheAdminPort: "Apache", nginxAdminPort: "Nginx", frankenAdminPort: "FrankenPHP"}
 	for i := 0; i < e.Cfg.PHP.PoolSize; i++ {
 		own[e.Cfg.PHP.BasePort+i] = "el grupo de PHP"
 	}
-	if who, ok := own[port]; ok {
-		return fmt.Errorf("el puerto %d lo usa %s de clon", port, who)
-	}
-	if port >= sitePortFrom && port <= sitePortTo {
-		return fmt.Errorf("los puertos %d-%d son para los sitios", sitePortFrom, sitePortTo)
-	}
-	if ports.Reserved(port) {
-		return fmt.Errorf("el puerto %d está reservado por Windows (Hyper-V, WSL o Docker)", port)
+	for _, w := range wanted {
+		if who, ok := own[w]; ok {
+			return fmt.Errorf("el puerto %d lo usa %s de clon", w, who)
+		}
+		if ports.Reserved(w) {
+			return fmt.Errorf("el puerto %d está reservado por Windows (Hyper-V, WSL o Docker)", w)
+		}
 	}
 	return nil
 }
