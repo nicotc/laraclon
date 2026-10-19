@@ -2,9 +2,12 @@ package app
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/frankenphp"
@@ -124,6 +127,7 @@ type serverPlan struct {
 	test      func() error
 	reload    func() error
 	spec      func() supervisor.Spec
+	ready     func() error // after a fresh start, waits until the sites answer (nil: right away)
 }
 
 // syncServer makes an optional web server serve exactly the sites that chose it: it starts with
@@ -169,6 +173,9 @@ func (d *Daemon) syncServer(p serverPlan, prepErr error) error {
 	d.mu.Lock()
 	*p.running = p.path
 	d.mu.Unlock()
+	if p.ready != nil {
+		return p.ready()
+	}
 	return nil
 }
 
@@ -262,7 +269,30 @@ func (d *Daemon) syncFrankenPHP() error {
 		test:   func() error { return frankenphp.Test(opt) },
 		reload: func() error { return frankenphp.Reload(opt) },
 		spec:   func() supervisor.Spec { return frankenphp.Spec(opt) },
+		// FrankenPHP opens the sites' ports once its PHP threads are up, which takes seconds with
+		// the extensions loaded: a site switched to it answers when the command returns.
+		ready: func() error {
+			if len(opt.Sites) == 0 {
+				return nil
+			}
+			return waitListening(opt.Sites[0].Port, time.Minute)
+		},
 	}, err)
+}
+
+// waitListening waits until something accepts connections on a local port.
+func waitListening(port int, timeout time.Duration) error {
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	for by := time.Now().Add(timeout); ; time.Sleep(200 * time.Millisecond) {
+		c, err := net.DialTimeout("tcp", addr, time.Second)
+		if err == nil {
+			c.Close()
+			return nil
+		}
+		if time.Now().After(by) {
+			return fmt.Errorf("nada responde en el puerto %d tras %s", port, timeout)
+		}
+	}
 }
 
 // ---- Choosing a site's server ----

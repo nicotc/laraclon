@@ -483,6 +483,12 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release, us
 		d.cfgMu.Unlock()
 		d.refreshShims()
 	}
+	// What was installed starts before the job ends: 'nido service install' and the panel take the end
+	// of the job as «ready», and the next request must find it running.
+	if err == nil {
+		d.jobs.update(j, func(j *Job) { j.Phase = "poniéndolo en marcha" })
+		d.afterInstall(rel, v, isDefault, nodeSwitched)
+	}
 	d.jobs.update(j, func(j *Job) {
 		j.Finished, j.Ended = true, time.Now()
 		switch {
@@ -494,32 +500,37 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release, us
 			j.Phase = "instalado"
 		}
 	})
+	d.changed()
+}
+
+// afterInstall puts a new version to use: a database's first version starts as its default, web
+// servers and Apache take their sites, Adminer opens and Node becomes the global one if it should.
+func (d *Daemon) afterInstall(rel install.Release, v versions.Version, isDefault, nodeSwitched bool) {
 	switch {
 	// The first version of a database becomes its default, which runs while Nido's services do.
-	case err == nil && isServiceKind(rel.Kind) && isDefault:
+	case isServiceKind(rel.Kind) && isDefault:
 		d.StartService(InstanceKey(rel.Kind, rel.Series))
 	// Sites waiting for a web server start using it.
-	case err == nil && (rel.Kind == versions.Nginx || rel.Kind == versions.FrankenPHP):
+	case rel.Kind == versions.Nginx || rel.Kind == versions.FrankenPHP:
 		if err := d.Rescan(); err != nil {
 			d.setProblem("sitios", err)
 		}
 	// A downloaded Apache becomes the one that serves the sites.
-	case err == nil && rel.Kind == versions.Apache:
+	case rel.Kind == versions.Apache:
 		d.UseApache(v.Version)
 	// Adminer opens at https://db.localhost right away.
-	case err == nil && rel.Kind == versions.Adminer:
+	case rel.Kind == versions.Adminer:
 		if err := d.Rescan(); err != nil {
 			d.setProblem("sitios", err)
 		}
 		d.setProblem("adminer", d.startAdminer(true))
 	// The Vite servers move to the new global Node.
-	case err == nil && rel.Kind == versions.Node:
+	case rel.Kind == versions.Node:
 		if nodeSwitched {
 			d.restartNodeProcesses()
 		}
 		d.checkNodeNews(context.Background())
 	}
-	d.changed()
 }
 
 // Jobs lists the installations of the last minutes, oldest first.

@@ -30,6 +30,10 @@ type Route struct {
 	// LocalOnly refuses requests from other computers even when the proxy listens on the LAN
 	// (Nido's own tools, such as Adminer, which opens the databases without a password).
 	LocalOnly bool
+	// OneShot is for backends that close every connection after answering (PHP's built-in web
+	// server): each request opens its own. Reusing one that the backend already closed fails, and
+	// Go only retries the idempotent requests, so a POST (Adminer's login) got a 502.
+	OneShot bool
 }
 
 // Table maps host names to routes. "*.site.test" matches through the parent site.
@@ -241,10 +245,11 @@ func (s *Server) forward(w http.ResponseWriter, r *http.Request, route Route) {
 	key := route.Backend.String()
 	rp, ok := s.proxies.Load(key)
 	if !ok {
-		target := route.Backend
+		target, oneShot := route.Backend, route.OneShot
 		rp, _ = s.proxies.LoadOrStore(key, &httputil.ReverseProxy{
 			Rewrite: func(pr *httputil.ProxyRequest) {
 				pr.SetURL(target)
+				pr.Out.Close = oneShot
 				pr.Out.Host = pr.In.Host // the web server and PHP see the real host name
 				pr.SetXForwarded()
 				if pr.In.TLS != nil {

@@ -49,7 +49,7 @@ func (d *Daemon) saludRoute() (proxy.Route, bool) {
 		return proxy.Route{}, false
 	}
 	backend, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", saludPort))
-	return proxy.Route{Site: saludHost, Server: "PHP " + global.Version, Backend: backend, HTTPS: true, LocalOnly: true}, true
+	return proxy.Route{Site: saludHost, Server: "PHP " + global.Version, Backend: backend, HTTPS: true, LocalOnly: true, OneShot: true}, true
 }
 
 // startSalud serves the health page while Nido's services are on; a running one restarts when

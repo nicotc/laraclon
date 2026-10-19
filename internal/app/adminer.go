@@ -1,11 +1,13 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/paths"
@@ -65,7 +67,7 @@ func (d *Daemon) adminerRoute() (proxy.Route, bool) {
 		return proxy.Route{}, false
 	}
 	backend, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", adminerPort))
-	return proxy.Route{Site: adminerHost, Server: "Adminer " + v.Version, Backend: backend, HTTPS: true, LocalOnly: true}, true
+	return proxy.Route{Site: adminerHost, Server: "Adminer " + v.Version, Backend: backend, HTTPS: true, LocalOnly: true, OneShot: true}, true
 }
 
 // startAdminer serves the installed Adminer (while Nido's services are on); a running one restarts
@@ -100,7 +102,7 @@ func (d *Daemon) startAdminer(restart bool) error {
 	if err := ports.Check(adminerPort); err != nil {
 		return fmt.Errorf("Adminer no puede usar su puerto interno: %w", err)
 	}
-	return d.sup.Start(supervisor.Spec{
+	err = d.sup.Start(supervisor.Spec{
 		Name:    adminerService,
 		Exe:     filepath.Join(global.Path, "php.exe"),
 		Args:    []string{"-S", fmt.Sprintf("127.0.0.1:%d", adminerPort), "-t", root, "-c", ini},
@@ -110,4 +112,11 @@ func (d *Daemon) startAdminer(restart bool) error {
 		Port:    adminerPort,
 		Restart: true,
 	})
+	if err != nil {
+		return err
+	}
+	// Opened right after installing it, https://db.localhost must already answer.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return d.sup.WaitRunning(ctx, adminerService)
 }
