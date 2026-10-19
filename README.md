@@ -16,6 +16,10 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
   - Crea la base de datos en MySQL o MariaDB, escribe `wp-config.php` e instala el sitio en ese idioma, con el contenido de ejemplo, el tema y los plugins traducidos, y enlaces permanentes (`/%postname%/`).
   - El usuario es `admin` con una contraseña generada, que se muestra al terminar. El sitio queda en `https://blog.test`.
   - WP-CLI se descarga de GitHub (con su SHA-256) y queda como atajo `wp`.
+- **Symfony:** «Nuevo proyecto → Symfony», o `clon new api --symfony [--webapp] [--db mysql]`.
+  - `composer create-project symfony/skeleton` (Composer elige la versión que admite tu PHP) y, con «webapp», Twig, Doctrine, formularios, seguridad y correo.
+  - Para Apache añade `symfony/apache-pack`, cuyo `.htaccess` manda las rutas a `public/index.php`, y no agrega archivos de Docker.
+  - Escribe `.env.local` con la dirección del sitio (`DEFAULT_URI`), la base de datos elegida (`DATABASE_URL`, que clon crea) y Mailpit (`MAILER_DSN`).
 - **Proyectos existentes y desde Git:**
   - Un proyecto copiado o clonado al que le falta algo muestra «Preparar» en la pestaña «Sitios» (o `clon site setup tienda`).
   - clon instala los paquetes de Composer con el PHP del sitio y crea el `.env` desde `.env.example`, con la base de datos que pide el proyecto apuntando a las de clon.
@@ -145,6 +149,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon run [--foreground]` | Inicia clon (bandeja), o en la consola actual con `--foreground` |
 | `clon new tienda [--kit react\|vue\|svelte\|livewire] [--db sqlite\|mysql\|mariadb\|postgresql] [--pnpm\|--yarn]` | Proyecto Laravel nuevo en `https://tienda.test` |
 | `clon new blog --wordpress [--idioma es_ES] [--db mysql\|mariadb]` | WordPress en `https://blog.test`, con usuario admin y contraseña generada |
+| `clon new api --symfony [--webapp] [--db sqlite\|mysql\|mariadb\|postgresql]` | Symfony en `https://api.test`, con su `.env.local` |
 | `clon new tienda --git <url> [--rama <rama>]` · `clon site setup tienda` | Clona y prepara un proyecto · prepara uno que ya está en la carpeta |
 | `clon start` · `stop` · `restart` · `quit` | Servicios on/off; `quit` cierra clon |
 | `clon status` · `sites` · `versions` | Estado, sitios y versiones instaladas |
@@ -193,6 +198,7 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - Xdebug solo en un sitio, y `phpx` en la terminal.
 - Reverb en `wss://reverb.laravel-demo.test`: un cliente WebSocket de Node recibe el evento que envía PHP, los dos a través del proxy.
 - WordPress con `clon new --wordpress`: en español, con enlaces permanentes y el acceso de admin.
+- Symfony con `clon new --symfony --webapp`: el router responde a través del `.htaccess` y Doctrine usa MySQL.
 - Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
 - Edge sin avisos, cambio de PHP y cierre.
 
@@ -256,6 +262,7 @@ En Windows 11, junto a Laragon y en puertos alternativos:
   - `clon new demo-git --git https://github.com/laravel/laravel.git --db mysql` clona, instala Composer, crea el `.env` hacia MySQL, la clave y la base (9 tablas), enlaza `storage` y compila el frontend, en algo más de 3 minutos.
   - «Preparar» sobre un proyecto al que solo le faltaba el frontend lo deja listo en 48 s.
   - `clon new "Blog de Prueba" --wordpress` instala WordPress 7.1 en 53 s: portada y escritorio en español, «¡Hola, mundo!» en `/hola-mundo/` y el usuario admin entra con la contraseña generada.
+  - `clon new demo-symfony --symfony --webapp --db mysql` deja Symfony 8.1 en 2,5 minutos: la página de bienvenida, una ruta inexistente respondida por el router de Symfony con la URL `https` correcta (el `.htaccess` reescribe) y Doctrine conectado a su base en MySQL.
   - Probado: wordpress.org ya no publica cada versión empaquetada en cada idioma, y en Windows el `.tar.gz` que baja WP-CLI no se puede extraer (PharData falla con un nombre largo de WordPress 7.1 y su plan B, `tar`, arranca sin variables de entorno). Por eso clon baja el zip y la traducción por su cuenta.
   - Cancelar una creación corta todo el árbol de procesos (Composer, Artisan, npm).
 - **Procesos del proyecto:**
@@ -284,8 +291,8 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
   - Sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch.
   - Apache de Apache Lounge en varias versiones; PHP fijado por sitio para proyectos antiguos (como PHP va por FastCGI, no hace falta un Apache viejo para un PHP viejo); extensiones de PHP con casillas; Adminer en `https://db.localhost`.
 - **Fase 3 (en marcha):**
-  - Hecho: proyectos Laravel nuevos con sus starter kits, WordPress y desde Git, «Preparar» para proyectos existentes, `.env` automático, procesos del proyecto (Vite con HTTPS, cola, tareas y Reverb), Xdebug por sitio, y Node al día con pnpm y yarn.
-  - Falta: compartir con ngrok, Symfony y recetas propias.
+  - Hecho: proyectos Laravel nuevos con sus starter kits, WordPress, Symfony y desde Git, «Preparar» para proyectos existentes, `.env` automático, procesos del proyecto (Vite con HTTPS, cola, tareas y Reverb), Xdebug por sitio, y Node al día con pnpm y yarn.
+  - Falta: compartir con ngrok y recetas propias.
 - **Fase 4:** DNS comodín para `*.sitio.test`, modo worker de FrankenPHP, actualizador y firma de código.
 
 ## Licencia

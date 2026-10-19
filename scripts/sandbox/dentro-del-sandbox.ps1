@@ -475,6 +475,19 @@ Step 'WordPress con clon new --wordpress: en español, enlaces permanentes y acc
     "$((($out -split "`n") | Select-Object -Last 2) -join "`n")`nportada en español · /hola-mundo/: HTTP $post · admin entra ($login)"
 }
 
+Step 'Symfony con clon new --symfony --webapp: .htaccess de Apache, Doctrine en MySQL y Mailpit' {
+    $out = Invoke-Tool $clon 'new demo-symfony --symfony --webapp --db mysql' 1800
+    $site = '--resolve demo-symfony.test:443:127.0.0.1 https://demo-symfony.test'
+    $welcome = Invoke-Curl "$site/"
+    $missing = Invoke-Curl "$site/no-existe"
+    $dir = 'C:\www\demo-symfony'
+    $db = Invoke-Tool "$shims\php.exe" 'bin/console dbal:run-sql "SELECT DATABASE()"' 120 $dir
+    if ($welcome -notmatch 'Welcome to Symfony' -or $missing -notmatch 'No route found' -or $db -notmatch 'demo_symfony') {
+        throw "bienvenida: $($welcome -match 'Welcome to Symfony'), ruta inexistente por Symfony: $($missing -match 'No route found'), base: $db`n$out"
+    }
+    "$((($out -split "`n") | Select-Object -Last 1).Trim())`nbienvenida de Symfony · /no-existe responde el router (el .htaccess reescribe) · Doctrine conectado a demo_symfony"
+}
+
 Step 'Procesos del proyecto: Vite con HTTPS, cola y tareas (clon site proc)' {
     $hot = 'C:\www\laravel-demo\public\hot'
     Invoke-Tool $clon 'site proc laravel-demo vite on' 120 | Out-Null

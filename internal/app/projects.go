@@ -25,10 +25,11 @@ import (
 )
 
 // NewProject is what «Nuevo proyecto» creates: a Laravel application, with one of the official
-// starter kits or none, a WordPress site, or a project cloned from Git, wired to a database clon runs.
+// starter kits or none, a WordPress site, a Symfony project, or a project cloned from Git, wired to a
+// database clon runs.
 type NewProject struct {
 	Name string `json:"name"`
-	Type string `json:"type,omitempty"` // laravel ("") or wordpress
+	Type string `json:"type,omitempty"` // laravel (""), wordpress or symfony
 	Kit  string `json:"kit"`            // "" (none), react, vue, svelte or livewire
 	DB   string `json:"db"`             // sqlite, mysql, mariadb or postgresql ("" with Git: the project's own)
 	Root string `json:"root"`           // one of the project roots ("" = the first)
@@ -36,6 +37,8 @@ type NewProject struct {
 	PM string `json:"pm,omitempty"`
 	// Locale is WordPress's language ("es_ES" when empty).
 	Locale string `json:"locale,omitempty"`
+	// Webapp adds Symfony's webapp pack (Twig, Doctrine, forms, security…) to the skeleton.
+	Webapp bool `json:"webapp,omitempty"`
 	// Git clones a repository instead (Kit is then ignored), on its default branch or Branch.
 	Git    string `json:"git,omitempty"`
 	Branch string `json:"branch,omitempty"`
@@ -85,8 +88,10 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	case "", "laravel":
 	case "wordpress", "wp":
 		return d.createWordPress(p, name, dir, cancelled)
+	case "symfony":
+		return d.createSymfony(p, name, root, dir, cancelled)
 	default:
-		return Job{}, fmt.Errorf("tipo de proyecto desconocido %q: usa laravel o wordpress", p.Type)
+		return Job{}, fmt.Errorf("tipo de proyecto desconocido %q: usa laravel, wordpress o symfony", p.Type)
 	}
 	p.Kit = strings.ToLower(strings.TrimSpace(p.Kit))
 	if p.Kit == "ninguno" || p.Kit == "none" {

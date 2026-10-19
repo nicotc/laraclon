@@ -13,6 +13,8 @@ const newUsage = `
                                           (el frontend se instala con npm, o con pnpm o yarn, como 'laravel new')
   clon new <nombre> --wordpress [--idioma es_ES] [--db mysql|mariadb]
                                           WordPress con WP-CLI: base de datos, wp-config.php y un usuario admin
+  clon new <nombre> --symfony [--webapp] [--db sqlite|mysql|mariadb|postgresql]
+                                          Symfony (symfony/skeleton; --webapp añade Twig, Doctrine, formularios…)
   clon new <nombre> --git <url> [--rama <rama>] [--db …]
                                           clona un repositorio y lo prepara (Composer, .env, base de datos, Vite)
 `
@@ -28,6 +30,12 @@ func cmdNew(env *app.Env, args []string) error {
 			continue
 		case "--wordpress", "--wp":
 			p.Type = "wordpress"
+			continue
+		case "--symfony":
+			p.Type = "symfony"
+			continue
+		case "--webapp":
+			p.Webapp = true
 			continue
 		}
 		if k, v, ok := strings.Cut(flag, "="); ok && strings.HasPrefix(flag, "--") {
