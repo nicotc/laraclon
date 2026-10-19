@@ -149,10 +149,11 @@ En Windows 11, junto a Laragon y en puertos alternativos:
   - «Iniciar todo» arranca solo las predeterminadas y las marcadas.
   - Cancelar una descarga no deja restos. Desinstalar borra los programas descargados, conserva los datos y nunca toca los archivos de Laragon.
 
-En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 24 pasos de `probar-en-sandbox.ps1`:
+En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 25 pasos de `probar-en-sandbox.ps1`:
 
 - Instalación del runtime de Visual C++ y PHP descargado de windows.php.net.
 - Proyecto Laravel 13 nuevo con MySQL, migraciones y `npm run build`.
+- MariaDB instalada desde el catálogo, corriendo a la vez que MySQL.
 - Archivo `hosts` y CA local de confianza: Edge abre los sitios sin avisos de certificado.
 - Cambio de PHP en caliente, panel, atajos y cierre sin procesos sueltos.
 
