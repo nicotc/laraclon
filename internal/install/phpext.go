@@ -20,7 +20,7 @@ import (
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
-// phpExtRepos are the PHP extensions clon can download. Their official repositories publish Windows
+// phpExtRepos are the PHP extensions Nido can download. Their official repositories publish Windows
 // builds in each release, named as PIE (PHP's extension installer) expects:
 // php_<ext>-<version>-<php series>-<ts|nts>-<compiler>-x86_64.zip, with the SHA-256 GitHub reports.
 // phpredis and APCu publish none, so Laravel uses predis and the file cache instead.
@@ -29,7 +29,7 @@ var phpExtRepos = map[string]string{
 	"mongodb": "mongodb/mongo-php-driver",
 }
 
-// DownloadableExtensions lists the extensions clon can download, sorted.
+// DownloadableExtensions lists the extensions Nido can download, sorted.
 func DownloadableExtensions() []string {
 	var out []string
 	for name := range phpExtRepos {
@@ -58,7 +58,7 @@ type cachedReleases struct {
 func FindPHPExtension(ctx context.Context, home paths.Home, name, series string, ts bool) (PHPExtension, error) {
 	repo, ok := phpExtRepos[name]
 	if !ok {
-		return PHPExtension{}, fmt.Errorf("clon no sabe descargar la extensión %s (puede: %s)", name, strings.Join(DownloadableExtensions(), ", "))
+		return PHPExtension{}, fmt.Errorf("Nido no sabe descargar la extensión %s (puede: %s)", name, strings.Join(DownloadableExtensions(), ", "))
 	}
 	file := home.State("catalog-ext-" + name + ".json")
 	var cached cachedReleases
@@ -117,7 +117,7 @@ func pickPHPExtension(rels []githubRelease, name, series string, ts bool) (PHPEx
 }
 
 // InstallPHPExtension downloads a build, checks its SHA-256 and leaves its DLL in dir as
-// php_<name>.dll, the name PHP and clon's php.ini expect.
+// php_<name>.dll, the name PHP and Nido's php.ini expect.
 func InstallPHPExtension(ctx context.Context, home paths.Home, ext PHPExtension, dir string) (string, error) {
 	zipPath := home.Cache("downloads", path.Base(ext.URL))
 	if _, err := download.File(ctx, ext.URL, zipPath, ext.SHA256, nil); err != nil {

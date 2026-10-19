@@ -28,7 +28,7 @@ type Route struct {
 	Backend *url.URL
 	HTTPS   bool
 	// LocalOnly refuses requests from other computers even when the proxy listens on the LAN
-	// (clon's own tools, such as Adminer, which opens the databases without a password).
+	// (Nido's own tools, such as Adminer, which opens the databases without a password).
 	LocalOnly bool
 }
 
@@ -115,12 +115,12 @@ func (s *Server) Start() error {
 			if _, ok := s.Table.Lookup(name); ok {
 				return s.CA.Leaf(certHost(name, s.Table))
 			}
-			// Unknown names in the local TLD still get a certificate, so the browser shows clon's
+			// Unknown names in the local TLD still get a certificate, so the browser shows Nido's
 			// "no such site" page instead of a TLS error.
 			if s.TLD != "" && strings.HasSuffix(name, "."+s.TLD) {
 				return s.CA.Leaf(name)
 			}
-			return nil, fmt.Errorf("clon no conoce el sitio %q", name)
+			return nil, fmt.Errorf("Nido no conoce el sitio %q", name)
 		},
 	}
 	var started []*http.Server
@@ -202,7 +202,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	host := hostOnly(r.Host)
-	// Sites, and clon's tools under *.localhost (db.localhost), before the panel.
+	// Sites, and Nido's tools under *.localhost (db.localhost), before the panel.
 	if route, ok := s.Table.Lookup(host); ok {
 		if route.LocalOnly && !fromThisComputer(r) {
 			http.Error(w, route.Site+" solo responde a este equipo", http.StatusForbidden)
@@ -267,7 +267,7 @@ h1{font-size:22px} code{background:#f3f4f6;padding:2px 6px;border-radius:4px} a{
 <p>{{.Message}}</p>
 {{if .Detail}}<p class="muted"><code>{{.Detail}}</code></p>{{end}}
 {{if .Links}}<p>Sitios con un nombre parecido:</p><ul>{{range .Links}}<li><a href="https://{{.}}{{$.PortSuffix}}/">{{.}}</a></li>{{end}}</ul>{{end}}
-<p class="muted"><a href="https://localhost{{.PortSuffix}}/">Abrir el panel de clon</a></p>
+<p class="muted"><a href="https://localhost{{.PortSuffix}}/">Abrir el panel de Nido</a></p>
 </body></html>`))
 
 func (s *Server) portSuffix() string {
@@ -285,7 +285,7 @@ func (s *Server) backendDown(w http.ResponseWriter, route Route, err error) {
 	w.WriteHeader(http.StatusBadGateway)
 	pageTemplate.Execute(w, map[string]any{
 		"Title":      route.Server + " no responde",
-		"Message":    fmt.Sprintf("El servidor del sitio %s no está corriendo o no contesta. Inícialo desde el icono de clon en la bandeja o con «clon start».", route.Site),
+		"Message":    fmt.Sprintf("El servidor del sitio %s no está corriendo o no contesta. Inícialo desde el icono de Nido en la bandeja o con «nido start».", route.Site),
 		"Detail":     err.Error(),
 		"PortSuffix": s.portSuffix(),
 	})
@@ -303,7 +303,7 @@ func (s *Server) notFound(w http.ResponseWriter, host string) {
 	w.WriteHeader(http.StatusNotFound)
 	pageTemplate.Execute(w, map[string]any{
 		"Title":      "No hay ningún sitio llamado " + host,
-		"Message":    "Crea una carpeta con ese nombre en una de tus carpetas de proyectos y clon la publicará sola.",
+		"Message":    "Crea una carpeta con ese nombre en una de tus carpetas de proyectos y Nido la publicará sola.",
 		"Links":      similar,
 		"PortSuffix": s.portSuffix(),
 	})

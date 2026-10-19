@@ -1,4 +1,4 @@
-// clon-shim is copied into shims\ under names such as php.exe or npm.exe. It looks up its own name in
+// nido-shim is copied into shims\ under names such as php.exe or npm.exe. It looks up its own name in
 // targets.json and runs that program with the caller's arguments, keeping their exact quoting.
 package main
 
@@ -63,7 +63,7 @@ func main() {
 	}
 	t, ok := targets[name]
 	if !ok {
-		fail(fmt.Errorf("%s no está configurado; ejecuta 'clon shims' para regenerar los atajos", name))
+		fail(fmt.Errorf("%s no está configurado; ejecuta 'nido shims' para regenerar los atajos", name))
 	}
 	if wd, err := os.Getwd(); err == nil {
 		if d, ok := pickDir(t.Dirs, wd); ok {
@@ -99,7 +99,7 @@ func main() {
 	}
 	if len(t.PathPrepend) > 0 {
 		// Scripts started by the child (npm run, composer scripts, artisan) then find the same
-		// node, php and composer even when the user's PATH does not include clon.
+		// node, php and composer even when the user's PATH does not include Nido.
 		cmd.Env = append(cmd.Env, "PATH="+prependPath(t.PathPrepend, os.Getenv("PATH")))
 	}
 
@@ -155,6 +155,6 @@ func argsTail(cl string) string {
 }
 
 func fail(err error) {
-	fmt.Fprintln(os.Stderr, "clon:", err)
+	fmt.Fprintln(os.Stderr, "Nido:", err)
 	os.Exit(127)
 }

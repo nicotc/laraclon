@@ -17,7 +17,7 @@ import (
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
-// WordPress projects are installed with WP-CLI, which clon downloads with the first one and keeps
+// WordPress projects are installed with WP-CLI, which Nido downloads with the first one and keeps
 // a month before fetching it again.
 const wpcliMaxAge = 30 * 24 * time.Hour
 

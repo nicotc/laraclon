@@ -1,6 +1,6 @@
 // Package hosts maintains one clearly marked block in the Windows hosts file with the local sites.
-// Lines outside the block are never touched. Writing the file needs administrator rights, so clon
-// asks Windows to run a narrow helper (clon hosts-apply) with elevation; Windows shows the UAC prompt.
+// Lines outside the block are never touched. Writing the file needs administrator rights, so Nido
+// asks Windows to run a narrow helper (nido hosts-apply) with elevation; Windows shows the UAC prompt.
 package hosts
 
 import (
@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	beginMarker = "# >>> clon: sitios locales (bloque gestionado por clon; no lo edites)"
-	endMarker   = "# <<< clon"
+	beginMarker = "# >>> Nido: sitios locales (bloque gestionado por Nido; no lo edites)"
+	endMarker   = "# <<< Nido"
 )
 
 var validName = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
@@ -117,7 +117,7 @@ func normalizeTrailing(content string) string {
 }
 
 // Apply is run by the elevated helper: it reads the list of names, rewrites only the managed block
-// and keeps a backup of the previous file in hosts.clon.bak.
+// and keeps a backup of the previous file in hosts.nido.bak.
 func Apply(namesFile string) error {
 	data, err := os.ReadFile(namesFile)
 	if err != nil {
@@ -132,7 +132,7 @@ func Apply(namesFile string) error {
 	if next == string(current) {
 		return nil
 	}
-	if err := os.WriteFile(Path()+".clon.bak", current, 0o644); err != nil {
+	if err := os.WriteFile(Path()+".nido.bak", current, 0o644); err != nil {
 		return err
 	}
 	return os.WriteFile(Path(), []byte(next), 0o644)

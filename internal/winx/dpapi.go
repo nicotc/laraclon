@@ -1,4 +1,4 @@
-// Package winx wraps the few Windows facilities clon needs: DPAPI, opening URLs, elevation and the
+// Package winx wraps the few Windows facilities Nido needs: DPAPI, opening URLs, elevation and the
 // user PATH.
 package winx
 

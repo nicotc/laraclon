@@ -35,7 +35,7 @@ type runner interface {
 	Spec() supervisor.Spec
 }
 
-// externalData is implemented by runners that can open an existing data folder (Laragon's MySQL).
+// externalData is implemented by runners that can open an existing data folder (a MySQL's).
 type externalData interface {
 	InUseBy() (pid int, exe string, busy bool)
 	Initialized() bool
@@ -50,7 +50,7 @@ func (d *Daemon) runnerFor(kind versions.Component, series string) (runner, erro
 		return nil, fmt.Errorf("%s no está configurado", key)
 	}
 	if cfg.DataDir != "" && cfg.Version == "" {
-		return nil, fmt.Errorf("%s usa la carpeta de datos %s pero no indica de qué versión es (version = \"x.y.z\" en clon.toml); clon no la abre con otra versión porque la actualizaría", key, cfg.DataDir)
+		return nil, fmt.Errorf("%s usa la carpeta de datos %s pero no indica de qué versión es (version = \"x.y.z\" en nido.toml); Nido no la abre con otra versión porque la actualizaría", key, cfg.DataDir)
 	}
 	v, err := d.env.InstanceVersion(kind, series)
 	if err != nil {
@@ -70,5 +70,5 @@ func (d *Daemon) runnerFor(kind versions.Component, series string) (runner, erro
 	case versions.Meilisearch:
 		return &meilisearch.Instance{Home: d.env.Home, Name: key, Version: v, Port: cfg.Port}, nil
 	}
-	return nil, fmt.Errorf("clon todavía no sabe ejecutar %s", kind.Name())
+	return nil, fmt.Errorf("Nido todavía no sabe ejecutar %s", kind.Name())
 }

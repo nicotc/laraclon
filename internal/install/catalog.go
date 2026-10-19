@@ -37,7 +37,7 @@ type Release struct {
 	Extras []Extra `json:"extras,omitempty"`
 	// Binary is set when the download is the program itself rather than a zip (Meilisearch).
 	Binary string `json:"binary,omitempty"`
-	// Skip lists folders of the zip clon does not need (PostgreSQL's pgAdmin, for example).
+	// Skip lists folders of the zip Nido does not need (PostgreSQL's pgAdmin, for example).
 	Skip []string `json:"skip,omitempty"`
 }
 
@@ -361,7 +361,7 @@ func mariadbWindowsZip(m mariadbMajor, rel mariadbReleases) (Release, bool) {
 // ---- Apache ----
 
 // The Apache Software Foundation publishes no Windows builds; Apache Lounge's are the ones Windows
-// stacks use (Laragon's among them). Its download page links the current build with a file of
+// stacks use. Its download page links the current build with a file of
 // checksums next to the zip.
 const apacheLoungeURL = "https://www.apachelounge.com/download/"
 
@@ -880,7 +880,7 @@ func InstallRelease(ctx context.Context, home paths.Home, rel Release, phase fun
 			if have == "" {
 				have = "ninguno"
 			}
-			err = fmt.Errorf("%w. %s %s se compiló para el runtime de Visual C++ %s o más nuevo y este equipo tiene %s: actualízalo con 'clon vcredist install' y vuelve a intentarlo", err, rel.Kind.Name(), rel.Version, need, have)
+			err = fmt.Errorf("%w. %s %s se compiló para el runtime de Visual C++ %s o más nuevo y este equipo tiene %s: actualízalo con 'nido vcredist install' y vuelve a intentarlo", err, rel.Kind.Name(), rel.Version, need, have)
 		}
 		return fail(err)
 	}

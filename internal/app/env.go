@@ -1,5 +1,5 @@
 // Package app ties configuration, installed versions and services together. It is shared by the
-// command line (clon.exe) and the background process with the tray icon (clonw.exe).
+// command line (nido.exe) and the background process with the tray icon (nidow.exe).
 package app
 
 import (
@@ -50,7 +50,16 @@ func Open() (*Env, error) {
 		return nil, err
 	}
 	e := &Env{Home: home, Cfg: cfg, Reg: reg}
-	if e.SyncServices() {
+	changed := e.SyncServices()
+	// A first install gets its own projects folder: every folder inside it is a site.
+	if len(e.Cfg.Roots) == 0 {
+		www := home.Path("www")
+		if err := os.MkdirAll(www, 0o755); err != nil {
+			return nil, err
+		}
+		e.Cfg.Roots, changed = []string{www}, true
+	}
+	if changed {
 		if err := e.SaveConfig(); err != nil {
 			return nil, err
 		}
@@ -66,7 +75,7 @@ func (e *Env) GlobalPHP() (versions.Version, error) {
 	v, ok := e.Reg.Find(versions.PHP, e.Cfg.PHP.Version)
 	if !ok {
 		if e.Cfg.PHP.Version == "" {
-			return v, fmt.Errorf("no hay ninguna versión de PHP instalada (usa 'clon php install 8.4' o 'clon import laragon')")
+			return v, fmt.Errorf("no hay ninguna versión de PHP instalada (usa 'nido php install 8.4')")
 		}
 		return v, fmt.Errorf("PHP %s no está instalado", e.Cfg.PHP.Version)
 	}
@@ -77,14 +86,14 @@ func (e *Env) GlobalPHP() (versions.Version, error) {
 func (e *Env) GlobalNode() (versions.Version, error) {
 	v, ok := e.Reg.Find(versions.Node, e.Cfg.Node.Version)
 	if !ok {
-		return v, fmt.Errorf("no hay ninguna versión de Node instalada (usa 'clon node install lts')")
+		return v, fmt.Errorf("no hay ninguna versión de Node instalada (usa 'nido node install lts')")
 	}
 	return v, nil
 }
 
-// RefreshCABundle rewrites ssl\cacert-bundle.pem, the public roots plus clon's CA that PHP and
+// RefreshCABundle rewrites ssl\cacert-bundle.pem, the public roots plus Nido's CA that PHP and
 // Composer trust, when it is missing or older than the public list: the local CA may exist before
-// that list is downloaded, and a bundle with clon's CA alone makes every HTTPS download fail.
+// that list is downloaded, and a bundle with Nido's CA alone makes every HTTPS download fail.
 func (e *Env) RefreshCABundle(authority *ca.Authority, force bool) error {
 	bundle := e.Home.SSL("cacert-bundle.pem")
 	b, berr := os.Stat(bundle)
@@ -98,7 +107,7 @@ func (e *Env) RefreshCABundle(authority *ca.Authority, force bool) error {
 // RefreshCABundleFile is RefreshCABundle for the command line: nothing to do until the local CA
 // exists.
 func (e *Env) RefreshCABundleFile() error {
-	if !fileExists(e.Home.SSL("clon-ca.crt")) {
+	if !fileExists(e.Home.SSL("nido-ca.crt")) {
 		return nil
 	}
 	authority, _, err := ca.LoadOrCreate(e.Home.SSL())
@@ -135,16 +144,21 @@ func (e *Env) EnsureComposerFor(ctx context.Context, phpVersion string) error {
 	return err
 }
 
-// ShimTemplate is clon-shim.exe, installed next to clon.exe.
-func (e *Env) ShimTemplate() string { return e.Home.Path("clon-shim.exe") }
+// ShimTemplate is nido-shim.exe, installed next to nido.exe.
+func (e *Env) ShimTemplate() string { return e.Home.Path("nido-shim.exe") }
 
 // NPMPrefix keeps npm global packages outside the Node folders, so they survive version changes.
 func (e *Env) NPMPrefix() string { return e.Home.Data("npm-global") }
 
-// ChildPATH is the PATH given to services: clon's shims first, so exec('php'), exec('node') or
-// exec('composer') from PHP code run the active versions instead of whatever else is installed.
+// ChildPATH is the PATH given to services: Nido's shims first, so exec('php'), exec('node') or
+// exec('composer') from PHP code run the active versions instead of whatever else is installed,
+// and the Git Nido downloaded when the computer had none (Composer and npm use it too).
 func (e *Env) ChildPATH() string {
-	return "PATH=" + e.Home.Shims() + ";" + e.NPMPrefix() + ";" + os.Getenv("PATH")
+	path := e.Home.Shims() + ";" + e.NPMPrefix()
+	if git := filepath.Dir(install.GitExe(e.Home)); fileExists(git) {
+		path += ";" + git
+	}
+	return "PATH=" + path + ";" + os.Getenv("PATH")
 }
 
 // packageCommand is how a command of an npm package runs: a native program directly (pnpm ships
@@ -191,8 +205,8 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 			newestPerBranch[mm] = v
 		}
 	}
-	// PHPRC makes child processes (Composer's @php scripts, Artisan, exec('php')) load clon's
-	// php.ini instead of none, or whatever php.ini sits next to php.exe (Laragon's, for example).
+	// PHPRC makes child processes (Composer's @php scripts, Artisan, exec('php')) load Nido's
+	// php.ini instead of none, or whatever php.ini sits next to php.exe.
 	phpEnv := func(ini string) map[string]string { return map[string]string{"PHPRC": filepath.Dir(ini)} }
 	for mm, v := range newestPerBranch {
 		ini, err := iniFor(v)
@@ -265,7 +279,7 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 		if err := os.MkdirAll(e.NPMPrefix(), 0o755); err != nil {
 			return nil, err
 		}
-		// pnpm and yarn (pnpx, yarnpkg…), from clon's global npm packages.
+		// pnpm and yarn (pnpx, yarnpkg…), from Nido's global npm packages.
 		for _, tool := range install.NodeTools {
 			if _, bins, ok := install.NodePackage(e.NPMPrefix(), tool); ok {
 				for cmd, file := range bins {
@@ -306,7 +320,7 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 		}
 	}
 
-	// Every launcher puts clon's tools first in its child's PATH: npm scripts call `node`, Composer
+	// Every launcher puts Nido's tools first in its child's PATH: npm scripts call `node`, Composer
 	// scripts call `php`, and on a machine where the user's PATH lacks them they would fail.
 	for name, t := range targets {
 		t.PathPrepend = []string{e.Home.Shims(), e.NPMPrefix()}
@@ -314,7 +328,7 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 	}
 
 	if !fileExists(e.ShimTemplate()) {
-		return targets, fmt.Errorf("falta %s (compila cmd/clon-shim)", e.ShimTemplate())
+		return targets, fmt.Errorf("falta %s (compila cmd/nido-shim)", e.ShimTemplate())
 	}
 	return targets, shims.Write(e.Home, e.ShimTemplate(), targets)
 }

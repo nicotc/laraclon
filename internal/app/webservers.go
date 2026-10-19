@@ -33,7 +33,7 @@ func (d *Daemon) serverPorts() map[string]serverPorts {
 // assignPorts gives every site its Apache port (kept even while it uses another server, so
 // switching back finds the same one) and the sites of the other servers a port of their own.
 // Site.Port ends up as the port of the server the site uses, where the proxy sends its requests.
-// own lists, per server, the ports clon's servers hold right now (they are not conflicts).
+// own lists, per server, the ports Nido's servers hold right now (they are not conflicts).
 func assignPorts(list []sites.Site, apacheStore *sites.PortStore, others map[string]serverPorts, own map[string]map[int]bool) error {
 	if err := apacheStore.Assign(list, sitePortFrom, sitePortTo, own[config.ServerApache]); err != nil {
 		return err
@@ -98,6 +98,9 @@ func (d *Daemon) routes(list []sites.Site) map[string]proxy.Route {
 	if r, ok := d.adminerRoute(); ok {
 		routes[adminerHost] = r
 	}
+	if r, ok := d.saludRoute(); ok {
+		routes[saludHost] = r
+	}
 	return routes
 }
 
@@ -124,7 +127,7 @@ type serverPlan struct {
 }
 
 // syncServer makes an optional web server serve exactly the sites that chose it: it starts with
-// the first one (while clon's services are on), reloads when they change, restarts on another
+// the first one (while Nido's services are on), reloads when they change, restarts on another
 // version and stops when none is left. prepErr is the error found while preparing the plan.
 func (d *Daemon) syncServer(p serverPlan, prepErr error) error {
 	pid := d.sup.PID(p.service)
@@ -187,7 +190,7 @@ func (d *Daemon) sitesOf(server string) []sites.Site {
 func (d *Daemon) nginxVersion() (versions.Version, error) {
 	v, ok := d.env.Reg.Find(versions.Nginx, d.env.Cfg.Nginx.Version)
 	if !ok {
-		return v, fmt.Errorf("Nginx no está instalado: instálalo en el panel (Servicios) o con 'clon service install nginx 1.30'")
+		return v, fmt.Errorf("Nginx no está instalado: instálalo en el panel (Servicios) o con 'nido service install nginx 1.30'")
 	}
 	return v, nil
 }
@@ -219,7 +222,7 @@ func (d *Daemon) syncNginx() error {
 func (d *Daemon) frankenVersion() (versions.Version, error) {
 	v, ok := d.env.Reg.Find(versions.FrankenPHP, d.env.Cfg.FrankenPHP.Version)
 	if !ok {
-		return v, fmt.Errorf("FrankenPHP no está instalado: instálalo en el panel (Servicios) o con 'clon service install frankenphp 1.13'")
+		return v, fmt.Errorf("FrankenPHP no está instalado: instálalo en el panel (Servicios) o con 'nido service install frankenphp 1.13'")
 	}
 	return v, nil
 }

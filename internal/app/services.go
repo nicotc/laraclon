@@ -100,7 +100,7 @@ func (d *Daemon) startDB(kind versions.Component, series string) error {
 	}
 	if x, ok := r.(externalData); ok {
 		if pid, exe, busy := x.InUseBy(); busy {
-			return fmt.Errorf("otro servidor ya usa la carpeta de datos %s: %s (PID %d). Detenlo (por ejemplo, cierra Laragon) antes de iniciar el de clon", r.DataDir(), exe, pid)
+			return fmt.Errorf("otro servidor ya usa la carpeta de datos %s: %s (PID %d). Detenlo (o cierra el programa que lo abrió) antes de iniciar el de Nido", r.DataDir(), exe, pid)
 		}
 		if x.ExternalDir() != "" && !x.Initialized() {
 			return fmt.Errorf("%s no contiene datos de MySQL", r.DataDir())
@@ -108,7 +108,7 @@ func (d *Daemon) startDB(kind versions.Component, series string) error {
 	}
 	for _, p := range r.Ports() {
 		if err := ports.Check(p); err != nil {
-			return fmt.Errorf("%s no puede usar su puerto: %w. Cámbialo en el panel (Servicios) o con 'clon service port %s <puerto>'", r.Key(), err, r.Key())
+			return fmt.Errorf("%s no puede usar su puerto: %w. Cámbialo en el panel (Servicios) o con 'nido service port %s <puerto>'", r.Key(), err, r.Key())
 		}
 	}
 	if err := r.Prepare(); err != nil {
@@ -271,7 +271,7 @@ func (d *Daemon) SetDefaultService(key string) error {
 			errs = append(errs, err.Error())
 		}
 	}
-	// The default always runs while clon's services do.
+	// The default always runs while Nido's services do.
 	if oldWasRunning && d.sup.PID(key) == 0 {
 		err := d.startDB(kind, series)
 		d.setProblem(key, err)
@@ -287,7 +287,7 @@ func (d *Daemon) SetDefaultService(key string) error {
 }
 
 // UninstallService removes the installed versions of an instance's series. Downloaded files are
-// deleted; versions that belong to Laragon are only forgotten. The data folder is always kept.
+// deleted; versions Nido did not download are only forgotten. The data folder is always kept.
 func (d *Daemon) UninstallService(key string) error {
 	kind, series, err := ParseInstanceKey(key)
 	if err != nil {
@@ -465,12 +465,12 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release, us
 		d.cfgMu.Lock()
 		d.env.Reg.Add(v)
 		err = d.env.SaveRegistry()
-		// Saved before the job ends: 'clon service install' exits as soon as it sees the job finished.
+		// Saved before the job ends: 'nido service install' exits as soon as it sees the job finished.
 		if rel.Kind == versions.Apache {
 			d.env.Cfg.Apache.Version = v.Version
 		}
 		// A downloaded Node becomes the global one when asked to, or when the global one is not a
-		// Node clon downloaded (none yet, or Laragon's).
+		// Node Nido downloaded (none yet, or one found elsewhere).
 		if rel.Kind == versions.Node {
 			if cur, cerr := d.env.GlobalNode(); use || cerr != nil || cur.Source != "download" {
 				d.env.Cfg.Node.Version, nodeSwitched = v.Version, true
@@ -495,7 +495,7 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release, us
 		}
 	})
 	switch {
-	// The first version of a database becomes its default, which runs while clon's services do.
+	// The first version of a database becomes its default, which runs while Nido's services do.
 	case err == nil && isServiceKind(rel.Kind) && isDefault:
 		d.StartService(InstanceKey(rel.Kind, rel.Series))
 	// Sites waiting for a web server start using it.

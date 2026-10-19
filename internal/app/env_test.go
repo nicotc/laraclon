@@ -11,8 +11,8 @@ import (
 	"github.com/nicotc/laraclon/internal/paths"
 )
 
-// A CA created before the public list was downloaded (clon setup's Node step does) must not leave
-// PHP with a bundle that only trusts clon's CA.
+// A CA created before the public list was downloaded (nido setup's Node step does) must not leave
+// PHP with a bundle that only trusts Nido's CA.
 func TestPHPBundleGetsThePublicRootsDownloadedAfterTheCA(t *testing.T) {
 	home := paths.Home{Root: t.TempDir()}
 	if err := os.MkdirAll(home.SSL(), 0o755); err != nil {
@@ -41,7 +41,7 @@ func TestPHPBundleGetsThePublicRootsDownloadedAfterTheCA(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, _ := os.ReadFile(bundle)
-	if !strings.Contains(string(after), "PUBLICA") || !strings.Contains(string(after), "clon CA local") {
-		t.Fatalf("the bundle must hold the public list and clon's CA, got:\n%s", after)
+	if !strings.Contains(string(after), "PUBLICA") || !strings.Contains(string(after), "Nido CA local") {
+		t.Fatalf("the bundle must hold the public list and Nido's CA, got:\n%s", after)
 	}
 }

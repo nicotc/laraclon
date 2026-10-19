@@ -16,9 +16,9 @@ import (
 )
 
 // Target says what a shim name runs. Env values are set only when the caller has not set them;
-// ForceEnv values always win (PHPRC must point to clon's php.ini so that child PHP processes
+// ForceEnv values always win (PHPRC must point to Nido's php.ini so that child PHP processes
 // started by Composer or Artisan load the same configuration). PathPrepend goes first in the
-// child's PATH, so scripts it runs (npm run, composer scripts) find clon's node, php and composer.
+// child's PATH, so scripts it runs (npm run, composer scripts) find Nido's node, php and composer.
 type Target struct {
 	Exe         string            `json:"exe"`
 	Args        []string          `json:"args,omitempty"`
@@ -38,11 +38,11 @@ type DirTarget struct {
 	ForceEnv map[string]string `json:"force_env,omitempty"`
 }
 
-// TargetsFile is read by clon-shim.exe at every invocation.
+// TargetsFile is read by nido-shim.exe at every invocation.
 const TargetsFile = "targets.json"
 
 // Write stores targets and makes sure there is one launcher per name, copied from template
-// (clon-shim.exe). Launchers whose name is no longer a target are removed.
+// (nido-shim.exe). Launchers whose name is no longer a target are removed.
 func Write(home paths.Home, template string, targets map[string]Target) error {
 	dir := home.Shims()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

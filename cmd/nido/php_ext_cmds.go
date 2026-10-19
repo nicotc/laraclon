@@ -15,8 +15,8 @@ type extList struct {
 
 // cmdPHPExt lists or switches the extensions of a PHP version (the global one by default):
 //
-//	clon php ext [versión]
-//	clon php ext on|off <nombre> [versión]
+//	nido php ext [versión]
+//	nido php ext on|off <nombre> [versión]
 func cmdPHPExt(ctx context.Context, env *app.Env, args []string) error {
 	switchTo := len(args) >= 2 && (args[0] == "on" || args[0] == "off")
 	version := ""
@@ -28,7 +28,7 @@ func cmdPHPExt(ctx context.Context, env *app.Env, args []string) error {
 	}
 	var out extList
 	if c, err := app.Connect(env.Home.Root); err == nil {
-		// With clon running, the php-cgi processes of that version restart with the change.
+		// With Nido running, the php-cgi processes of that version restart with the change.
 		if switchTo {
 			body := map[string]any{"version": version, "name": args[1], "enabled": args[0] == "on"}
 			if err := c.Call("POST", "/api/php/extensions", body, &out); err != nil {
@@ -64,6 +64,6 @@ func cmdPHPExt(ctx context.Context, env *app.Env, args []string) error {
 		}
 		fmt.Printf("  %s %-14s %s\n", mark, x.Name, note)
 	}
-	fmt.Println("\nCámbialas con 'clon php ext on|off <nombre> [versión]'; las «descargables» se descargan al activarlas.")
+	fmt.Println("\nCámbialas con 'nido php ext on|off <nombre> [versión]'; las «descargables» se descargan al activarlas.")
 	return nil
 }

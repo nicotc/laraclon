@@ -20,7 +20,7 @@ import (
 
 // ErrMissingDLL means a program could not start because a DLL it needs is missing; for PHP,
 // Apache and MySQL that is almost always the Visual C++ runtime.
-var ErrMissingDLL = errors.New("falta el runtime de Visual C++ x64 (instálalo con 'clon vcredist install')")
+var ErrMissingDLL = errors.New("falta el runtime de Visual C++ x64 (instálalo con 'nido vcredist install')")
 
 const (
 	statusDLLNotFound        = 0xC0000135
@@ -34,7 +34,7 @@ func ExitHint(code int) string {
 	case statusDLLNotFound:
 		return ErrMissingDLL.Error()
 	case statusEntryPointNotFound:
-		return "una de sus DLL es más vieja de lo que necesita; si es el runtime de Visual C++, actualízalo con 'clon vcredist install'"
+		return "una de sus DLL es más vieja de lo que necesita; si es el runtime de Visual C++, actualízalo con 'nido vcredist install'"
 	case statusInvalidImageFormat:
 		return "el programa o una de sus DLL es de otra arquitectura (32/64 bits) o está dañado"
 	}

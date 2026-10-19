@@ -1,5 +1,5 @@
 // Package supervisor runs the services (php-cgi, Apache, MySQL…) as hidden child processes.
-// Every service lives in its own Windows job object with "kill on close": if clon exits or crashes,
+// Every service lives in its own Windows job object with "kill on close": if Nido exits or crashes,
 // Windows ends the whole process tree, so no orphaned httpd.exe or mysqld.exe stays behind.
 package supervisor
 
@@ -36,7 +36,7 @@ type Spec struct {
 	Restart     bool                // restart when it exits on its own
 	Stop        func(pid int) error // optional graceful stop request; the job is terminated after StopTimeout
 	StopTimeout time.Duration
-	// Unprivileged runs the process without administrator rights even when clon has them: some
+	// Unprivileged runs the process without administrator rights even when Nido has them: some
 	// servers (PostgreSQL) refuse to run as an administrator.
 	Unprivileged bool
 }
@@ -51,7 +51,7 @@ const (
 	Failed   State = "error"
 )
 
-// Status is a snapshot for the panel, the tray and `clon status`.
+// Status is a snapshot for the panel, the tray and `nido status`.
 type Status struct {
 	Name      string    `json:"name"`
 	State     State     `json:"state"`
@@ -421,7 +421,7 @@ func attachJob(pid int) (windows.Handle, error) {
 
 var procCreateRestrictedToken = windows.NewLazySystemDLL("advapi32.dll").NewProc("CreateRestrictedToken")
 
-// unprivilegedToken is clon's own token with the Administrators and Power Users groups turned into
+// unprivilegedToken is Nido's own token with the Administrators and Power Users groups turned into
 // deny-only groups and the privileges removed: the way PostgreSQL's pg_ctl starts the server.
 func unprivilegedToken() (windows.Token, error) {
 	var current windows.Token

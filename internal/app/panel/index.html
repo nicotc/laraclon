@@ -3,14 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="clon-token" content="{{.Token}}">
-  <title>clon</title>
+  <meta name="nido-token" content="{{.Token}}">
+  <title>Nido</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='2' width='60' height='60' rx='16' fill='%23D97706'/%3E%3Cpath d='M23 14C17 14 17 18 17 24v4c0 3-2 4-5 4 3 0 5 1 5 4v4c0 6 0 10 6 10M41 14c6 0 6 4 6 10v4c0 3 2 4 5 4-3 0-5 1-5 4v4c0 6 0 10-6 10' fill='none' stroke='%23FFF7ED' stroke-width='4.5' stroke-linecap='round'/%3E%3Ccircle cx='25.6' cy='38' r='4' fill='%23FFF7ED'/%3E%3Ccircle cx='32' cy='34.5' r='4' fill='%23FFF7ED'/%3E%3Ccircle cx='38.4' cy='38' r='4' fill='%23FFF7ED'/%3E%3C/svg%3E">
 </head>
 <body>
   <header>
-    <h1>clon</h1>
+    <div class="brand"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="nido-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F59E0B"/><stop offset="1" stop-color="#B45309"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="16" fill="url(#nido-g)"/><path d="M23 14 C17 14 17 18 17 24 L17 28 C17 31 15 32 12 32 C15 32 17 33 17 36 L17 40 C17 46 17 50 23 50" fill="none" stroke="#FFF7ED" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M41 14 C47 14 47 18 47 24 L47 28 C47 31 49 32 52 32 C49 32 47 33 47 36 L47 40 C47 46 47 50 41 50" fill="none" stroke="#FFF7ED" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="25.6" cy="38" rx="3.7" ry="4.6" fill="#FFF7ED"/><ellipse cx="32" cy="34.5" rx="3.7" ry="4.6" fill="#FFF7ED"/><ellipse cx="38.4" cy="38" rx="3.7" ry="4.6" fill="#FFF7ED"/></svg><h1>Nido</h1><span class="tagline">donde viven tus proyectos</span></div>
     <div class="actions">
+      <a id="health-link" class="button secondary" target="_blank" hidden>Salud</a>
       <button data-action="start">Iniciar todo</button>
       <button data-action="stop" class="secondary">Detener todo</button>
     </div>
@@ -69,7 +71,7 @@
         <h2>PHP global</h2>
         <select class="php-select"></select>
         <p class="muted">Lo usan la web, la terminal, Composer y Artisan. El cambio es en caliente: Apache no se reinicia.</p>
-        <p class="muted">Instala otra rama con <code>clon php install 8.3</code>.</p>
+        <p class="muted">Instala otra rama con <code>nido php install 8.3</code>.</p>
       </div>
       <div class="card">
         <h2>Node</h2>
@@ -81,7 +83,7 @@
       <h2>Extensiones de PHP</h2>
       <select id="ext-version" aria-label="Versión de PHP"></select>
       <span class="spacer"></span>
-      <span class="muted">Se aplican al momento: clon reinicia los procesos de esa versión.</span>
+      <span class="muted">Se aplican al momento: Nido reinicia los procesos de esa versión.</span>
     </div>
     <div id="extensions" class="ext-grid"></div>
     <div class="toolbar">
@@ -115,7 +117,7 @@
       </div>
       <div class="form" id="project-body"></div>
       <div class="dialog-foot">
-        <span>Composer crea los proyectos Laravel, WP-CLI los de WordPress y Git clona el resto; clon crea la base de datos, escribe la configuración y compila el frontend cuando lo hay.</span>
+        <span>Composer crea los proyectos Laravel, WP-CLI los de WordPress y Git clona el resto; Nido crea la base de datos, escribe la configuración y compila el frontend cuando lo hay.</span>
       </div>
     </div>
   </div>

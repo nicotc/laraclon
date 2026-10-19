@@ -17,7 +17,7 @@ import (
 
 const wordpressVersionURL = "https://api.wordpress.org/core/version-check/1.7/"
 
-// InstallWordPress puts the newest WordPress into dest. clon downloads the official zip itself and
+// InstallWordPress puts the newest WordPress into dest. Nido downloads the official zip itself and
 // checks it against the SHA-1 wordpress.org publishes: WP-CLI would fetch the .tar.gz, whose long
 // file names PHP's PharData cannot extract on Windows (and its fallback, tar, starts with an empty
 // environment there). It returns the version.

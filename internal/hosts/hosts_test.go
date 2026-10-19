@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-const sample = "# Copyright (c) Microsoft\r\n127.0.0.1      app.test             #laragon magic!   \r\n127.0.0.1 localhost\r\n"
+const sample = "# Copyright (c) Microsoft\r\n127.0.0.1      app.test             #otra herramienta   \r\n127.0.0.1 localhost\r\n"
 
 func TestRenderKeepsForeignLinesAndReplacesBlock(t *testing.T) {
 	first := Render(sample, []string{"b.test", "a.test", "A.test", "bad name"})
-	if !strings.Contains(first, "#laragon magic!") || !strings.Contains(first, "127.0.0.1 localhost") {
-		t.Fatal("lines outside clon's block must be kept")
+	if !strings.Contains(first, "#otra herramienta") || !strings.Contains(first, "127.0.0.1 localhost") {
+		t.Fatal("lines outside Nido's block must be kept")
 	}
 	if strings.Count(first, "127.0.0.1  a.test") != 1 || strings.Contains(first, "bad name") {
 		t.Fatalf("names must be cleaned and de-duplicated:\n%s", first)

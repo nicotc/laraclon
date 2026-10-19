@@ -1,12 +1,12 @@
-// Panel de clon: lee el estado del API local y envía las acciones con el token de la sesión.
-const token = document.querySelector('meta[name="clon-token"]').content;
+// Panel de Nido: lee el estado del API local y envía las acciones con el token de la sesión.
+const token = document.querySelector('meta[name="nido-token"]').content;
 let state = null;
 // Lo que el usuario está haciendo y debe sobrevivir a cada refresco del estado.
 const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {},
   ext: null, extVersion: '', extBusy: {}, node: null };
 
 const INSTALLABLE = ['mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'apache', 'nginx', 'frankenphp', 'adminer'];
-// Databases Adminer opens (its MongoDB support needs a PHP driver clon does not set up for it).
+// Databases Adminer opens (its MongoDB support needs a PHP driver Nido does not set up for it).
 const ADMINER_KINDS = ['mysql', 'mariadb', 'postgresql'];
 // Services by section of the Servicios tab, in display order.
 const DB_KINDS = ['mysql', 'mariadb', 'postgresql', 'mongodb'];
@@ -44,7 +44,7 @@ function groupOf(kind) {
 async function call(method, path, body) {
   const res = await fetch(path, {
     method,
-    headers: { 'X-Clon-Token': token, 'Content-Type': 'application/json' },
+    headers: { 'X-Nido-Token': token, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
@@ -106,6 +106,9 @@ function showTab(tab) {
 function render() {
   const s = state;
   renderAlerts(s);
+  const health = document.getElementById('health-link');
+  health.hidden = !s.health_url;
+  if (s.health_url) health.href = s.health_url;
   document.querySelectorAll('.php-select').forEach(sel => {
     if (document.activeElement === sel) return;
     sel.replaceChildren(...(s.php_versions || []).map(v => el('option', { value: v, selected: v === s.php }, 'PHP ' + v)));
@@ -150,7 +153,7 @@ function renderAlerts(s) {
   const alerts = document.getElementById('alerts');
   alerts.replaceChildren();
   if (!s.ca_trusted) {
-    alerts.append(alertBox('Windows todavía no confía en la CA local de clon: el navegador avisará en los sitios HTTPS.',
+    alerts.append(alertBox('Windows todavía no confía en la CA local de Nido: el navegador avisará en los sitios HTTPS.',
       'Confiar en la CA', () => act('POST', '/api/ca/trust')));
   }
   if (s.hosts_missing && s.hosts_missing.length) {
@@ -181,7 +184,7 @@ function renderAlerts(s) {
   }
 }
 
-// renderProjectJobs shows the projects being created (from the panel or with 'clon new') above the sites.
+// renderProjectJobs shows the projects being created (from the panel or with 'nido new') above the sites.
 function renderProjectJobs() {
   const box = document.getElementById('project-jobs');
   const jobs = (state.jobs || []).filter(j => j.kind === 'project' && !ui.dismissed[j.id]);
@@ -283,7 +286,7 @@ function phpPicker(site) {
     ...versions.map(v => el('option', { value: v, selected: site.php === v },
       v === site.php && site.php_version && site.php_version !== v ? `${v} (${site.php_version})` : v)));
   sel.addEventListener('change', () => act('POST', '/api/sites/php', { site: site.name, php: sel.value }));
-  // Xdebug for this site alone; clon fetches it for that PHP when it lacks it.
+  // Xdebug for this site alone; Nido fetches it for that PHP when it lacks it.
   const key = 'debug-' + site.name;
   const debug = el('button', { class: 'proc' + (site.debug ? ' on running' : ''), disabled: !!ui.pending[key],
     title: site.debug ? 'Con Xdebug: cada petición se conecta al editor en 127.0.0.1:9003 (clic para quitarlo)' : 'Depurar este sitio con Xdebug',
@@ -498,8 +501,7 @@ function instanceRow(g, i) {
   const auto = el('input', { type: 'checkbox', checked: i.autostart, disabled: i.default });
   auto.addEventListener('change', () => settings(i.key, { autostart: auto.checked }));
   const notes = [];
-  if (i.source === 'laragon') notes.push('de Laragon');
-  else if (i.source === 'download') notes.push('descargada');
+  if (i.source === 'download') notes.push('descargada');
   if (i.external) notes.push('usa los datos de ' + shortPath(i.data_dir));
   return el('tr', {},
     el('td', {}, el('input', { type: 'radio', name: 'def-' + g.kind, checked: i.default, title: 'Predeterminada: puerto estándar y atajo mysql',
@@ -526,7 +528,7 @@ function instanceMenu(g, i) {
     item('Abrir carpeta de datos', () => act('POST', '/api/services/open', { key: i.key, what: 'data' })),
     item('Copiar datos de conexión (.env)', () => copyEnv(g, i)),
     el('div', { class: 'sep' }),
-    item(i.source === 'download' ? 'Desinstalar (conserva los datos)' : 'Quitar de clon (sus archivos no se tocan)', () => uninstall(g, i), 'red'));
+    item(i.source === 'download' ? 'Desinstalar (conserva los datos)' : 'Quitar de Nido (sus archivos no se tocan)', () => uninstall(g, i), 'red'));
 }
 
 function installPicker(g) {
@@ -584,7 +586,7 @@ function uninstall(g, i) {
   const what = `${g.name} ${i.version}`;
   const msg = i.source === 'download'
     ? `¿Desinstalar ${what}? Se borran sus programas; los datos (${i.data_dir}) se conservan.`
-    : `¿Quitar ${what} de clon? Sus archivos no se tocan y los datos se conservan.`;
+    : `¿Quitar ${what} de Nido? Sus archivos no se tocan y los datos se conservan.`;
   if (confirm(msg)) act('POST', '/api/services/uninstall', { key: i.key }, i.key);
 }
 
@@ -657,7 +659,7 @@ function renderExtensions() {
     const check = el('input', { type: 'checkbox', checked: x.enabled, disabled: !!busy });
     check.addEventListener('change', () => toggleExtension(x, check.checked));
     const tag = EXT_TAG[x.source];
-    return el('label', { class: busy ? 'busy' : '', title: x.default ? 'clon la activa por defecto' : '' }, check,
+    return el('label', { class: busy ? 'busy' : '', title: x.default ? 'Nido la activa por defecto' : '' }, check,
       el('span', {}, x.name), tag ? el('span', { class: 'tag' + (x.source === 'descargable' ? ' get' : '') }, tag) : null);
   }));
 }
@@ -679,8 +681,8 @@ async function toggleExtension(x, on) {
 
 // ---------- Node y gestores de paquetes ----------
 
-const NODE_SOURCE = { download: 'descargada', laragon: 'de Laragon' };
-const NODE_DISMISSED = 'clon-node-avisos';
+const NODE_SOURCE = { download: 'descargada' };
+const NODE_DISMISSED = 'nido-node-avisos';
 
 function nodeUpdateText(u, global) {
   if (u.line) return `Salió Node ${u.version.split('.')[0]}, la nueva LTS («${u.lts}»): v${u.version}.`;
@@ -724,7 +726,7 @@ function nodeCard(n) {
     el('td', {}, el('span', { class: 'ver' }, 'v' + v.version), ' ', el('span', { class: 'svc-sub' }, NODE_SOURCE[v.source] || v.source)),
     el('td', { class: 'right' }, v.in_use ? el('span', { class: 'pill def' }, 'global') : [
       el('button', { class: 'small secondary', onclick: () => useNode(v.version) }, 'Usar'),
-      el('button', { class: 'ghost', title: v.removable ? 'Borrar esta versión' : 'Quitar de clon (sus archivos no se tocan)', onclick: () => removeNode(v) }, '✕')])));
+      el('button', { class: 'ghost', title: v.removable ? 'Borrar esta versión' : 'Quitar de Nido (sus archivos no se tocan)', onclick: () => removeNode(v) }, '✕')])));
   const have = new Set(n.installed.map(v => v.version));
   const options = n.lines.filter(r => !have.has(r.version) && !busy.has(r.version));
   let picker;
@@ -795,7 +797,7 @@ async function applyNodeUpdate(u) {
 }
 
 async function removeNode(v) {
-  const msg = v.removable ? `¿Borrar Node v${v.version}? Se borra su carpeta (${v.path}).` : `¿Quitar Node v${v.version} de clon? Sus archivos no se tocan.`;
+  const msg = v.removable ? `¿Borrar Node v${v.version}? Se borra su carpeta (${v.path}).` : `¿Quitar Node v${v.version} de Nido? Sus archivos no se tocan.`;
   if (!confirm(msg)) return;
   try {
     await call('POST', '/api/node/uninstall', { version: v.version });
@@ -827,7 +829,7 @@ const KITS = [
   ['livewire', 'Livewire', 'Livewire y Tailwind'],
 ];
 ui.project = { source: 'laravel', name: '', kit: '', db: 'sqlite', pm: 'npm', locale: 'es_ES', webapp: true, root: '', git: '', branch: '', job: null, error: null };
-// WordPress languages offered first (any WordPress locale works from 'clon new --idioma').
+// WordPress languages offered first (any WordPress locale works from 'nido new --idioma').
 const WP_LOCALES = [['es_ES', 'Español (España)'], ['es_MX', 'Español (México)'], ['es_AR', 'Español (Argentina)'], ['es_CO', 'Español (Colombia)'],
   ['es_CL', 'Español (Chile)'], ['en_US', 'English (US)'], ['pt_BR', 'Português (Brasil)'], ['fr_FR', 'Français'], ['de_DE', 'Deutsch'], ['it_IT', 'Italiano']];
 // Package managers a new project can install its frontend with, like 'laravel new --pnpm'.
@@ -949,7 +951,7 @@ function renderProjectDialog() {
     const locale = el('select', { 'aria-label': 'Idioma' }, ...WP_LOCALES.map(([k, label]) => el('option', { value: k, selected: p.locale === k }, label)));
     locale.addEventListener('change', () => { p.locale = locale.value; });
     kits = el('label', { class: 'field' }, el('span', {}, 'Idioma'), locale,
-      el('div', { class: 'svc-sub' }, 'clon descarga WordPress y su traducción, crea la base de datos y wp-config.php, e instala el sitio con un usuario admin y una contraseña generada.'));
+      el('div', { class: 'svc-sub' }, 'Nido descarga WordPress y su traducción, crea la base de datos y wp-config.php, e instala el sitio con un usuario admin y una contraseña generada.'));
   } else {
     kits = el('div', { class: 'field' }, el('span', {}, 'Kit de inicio'), el('div', { class: 'kits' }, ...KITS.map(([k, label, desc]) => {
       const radio = el('input', { type: 'radio', name: 'kit', value: k, checked: p.kit === k });

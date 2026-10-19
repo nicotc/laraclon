@@ -46,13 +46,13 @@ type RecipeSource struct {
 // recipeExample is written to config\recetas the first time, to show the format.
 const recipeExample = `# Receta de ejemplo: un proyecto Laravel con el kit de Livewire y el panel de Filament.
 # Las recetas son archivos .toml en esta carpeta; aparecen en «Nuevo proyecto → Plantilla»
-# y en 'clon new <nombre> --receta <archivo sin .toml>'.
+# y en 'nido new <nombre> --receta <archivo sin .toml>'.
 #
 # source.type: laravel (kit, pm), wordpress (locale), symfony (webapp), git (url, branch),
 #              composer (package, como 'composer create-project') o folder (path, dentro de
 #              config\plantillas; lo usa «Guardar como plantilla»).
 # database:    sqlite, mysql, mariadb o postgresql (se puede cambiar al crear el proyecto).
-# steps:       órdenes que se ejecutan en la carpeta del proyecto, con el php, composer y npm de clon.
+# steps:       órdenes que se ejecutan en la carpeta del proyecto, con el php, composer y npm de Nido.
 # [env]:       valores para el .env del proyecto (.env.local en Symfony).
 name = "Laravel + Filament"
 source = { type = "laravel", kit = "livewire" }
@@ -177,7 +177,7 @@ func fromRecipe(p NewProject, r Recipe) NewProject {
 func (d *Daemon) createFromSource(p NewProject, name, root, dir, cancelled string) (Job, error) {
 	r := p.recipe
 	if _, err := os.Stat(install.ComposerPhar(d.env.Home)); err != nil {
-		return Job{}, fmt.Errorf("falta Composer: instálalo con 'clon composer install'")
+		return Job{}, fmt.Errorf("falta Composer: instálalo con 'nido composer install'")
 	}
 	db := p.DB
 	if _, ok := projectDBs[db]; db != "" && !ok {
@@ -229,7 +229,7 @@ func (d *Daemon) startCreateJob(p NewProject, name, dir, label, cancelled string
 }
 
 // applyRecipe writes a recipe's .env values and runs its steps in the project folder, where php,
-// composer, npm… are clon's (the steps see clon's shims first in their PATH).
+// composer, npm… are Nido's (the steps see Nido's shims first in their PATH).
 func (d *Daemon) applyRecipe(ctx context.Context, r Recipe, kind, dir string, phase func(string), log *os.File) error {
 	if len(r.Env) > 0 {
 		envFile := filepath.Join(dir, ".env")

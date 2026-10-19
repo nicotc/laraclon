@@ -90,7 +90,7 @@ func (s *poolStore) save() error {
 }
 
 // assign returns the ports of a pinned version: its previous block when still usable, otherwise
-// the first free block in [from, to]. own are ports held by clon's own pools right now.
+// the first free block in [from, to]. own are ports held by Nido's own pools right now.
 func (s *poolStore) assign(version string, from, to int, own map[int]bool) ([]int, error) {
 	block := func(base int) []int {
 		out := make([]int, pinnedPoolSize)
@@ -212,7 +212,7 @@ func (d *Daemon) planPHP(list []sites.Site) ([]phpPool, []sites.Warning) {
 	return pools, notes
 }
 
-// startPinnedPools starts the processes of the pinned pools that are not running yet (while clon's
+// startPinnedPools starts the processes of the pinned pools that are not running yet (while Nido's
 // services are on) and waits for them, so a site moved to its pool answers at once (the first start
 // of a version can take several seconds on a slow machine, and meanwhile the server would answer 503).
 // The global pool is startPHP's.
@@ -279,7 +279,7 @@ func (d *Daemon) poolVersionOn(port int) string {
 
 // waitPinnedPool waits until the php-cgi processes of a pinned version's pool accept connections:
 // until then the sites moved to it would answer 503. Nothing to wait for when that version is the
-// global one (its sites use the global pool), or while clon's services are stopped.
+// global one (its sites use the global pool), or while Nido's services are stopped.
 func (d *Daemon) waitPinnedPool(version string, debug bool, timeout time.Duration) error {
 	d.mu.Lock()
 	on := d.servicesOn
@@ -389,7 +389,7 @@ func (d *Daemon) SetSitePHP(site, want string) error {
 		var ok bool
 		v, ok = d.env.Reg.Find(versions.PHP, want)
 		if !ok {
-			return fmt.Errorf("PHP %s no está instalado (instálalo con 'clon php install %s')", want, versions.MajorMinor(want))
+			return fmt.Errorf("PHP %s no está instalado (instálalo con 'nido php install %s')", want, versions.MajorMinor(want))
 		}
 		// Composer for the terminal inside the project: 2.2 LTS below PHP 7.2.5.
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

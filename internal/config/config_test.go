@@ -12,7 +12,7 @@ func TestSetExtensionWritesOnlyRealChanges(t *testing.T) {
 	if want := (PHPExtensions{Enable: []string{"xdebug"}, Disable: []string{"exif"}}); !reflect.DeepEqual(p.Extensions["8.4"], want) {
 		t.Fatalf("got %+v, want %+v", p.Extensions["8.4"], want)
 	}
-	p.SetExtension("8.4", "xdebug", false, false) // back to clon's default
+	p.SetExtension("8.4", "xdebug", false, false) // back to Nido's default
 	p.SetExtension("8.4", "exif", true, true)
 	if _, ok := p.Extensions["8.4"]; ok {
 		t.Fatalf("nothing differs from the defaults any more, got %+v", p.Extensions)
@@ -44,6 +44,6 @@ func TestSiteSettingsAreDroppedWhenEmpty(t *testing.T) {
 	c.SetSitePHP("tienda", "")
 	c.SetSiteServer("tienda", ServerApache)
 	if _, ok := c.Sites["tienda"]; ok {
-		t.Fatal("a site back to its defaults leaves no section in clon.toml")
+		t.Fatal("a site back to its defaults leaves no section in nido.toml")
 	}
 }

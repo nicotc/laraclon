@@ -20,12 +20,12 @@ type Client struct {
 func Connect(home string) (*Client, error) {
 	c, err := ReadControl(home)
 	if err != nil {
-		return nil, fmt.Errorf("clon no está corriendo")
+		return nil, fmt.Errorf("Nido no está corriendo")
 	}
 	cl := &Client{base: fmt.Sprintf("http://127.0.0.1:%d", c.Port), token: c.Token, http: &http.Client{Timeout: 10 * time.Minute}}
 	var st Status
 	if err := cl.Call("GET", "/api/status", nil, &st); err != nil {
-		return nil, fmt.Errorf("clon no está corriendo")
+		return nil, fmt.Errorf("Nido no está corriendo")
 	}
 	return cl, nil
 }
@@ -41,7 +41,7 @@ func (c *Client) Call(method, path string, body, out any) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("X-Clon-Token", c.token)
+	req.Header.Set("X-Nido-Token", c.token)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {

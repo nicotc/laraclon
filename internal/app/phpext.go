@@ -27,8 +27,8 @@ func (e *Env) PHPVersion(want string) (versions.Version, error) {
 	return v, nil
 }
 
-// PHPExtensions lists what a PHP version can load (the DLLs it ships and the ones clon downloaded)
-// plus the extensions clon can download for it, marked "descargable".
+// PHPExtensions lists what a PHP version can load (the DLLs it ships and the ones Nido downloaded)
+// plus the extensions Nido can download for it, marked "descargable".
 func (e *Env) PHPExtensions(v versions.Version) []php.Extension {
 	list := php.Extensions(e.Home, v, e.Cfg.PHP.Extensions[versions.MajorMinor(v.Version)])
 	have := map[string]bool{}
@@ -45,7 +45,7 @@ func (e *Env) PHPExtensions(v versions.Version) []php.Extension {
 }
 
 // SetPHPExtension switches an extension on or off for a PHP series ("8.4"), downloading it first
-// when clon can. An extension switched on must load in that PHP; when it does not, nothing changes
+// when Nido can. An extension switched on must load in that PHP; when it does not, nothing changes
 // and the error says why (a missing DLL it depends on, for example).
 func (e *Env) SetPHPExtension(ctx context.Context, v versions.Version, name string, on bool) error {
 	name = strings.ToLower(strings.TrimSpace(name))
@@ -95,7 +95,7 @@ func (e *Env) SetPHPExtension(ctx context.Context, v versions.Version, name stri
 	return e.SaveConfig()
 }
 
-// DownloadExtension fetches the build of an extension for a PHP version into clon's folder, without
+// DownloadExtension fetches the build of an extension for a PHP version into Nido's folder, without
 // switching it on.
 func (e *Env) DownloadExtension(ctx context.Context, v versions.Version, name string) error {
 	ts := v.ThreadSafe != nil && *v.ThreadSafe
@@ -118,11 +118,11 @@ func checkExtension(v versions.Version, ini, name string) error {
 	if n, ok := loadedNames[name]; ok {
 		loaded = n
 	}
-	out, err := procutil.Output(30*time.Second, v.Path, filepath.Join(v.Path, "php.exe"), "-c", ini, "-r", fmt.Sprintf("echo extension_loaded('%s') ? 'clon-ok' : 'clon-no';", loaded))
-	if err == nil && strings.HasSuffix(strings.TrimSpace(out), "clon-ok") {
+	out, err := procutil.Output(30*time.Second, v.Path, filepath.Join(v.Path, "php.exe"), "-c", ini, "-r", fmt.Sprintf("echo extension_loaded('%s') ? 'nido-ok' : 'nido-no';", loaded))
+	if err == nil && strings.HasSuffix(strings.TrimSpace(out), "nido-ok") {
 		return nil
 	}
-	detail := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(out), "clon-no"))
+	detail := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(out), "nido-no"))
 	if detail == "" && err != nil {
 		detail = err.Error()
 	}
@@ -191,6 +191,7 @@ func (d *Daemon) restartPHPVersion(v versions.Version) error {
 		if p.Global {
 			err = d.startPHP()
 			d.setProblem("php", err)
+			d.setProblem("salud", d.startSalud(true)) // it shows the global PHP's extensions
 		} else {
 			err = d.startPinnedPools([]phpPool{p})
 		}

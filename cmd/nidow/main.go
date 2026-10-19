@@ -1,5 +1,5 @@
-// clonw is clon with its tray icon. It runs in the background (no console window) and owns the
-// services; the command line (clon.exe) talks to it.
+// nidow is Nido with its tray icon. It runs in the background (no console window) and owns the
+// services; the command line (nido.exe) talks to it.
 package main
 
 import (
@@ -22,7 +22,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	if logf, err := os.OpenFile(env.Home.Logs("clon.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+	if logf, err := os.OpenFile(env.Home.Logs("nido.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 		log.SetOutput(logf)
 	}
 
@@ -45,12 +45,12 @@ func main() {
 
 	systray.Run(func() {
 		systray.SetIcon(iconStopped)
-		systray.SetTooltip("clon")
+		systray.SetTooltip("Nido")
 		systray.SetOnTapped(func() { winx.OpenAppWindow(d.PanelURL()) })
 		t.build()
 		go func() {
 			if err := d.Run(ctx); err != nil {
-				log.Println("clon:", err)
+				log.Println("Nido:", err)
 			}
 			systray.Quit()
 		}()
@@ -100,6 +100,8 @@ func onClick(item *systray.MenuItem, fn func()) {
 
 func (t *tray) build() {
 	onClick(systray.AddMenuItem("Abrir panel", ""), func() { winx.OpenAppWindow(t.d.PanelURL()) })
+	onClick(systray.AddMenuItem("Salud del entorno", "PHP, bases de datos y sitios: qué responde y qué no"),
+		func() { winx.OpenURL(t.d.HealthURL()) })
 
 	t.sites = systray.AddMenuItem("Sitios", "")
 	for i := range t.siteItems {
@@ -197,7 +199,7 @@ func (t *tray) refresh() {
 	} else {
 		systray.SetIcon(iconStopped)
 	}
-	systray.SetTooltip(fmt.Sprintf("clon · PHP %s · %d sitios", st.PHP, len(st.Sites)))
+	systray.SetTooltip(fmt.Sprintf("Nido · PHP %s · %d sitios", st.PHP, len(st.Sites)))
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -270,6 +272,6 @@ func shorten(s string, n int) string {
 }
 
 func fatal(err error) {
-	winx.MessageBox("clon", err.Error())
+	winx.MessageBox("Nido", err.Error())
 	os.Exit(1)
 }

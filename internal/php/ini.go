@@ -28,7 +28,7 @@ func IniPath(home paths.Home, v versions.Version) string {
 	return home.Generated("php", v.Version, "php.ini")
 }
 
-// IniOptions are the values clon manages for every PHP version.
+// IniOptions are the values Nido manages for every PHP version.
 type IniOptions struct {
 	CABundle string // PEM bundle with the public roots plus the local CA; empty to leave curl defaults
 	SMTPPort int    // mail() goes to 127.0.0.1:SMTPPort (Mailpit); 0 leaves PHP's default
@@ -56,8 +56,8 @@ func HasXdebug(home paths.Home, v versions.Version) bool {
 	return false
 }
 
-// ExtDir is where clon keeps the extensions it downloads for a PHP series and thread safety
-// ("8.4-ts"): never inside the PHP folder, which may be Laragon's.
+// ExtDir is where Nido keeps the extensions it downloads for a PHP series and thread safety
+// ("8.4-ts"): never inside the PHP folder, which may not be Nido's.
 func ExtDir(home paths.Home, v versions.Version) string {
 	flavor := "nts"
 	if v.ThreadSafe != nil && *v.ThreadSafe {
@@ -70,7 +70,7 @@ func ExtDir(home paths.Home, v versions.Version) string {
 type Extension struct {
 	Name    string `json:"name"`
 	Enabled bool   `json:"enabled"`
-	Default bool   `json:"default"`        // clon enables it unless it is switched off
+	Default bool   `json:"default"`        // Nido enables it unless it is switched off
 	Zend    bool   `json:"zend,omitempty"` // loaded with zend_extension
 	Source  string `json:"source"`         // "incluida" (in the PHP folder) or "descargada"
 	File    string `json:"-"`
@@ -88,8 +88,8 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-// Extensions lists what a PHP version can load: the DLLs in its ext folder and the ones clon
-// downloaded for it, each enabled by clon's defaults or by the user's changes.
+// Extensions lists what a PHP version can load: the DLLs in its ext folder and the ones Nido
+// downloaded for it, each enabled by Nido's defaults or by the user's changes.
 func Extensions(home paths.Home, v versions.Version, changes config.PHPExtensions) []Extension {
 	seen := map[string]bool{}
 	var out []Extension
@@ -151,7 +151,7 @@ func WriteIni(home paths.Home, v versions.Version, opt IniOptions) (string, erro
 	var b strings.Builder
 	b.Write(base)
 	b.WriteString("\r\n\r\n; ======================================================================\r\n")
-	b.WriteString("; clon: valores gestionados. Este archivo se regenera; pon tus cambios en\r\n")
+	b.WriteString("; Nido: valores gestionados. Este archivo se regenera; pon tus cambios en\r\n")
 	b.WriteString(fmt.Sprintf("; %s o %s\r\n", home.Config("php", "all.ini"), home.Config("php", versions.MajorMinor(v.Version)+".ini")))
 	b.WriteString("; ======================================================================\r\n[PHP]\r\n")
 	set := func(k, val string) { b.WriteString(k + " = " + val + "\r\n") }
@@ -189,7 +189,7 @@ func WriteIni(home paths.Home, v versions.Version, opt IniOptions) (string, erro
 			}
 			value := filepath.Base(e.File)
 			if !strings.EqualFold(filepath.Dir(e.File), extDir) {
-				value = q(e.File) // downloaded by clon, outside the PHP folder
+				value = q(e.File) // downloaded by Nido, outside the PHP folder
 			}
 			if e.Zend {
 				set("zend_extension", value)
@@ -198,7 +198,7 @@ func WriteIni(home paths.Home, v versions.Version, opt IniOptions) (string, erro
 			}
 		}
 		if opt.Debug && !debugReady {
-			return "", fmt.Errorf("PHP %s no tiene Xdebug: actívalo en «Extensiones de PHP» o con 'clon php ext on xdebug %s'", v.Version, versions.MajorMinor(v.Version))
+			return "", fmt.Errorf("PHP %s no tiene Xdebug: actívalo en «Extensiones de PHP» o con 'nido php ext on xdebug %s'", v.Version, versions.MajorMinor(v.Version))
 		}
 	}
 	set("opcache.enable", "1")

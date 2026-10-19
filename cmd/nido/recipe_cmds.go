@@ -9,7 +9,7 @@ import (
 // cmdRecipes lists the project templates of config\recetas.
 func cmdRecipes(env *app.Env, args []string) error {
 	if len(args) > 0 && args[0] != "list" {
-		return fmt.Errorf("uso: clon recipe list")
+		return fmt.Errorf("uso: nido recipe list")
 	}
 	var list []app.Recipe
 	if c, err := app.Connect(env.Home.Root); err == nil {
@@ -30,7 +30,7 @@ func cmdRecipes(env *app.Env, args []string) error {
 		}
 		fmt.Printf("  %-24s %s (%s)\n", r.ID, r.Name, r.Source.Type)
 	}
-	fmt.Printf("\nCrea un proyecto con 'clon new <nombre> --receta <archivo>'. Las recetas están en %s\n", env.Home.Config("recetas"))
+	fmt.Printf("\nCrea un proyecto con 'nido new <nombre> --receta <archivo>'. Las recetas están en %s\n", env.Home.Config("recetas"))
 	return nil
 }
 
@@ -38,12 +38,12 @@ func cmdRecipes(env *app.Env, args []string) error {
 func cmdSiteTemplate(env *app.Env, site, name string) error {
 	c, err := app.Connect(env.Home.Root)
 	if err != nil {
-		return fmt.Errorf("clon no está corriendo: inícialo con 'clon run'")
+		return fmt.Errorf("Nido no está corriendo: inícialo con 'nido run'")
 	}
 	var r app.Recipe
 	if err := c.Call("POST", "/api/sites/template", map[string]string{"site": site, "name": name}, &r); err != nil {
 		return err
 	}
-	fmt.Printf("Plantilla «%s» guardada en %s\nCrea proyectos con ella: clon new <nombre> --receta %s\n", r.Name, env.Home.Config("plantillas", r.ID), r.ID)
+	fmt.Printf("Plantilla «%s» guardada en %s\nCrea proyectos con ella: nido new <nombre> --receta %s\n", r.Name, env.Home.Config("plantillas", r.ID), r.ID)
 	return nil
 }

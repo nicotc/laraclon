@@ -1,17 +1,16 @@
-﻿# Crea la máquina virtual de Hyper-V donde se prueba clon de punta a punta. Windows se aplica
+﻿# Crea la máquina virtual de Hyper-V donde se prueba Nido de punta a punta. Windows se aplica
 # directamente al disco virtual desde el ISO (sin asistente de instalación): una cuenta de
-# administrador «clon» que entra sola, la carpeta bin de Laragon copiada dentro y un checkpoint
-# «limpia» con la sesión ya iniciada, al que vuelve cada prueba.
+# administrador «nido» que entra sola y un checkpoint «limpia» con la sesión ya iniciada, al que
+# vuelve cada prueba. No lleva nada instalado: Nido descarga todo lo que necesita.
 # Necesita permisos de administrador: lo lanza 'probar-en-vm.ps1 -Crear', que pide el permiso.
 param(
     [Parameter(Mandatory)] [string]$Iso,
-    [Parameter(Mandatory)] [string]$PasswordFile, # contraseña de la cuenta clon; se borra al leerla
+    [Parameter(Mandatory)] [string]$PasswordFile, # contraseña de la cuenta Nido; se borra al leerla
     [string]$VmRoot = 'C:\VMs',
-    [string]$Name = 'clon-pruebas',
+    [string]$Name = 'nido-pruebas',
     [ValidateRange(2, 64)] [int]$MemoryGB = 6,
     [int]$Cpu = 4,
     [int]$DiskGB = 128,
-    [string]$LaragonBin = 'C:\laragon\bin',
     [string]$TimeZone = (Get-TimeZone).Id,
     [string]$AddUser = '' # usuario que entra en «Administradores de Hyper-V» (DOMINIO\usuario)
 )
@@ -26,7 +25,7 @@ function Say([string]$text) { Write-Host "$(Get-Date -Format 'HH:mm:ss')  $text"
 
 $password = (Get-Content $PasswordFile -Raw).Trim()
 Remove-Item $PasswordFile -Force
-$cred = New-Object PSCredential ('clon', (ConvertTo-SecureString $password -AsPlainText -Force))
+$cred = New-Object PSCredential ('nido', (ConvertTo-SecureString $password -AsPlainText -Force))
 $vhdx = Join-Path $vmDir "Virtual Hard Disks\$Name.vhdx"
 $isoMounted = $false
 $vhdMounted = $false
@@ -82,7 +81,7 @@ try {
     & bcdboot.exe "$($winLetter):\Windows" /s "$($efiLetter):" /f UEFI | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "bcdboot terminó con el código $LASTEXITCODE" }
 
-    # The first boot creates the clon account and signs in by itself, in Spanish and without the
+    # The first boot creates the Nido account and signs in by itself, in Spanish and without the
     # online-account and network screens.
     $esc = [Security.SecurityElement]::Escape($password)
     $shell = 'processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS"'
@@ -91,7 +90,7 @@ try {
 <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
   <settings pass="specialize">
     <component name="Microsoft-Windows-Shell-Setup" $shell>
-      <ComputerName>CLON-PRUEBAS</ComputerName>
+      <ComputerName>NIDO-PRUEBAS</ComputerName>
       <TimeZone>$TimeZone</TimeZone>
     </component>
     <component name="Microsoft-Windows-Deployment" $shell>
@@ -121,8 +120,8 @@ try {
       <UserAccounts>
         <LocalAccounts>
           <LocalAccount wcm:action="add">
-            <Name>clon</Name>
-            <DisplayName>clon</DisplayName>
+            <Name>nido</Name>
+            <DisplayName>Nido</DisplayName>
             <Group>$admins</Group>
             <Password><Value>$esc</Value><PlainText>true</PlainText></Password>
           </LocalAccount>
@@ -130,7 +129,7 @@ try {
       </UserAccounts>
       <AutoLogon>
         <Enabled>true</Enabled>
-        <Username>clon</Username>
+        <Username>nido</Username>
         <LogonCount>999999</LogonCount>
         <Password><Value>$esc</Value><PlainText>true</PlainText></Password>
       </AutoLogon>
@@ -140,16 +139,6 @@ try {
 "@
     New-Item -ItemType Directory -Force "$($winLetter):\Windows\Panther" | Out-Null
     [IO.File]::WriteAllText("$($winLetter):\Windows\Panther\unattend.xml", $unattend, (New-Object Text.UTF8Encoding $false))
-
-    if ($LaragonBin -and (Test-Path $LaragonBin)) {
-        Say "Copiando $LaragonBin a la VM (unos minutos)"
-        $copyLog = Join-Path $vmDir 'robocopy-laragon.log'
-        & robocopy.exe $LaragonBin "$($winLetter):\laragon\bin" /E /R:1 /W:1 /MT:16 /NFL /NDL /NP "/LOG:$copyLog" | Out-Null
-        if ($LASTEXITCODE -ge 16) { throw "robocopy no pudo copiar $LaragonBin (código $LASTEXITCODE; mira $copyLog)" }
-        # 8 and up: some files failed (Laragon running keeps a few open). The tests only need its
-        # programs, so the copy goes on and the log says which.
-        if ($LASTEXITCODE -ge 8) { Say "Aviso: algunos archivos de Laragon no se copiaron (en uso o sin permiso); detalle en $copyLog" }
-    }
 
     Dismount-VHD -Path $vhdx
     $vhdMounted = $false
@@ -162,7 +151,7 @@ try {
     if (-not $switch) { throw 'no hay ningún conmutador virtual (el «Default Switch» de Hyper-V da Internet a la VM)' }
     New-VM -Name $Name -Generation 2 -MemoryStartupBytes 2GB -VHDPath $vhdx -Path $VmRoot -SwitchName $switch.Name | Out-Null
     Set-VMProcessor -VMName $Name -Count $Cpu
-    Set-ClonVmHardware $Name $MemoryGB
+    Set-NidoVmHardware $Name $MemoryGB
     Set-VMFirmware -VMName $Name -EnableSecureBoot On -SecureBootTemplate MicrosoftWindows
     try {
         Set-VMKeyProtector -VMName $Name -NewLocalKeyProtector
@@ -174,7 +163,7 @@ try {
 
     Say 'Arrancando Windows por primera vez (crea la cuenta y entra solo; unos minutos)'
     Start-VM -Name $Name
-    Wait-ClonDesktop $Name $cred 30
+    Wait-NidoDesktop $Name $cred 30
 
     Say 'Preparando Windows para las pruebas'
     Invoke-Command -VMName $Name -Credential $cred -ScriptBlock {
@@ -201,7 +190,7 @@ try {
     Say 'Reiniciando Windows una vez (instala las actualizaciones que bajó al arrancar; puede tardar)'
     Stop-VM -Name $Name -Force
     Start-VM -Name $Name
-    Wait-ClonDesktop $Name $cred 45
+    Wait-NidoDesktop $Name $cred 45
     Start-Sleep -Seconds 60 # right after signing in, Windows is still starting things
 
     Say 'Guardando el checkpoint «limpia» (con la sesión iniciada)'

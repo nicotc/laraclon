@@ -89,11 +89,8 @@ func InstallPHP(ctx context.Context, home paths.Home, want string, progress down
 		}
 	}
 	if branch == nil {
-		names := []string{}
-		for _, b := range branches {
-			names = append(names, b.Branch)
-		}
-		return versions.Version{}, fmt.Errorf("windows.php.net no publica PHP %s; disponibles: %s (las más viejas se importan con 'clon import')", want, strings.Join(names, ", "))
+		// A branch out of maintenance (7.4, 7.2, 5.6…): its last release, from the archives.
+		return installArchivedPHP(ctx, home, versions.MajorMinor(want), progress)
 	}
 	_, zip, err := branch.pickBuild()
 	if err != nil {

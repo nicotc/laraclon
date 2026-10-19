@@ -28,7 +28,7 @@ const (
 // PostgreSQL's postgres have none here), which Adminer refuses by default. Only this computer
 // reaches it: the PHP server listens on 127.0.0.1 and the proxy refuses other addresses.
 const adminerIndex = `<?php
-// Generado por clon: Adminer para las bases de datos locales, sin contraseña y solo desde este equipo.
+// Generado por Nido: Adminer para las bases de datos locales, sin contraseña y solo desde este equipo.
 function adminer_object() {
     return new class extends \Adminer\Adminer {
         function login($login, $password) { return true; }
@@ -68,7 +68,7 @@ func (d *Daemon) adminerRoute() (proxy.Route, bool) {
 	return proxy.Route{Site: adminerHost, Server: "Adminer " + v.Version, Backend: backend, HTTPS: true, LocalOnly: true}, true
 }
 
-// startAdminer serves the installed Adminer (while clon's services are on); a running one restarts
+// startAdminer serves the installed Adminer (while Nido's services are on); a running one restarts
 // when restart is set, to pick up another PHP or Adminer version.
 func (d *Daemon) startAdminer(restart bool) error {
 	v, ok := d.adminerVersion()

@@ -30,9 +30,9 @@ func mariaV(v string) versions.Version {
 }
 
 func TestLegacyMySQLSectionBecomesTheDefaultInstance(t *testing.T) {
-	e := testEnv(t, mysqlV("8.0.30", "laragon"), mysqlV("5.7.42", "laragon"))
+	e := testEnv(t, mysqlV("8.0.30", "import"), mysqlV("5.7.42", "import"))
 	e.Cfg.MySQL = &config.LegacyMySQL{Enabled: true, Version: "8.0.30", Port: 3307,
-		DataDir: `C:\laragon\data\mysql-8`, DataDirVersion: "8.0.30"}
+		DataDir: `D:\datos\mysql-8`, DataDirVersion: "8.0.30"}
 	if !e.SyncServices() {
 		t.Fatal("the old section must be migrated")
 	}
@@ -44,7 +44,7 @@ func TestLegacyMySQLSectionBecomesTheDefaultInstance(t *testing.T) {
 		t.Fatalf("default = %q, want 8.0", svc.Default)
 	}
 	got := svc.Instances["8.0"]
-	if got.Port != 3307 || got.DataDir != `C:\laragon\data\mysql-8` || got.Version != "8.0.30" {
+	if got.Port != 3307 || got.DataDir != `D:\datos\mysql-8` || got.Version != "8.0.30" {
 		t.Fatalf("8.0 instance = %+v", got)
 	}
 	// 5.7 gets the next free port, never the standard one (it is not the default).
@@ -100,14 +100,14 @@ func TestFirstSeriesOfEachKindIsItsDefaultAndPortsNeverClash(t *testing.T) {
 }
 
 func TestImportedServicesDoNotStartByThemselves(t *testing.T) {
-	laragonRedis := versions.Version{Component: versions.Redis, Version: "5.0.14.1", Path: `C:\laragon\bin\redis`, Source: "laragon"}
-	e := testEnv(t, laragonRedis)
+	importedRedis := versions.Version{Component: versions.Redis, Version: "5.0.14.1", Path: `D:\otro\redis`, Source: "import"}
+	e := testEnv(t, importedRedis)
 	e.SyncServices()
 	if svc := e.Cfg.Service("redis"); svc.Default != "" || svc.Instances["5.0"].Port == 6379 {
 		t.Fatalf("an imported Redis must not become the default (nor take 6379): %+v", svc)
 	}
-	// A version installed through clon becomes the default and takes the standard port.
-	e.Reg.Add(versions.Version{Component: versions.Redis, Version: "8.10.2", Path: `C:\clon\bin\redis\8.10.2`, Source: "download"})
+	// A version installed through Nido becomes the default and takes the standard port.
+	e.Reg.Add(versions.Version{Component: versions.Redis, Version: "8.10.2", Path: `C:\nido\bin\redis\8.10.2`, Source: "download"})
 	e.SyncServices()
 	svc := e.Cfg.Service("redis")
 	if svc.Default != "8.10" || svc.Instances["8.10"].Port != 6379 {
@@ -140,9 +140,9 @@ func TestMailpitReservesItsWebPort(t *testing.T) {
 }
 
 func TestPinnedVersionIsNeverReplacedByANewerPatch(t *testing.T) {
-	e := testEnv(t, mysqlV("8.0.30", "laragon"), mysqlV("8.0.46", "download"))
+	e := testEnv(t, mysqlV("8.0.30", "import"), mysqlV("8.0.46", "download"))
 	e.Cfg.SetService("mysql", config.Service{Default: "8.0", Instances: map[string]config.ServiceInstance{
-		"8.0": {Port: 3306, Version: "8.0.30", DataDir: `C:\laragon\data\mysql-8`},
+		"8.0": {Port: 3306, Version: "8.0.30", DataDir: `D:\datos\mysql-8`},
 	}})
 	if v, _ := e.InstanceVersion(versions.MySQL, "8.0"); v.Version != "8.0.30" {
 		t.Fatalf("pinned instance runs %s, want 8.0.30", v.Version)

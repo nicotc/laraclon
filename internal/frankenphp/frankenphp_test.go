@@ -13,7 +13,7 @@ func TestWriteGeneratesOneSiteBlockPerSite(t *testing.T) {
 	home := paths.Home{Root: t.TempDir()}
 	conf, err := Write(Options{
 		Home:      home,
-		Version:   versions.Version{Component: versions.FrankenPHP, Version: "1.13.1", Path: `C:\clon\bin\frankenphp\1.13.1`, PHP: "8.5.11"},
+		Version:   versions.Version{Component: versions.FrankenPHP, Version: "1.13.1", Path: `C:\nido\bin\frankenphp\1.13.1`, PHP: "8.5.11"},
 		AdminPort: 40000,
 		Sites: []Site{
 			{Host: "rapida.test", DocRoot: `E:\www\mi rapida\public`, Port: 40001, HTTPS: true, PublicPort: 443},

@@ -13,7 +13,7 @@ func TestWriteGeneratesOneServerPerSite(t *testing.T) {
 	home := paths.Home{Root: t.TempDir()}
 	conf, err := Write(Options{
 		Home:      home,
-		Version:   versions.Version{Component: versions.Nginx, Version: "1.30.6", Path: `C:\clon\bin\nginx\1.30.6`},
+		Version:   versions.Version{Component: versions.Nginx, Version: "1.30.6", Path: `C:\nido\bin\nginx\1.30.6`},
 		AdminPort: 30000,
 		Pools:     []Pool{{Name: GlobalPool, Ports: []int{9100, 9101}}, {Name: "php-7-2-0", Ports: []int{9200, 9201}}},
 		Sites: []Site{
@@ -30,10 +30,10 @@ func TestWriteGeneratesOneServerPerSite(t *testing.T) {
 	}
 	text := string(data)
 	for _, want := range []string{
-		"upstream clon_php {",
+		"upstream nido_php {",
 		"server 127.0.0.1:9100 max_fails=0;",
 		"server 127.0.0.1:9101 max_fails=0;",
-		"upstream clon_php_7_2_0 {",
+		"upstream nido_php_7_2_0 {",
 		"server 127.0.0.1:9200 max_fails=0;",
 		"listen 127.0.0.1:30000;",
 		"listen 127.0.0.1:30001;",
@@ -44,7 +44,7 @@ func TestWriteGeneratesOneServerPerSite(t *testing.T) {
 		"fastcgi_param SERVER_PORT 443;",
 		"fastcgi_param HTTPS on;",
 		"fastcgi_param SERVER_PORT 80;",
-		`include "C:/clon/bin/nginx/1.30.6/conf/fastcgi_params";`,
+		`include "C:/nido/bin/nginx/1.30.6/conf/fastcgi_params";`,
 		`fastcgi_temp_path "` + paths.Slash(Prefix(home)) + `/temp/fastcgi";`,
 	} {
 		if !strings.Contains(text, want) {
@@ -57,7 +57,7 @@ func TestWriteGeneratesOneServerPerSite(t *testing.T) {
 	if strings.Contains(viejo, "HTTPS on") {
 		t.Error("viejo.test no usa HTTPS")
 	}
-	if !strings.Contains(tienda, "fastcgi_pass clon_php;") || !strings.Contains(viejo, "fastcgi_pass clon_php_7_2_0;") {
+	if !strings.Contains(tienda, "fastcgi_pass nido_php;") || !strings.Contains(viejo, "fastcgi_pass nido_php_7_2_0;") {
 		t.Error("cada sitio debe ir a su grupo de PHP")
 	}
 	for _, d := range []string{"temp/fastcgi", "temp/client_body", "logs"} {

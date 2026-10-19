@@ -11,7 +11,7 @@ import (
 )
 
 // cmdVCRedist reports or installs the Visual C++ x64 runtime.
-// `clon vcredist install [instalador.exe]` uses a local installer when given (it must still carry
+// `nido vcredist install [instalador.exe]` uses a local installer when given (it must still carry
 // Microsoft's signature), otherwise it downloads the official one.
 func cmdVCRedist(ctx context.Context, env *app.Env, args []string) error {
 	action := "status"
@@ -22,7 +22,7 @@ func cmdVCRedist(ctx context.Context, env *app.Env, args []string) error {
 	case "status":
 		if missing := vcredist.Missing(); len(missing) > 0 {
 			fmt.Printf("Falta el runtime de Visual C++ x64 (%s).\n", strings.Join(missing, ", "))
-			fmt.Println("Sin él no arrancan PHP, Apache ni MySQL. Instálalo con 'clon vcredist install'.")
+			fmt.Println("Sin él no arrancan PHP, Apache ni MySQL. Instálalo con 'nido vcredist install'.")
 			return nil
 		}
 		fmt.Println("Runtime de Visual C++ x64 instalado:", vcredist.Version())
@@ -30,7 +30,7 @@ func cmdVCRedist(ctx context.Context, env *app.Env, args []string) error {
 		for _, c := range []versions.Component{versions.PHP, versions.Apache, versions.MySQL, versions.MariaDB} {
 			for _, v := range env.Reg.List(c) {
 				if need := vcredist.Needs(versions.Program(c, v.Path)); need != "" && vcredist.Older(need) {
-					fmt.Printf("  %s se compiló para %s o más nuevo: Microsoft recomienda 'clon vcredist install'\n", v.Label(), need)
+					fmt.Printf("  %s se compiló para %s o más nuevo: Microsoft recomienda 'nido vcredist install'\n", v.Label(), need)
 				}
 			}
 		}
@@ -53,7 +53,7 @@ func cmdVCRedist(ctx context.Context, env *app.Env, args []string) error {
 		fmt.Println("\nRuntime de Visual C++ instalado:", vcredist.Version())
 		return nil
 	}
-	return fmt.Errorf("uso: clon vcredist status | install [instalador.exe]")
+	return fmt.Errorf("uso: nido vcredist status | install [instalador.exe]")
 }
 
 // vcStatus prints the installer's phase lines; after a download it first ends the progress line.

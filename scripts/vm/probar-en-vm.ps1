@@ -1,6 +1,6 @@
-﻿# Compila clon y lo prueba de punta a punta en una VM de Hyper-V: la vuelve al checkpoint «limpia»,
-# le copia clon por PowerShell Direct (sin red), ejecuta dentro-de-la-vm.ps1 en la sesión de Windows
-# y trae los resultados a clon\dist\vm\<fecha>\resultados. Al terminar apaga la VM, para que su
+﻿# Compila Nido y lo prueba de punta a punta en una VM de Hyper-V: la vuelve al checkpoint «limpia»,
+# le copia Nido por PowerShell Direct (sin red), ejecuta dentro-de-la-vm.ps1 en la sesión de Windows
+# y trae los resultados a Nido\dist\vm\<fecha>\resultados. Al terminar apaga la VM, para que su
 # memoria vuelva al equipo (con -DejarEncendida queda encendida para mirarla).
 #
 # La primera vez crea la VM (pide permiso de administrador una vez):
@@ -10,10 +10,10 @@
 # La memoria máxima y la contraseña de la VM se cambian con ajustar-vm.ps1.
 param(
     [string]$VmRoot = 'C:\VMs',
-    [string]$Name = 'clon-pruebas',
+    [string]$Name = 'nido-pruebas',
     [switch]$Crear,
     [string]$Iso,
-    [string]$Password, # contraseña de la cuenta clon de la VM nueva ("" = una al azar)
+    [string]$Password, # contraseña de la cuenta Nido de la VM nueva ("" = una al azar)
     [ValidateRange(2, 64)] [int]$MemoryGB = 6,
     [int]$TimeoutMin = 120,
     [switch]$DejarEncendida
@@ -36,7 +36,7 @@ if ($Crear) {
         [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
         $password = -join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })
     }
-    (New-Object PSCredential ('clon', (ConvertTo-SecureString $password -AsPlainText -Force))) | Export-Clixml $credFile
+    (New-Object PSCredential ('nido', (ConvertTo-SecureString $password -AsPlainText -Force))) | Export-Clixml $credFile
     $passwordFile = Join-Path $vmDir 'clave.tmp'
     [IO.File]::WriteAllText($passwordFile, $password)
     $script = Join-Path $PSScriptRoot 'crear-vm.ps1'
@@ -54,7 +54,7 @@ if ($Crear) {
 
 # Everything this run prints goes to progreso.log too (the window may be elevated and close at the end).
 $run = Join-Path $repo ("dist\vm\" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
-$stage = Join-Path $run 'clon'
+$stage = Join-Path $run 'nido'
 $results = Join-Path $run 'resultados'
 New-Item -ItemType Directory -Force $stage, $results | Out-Null
 Start-Transcript -Path (Join-Path $run 'progreso.log') -Force | Out-Null
@@ -67,23 +67,23 @@ try {
 if (-not (Get-VMSnapshot -VMName $Name -Name 'limpia' -ErrorAction SilentlyContinue)) { throw "La VM $Name no tiene el checkpoint «limpia»." }
 $cred = Import-Clixml $credFile
 
-# Go: $env:CLON_GO if set, otherwise the go on PATH, otherwise a portable toolchain next to the repo.
-$go = $env:CLON_GO
+# Go: $env:NIDO_GO if set, otherwise the go on PATH, otherwise a portable toolchain next to the repo.
+$go = $env:NIDO_GO
 if (-not $go) { $go = (Get-Command go -ErrorAction SilentlyContinue).Source }
 if (-not $go) { $go = Join-Path (Split-Path -Parent $repo) '.toolchain\go.ps1' }
-if (-not (Test-Path $go)) { throw 'No se encontró Go 1.27 o posterior (instálalo de go.dev o define CLON_GO).' }
+if (-not (Test-Path $go)) { throw 'No se encontró Go 1.27 o posterior (instálalo de go.dev o define NIDO_GO).' }
 
 Write-Host "Compilando en $stage…"
-& $go -C $repo build -o "$stage\clon.exe" ./cmd/clon
-& $go -C $repo build -o "$stage\clon-shim.exe" ./cmd/clon-shim
-& $go -C $repo build -ldflags '-H=windowsgui' -o "$stage\clonw.exe" ./cmd/clonw
+& $go -C $repo build -o "$stage\nido.exe" ./cmd/nido
+& $go -C $repo build -o "$stage\nido-shim.exe" ./cmd/nido-shim
+& $go -C $repo build -ldflags '-H=windowsgui' -o "$stage\nidow.exe" ./cmd/nidow
 if ($LASTEXITCODE -ne 0) { throw 'la compilación falló' }
 # With a BOM: Windows PowerShell 5.1 reads a .ps1 without one as ANSI and garbles the accents.
 $inner = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'dentro-de-la-vm.ps1'), [Text.Encoding]::UTF8)
 [IO.File]::WriteAllText((Join-Path $stage 'dentro-de-la-vm.ps1'), $inner, $bom)
 
 # The clean Windows lacks the Visual C++ runtime: the official installers are fetched here (cached).
-# clon checks their signature. First the one of Visual Studio 2022 (14.44) on purpose, later the
+# Nido checks their signature. First the one of Visual Studio 2022 (14.44) on purpose, later the
 # newest, which Apache Lounge's Apache (built with Visual Studio 2026) asks for.
 $cache = Join-Path $repo 'dist\cache'
 New-Item -ItemType Directory -Force $cache | Out-Null
@@ -119,8 +119,8 @@ try {
         param($now)
         # The checkpoint's clock is behind until Hyper-V syncs it; certificates need the real time.
         try { Set-Date $now -ErrorAction Stop | Out-Null } catch {}
-        Remove-Item C:\clon-dist, C:\resultados -Recurse -Force -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory -Force C:\clon-dist, C:\resultados | Out-Null
+        Remove-Item C:\nido-dist, C:\resultados -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Force C:\nido-dist, C:\resultados | Out-Null
     }
     # After this computer restarts, the «Default Switch» hands out other addresses than the ones saved
     # in the checkpoint: the VM asks again, and the test only starts with Internet.
@@ -133,22 +133,22 @@ try {
         $false
     }
     if (-not $online) { throw 'La VM no tiene Internet (no resuelve github.com); revisa el «Default Switch» de Hyper-V.' }
-    Write-Host 'Copiando clon a la VM…'
-    Copy-Item -ToSession $s -Path "$stage\*" -Destination 'C:\clon-dist' -Recurse
+    Write-Host 'Copiando Nido a la VM…'
+    Copy-Item -ToSession $s -Path "$stage\*" -Destination 'C:\nido-dist' -Recurse
     # The test runs in the signed-in session (tray icon, Edge) the way a user starts it: a scheduled task
     # with the user's own token asks for administrator rights, which this test machine grants without
     # asking, as if someone pressed «Sí». (A task started with the highest rights directly gets a token
-    # from another logon, and processes clon starts without rights, such as PostgreSQL, cannot reach the
+    # from another logon, and processes Nido starts without rights, such as PostgreSQL, cannot reach the
     # desktop: 0xC0000142.)
     Invoke-Command -Session $s -ScriptBlock {
         $uac = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
         Set-ItemProperty -Path $uac -Name ConsentPromptBehaviorAdmin -Value 0 -Type DWord
-        $inner = "Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File C:\clon-dist\dentro-de-la-vm.ps1'"
+        $inner = "Start-Process powershell.exe -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File C:\nido-dist\dentro-de-la-vm.ps1'"
         $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -WindowStyle Hidden -Command `"$inner`""
-        $principal = New-ScheduledTaskPrincipal -UserId 'clon' -LogonType Interactive -RunLevel Limited
+        $principal = New-ScheduledTaskPrincipal -UserId 'nido' -LogonType Interactive -RunLevel Limited
         $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 4) -AllowStartIfOnBatteries
-        Register-ScheduledTask -TaskName 'clon-prueba' -Action $action -Principal $principal -Settings $settings -Force | Out-Null
-        Start-ScheduledTask -TaskName 'clon-prueba'
+        Register-ScheduledTask -TaskName 'nido-prueba' -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+        Start-ScheduledTask -TaskName 'nido-prueba'
     }
     Write-Host "Prueba en marcha dentro de la VM (se ve con: vmconnect.exe localhost $Name)"
     # The test writes its transcript at once; without it in a few minutes, the task did not start.
@@ -158,8 +158,8 @@ try {
         $started = Invoke-Command -Session $s -ScriptBlock { Test-Path C:\resultados\transcript.txt }
     } while (-not $started -and (Get-Date) -lt $by)
     if (-not $started) {
-        $info = Invoke-Command -Session $s -ScriptBlock { Get-ScheduledTaskInfo -TaskName 'clon-prueba' | Select-Object LastRunTime, LastTaskResult }
-        throw "La prueba no arrancó dentro de la VM (tarea clon-prueba: última ejecución $($info.LastRunTime), resultado $($info.LastTaskResult))."
+        $info = Invoke-Command -Session $s -ScriptBlock { Get-ScheduledTaskInfo -TaskName 'nido-prueba' | Select-Object LastRunTime, LastTaskResult }
+        throw "La prueba no arrancó dentro de la VM (tarea nido-prueba: última ejecución $($info.LastRunTime), resultado $($info.LastTaskResult))."
     }
 
     $deadline = (Get-Date).AddMinutes($TimeoutMin)
@@ -192,7 +192,7 @@ try {
         $done = $state.done
     }
     if ($s.State -ne 'Opened') { $s = Connect-Vm }
-    # The test leaves clon running for a look by hand, and its transcript may still be open meanwhile.
+    # The test leaves Nido running for a look by hand, and its transcript may still be open meanwhile.
     Start-Sleep -Seconds 20
     foreach ($item in Invoke-Command -Session $s -ScriptBlock { Get-ChildItem C:\resultados | ForEach-Object FullName }) {
         try { Copy-Item -FromSession $s -Path $item -Destination $results -Recurse -Force -ErrorAction Stop }
@@ -202,7 +202,7 @@ try {
     Write-Host ('Memoria: la VM llegó a {0:N1} GB; a este equipo le quedaron como mínimo {1:N1} GB libres.' -f ($peakVm / 1GB), ($minFree / 1GB))
 } finally {
     if ($DejarEncendida) {
-        Write-Host "La VM sigue encendida con clon arrancado, el proyecto Laravel y el panel en Edge: vmconnect.exe localhost $Name"
+        Write-Host "La VM sigue encendida con Nido arrancado, el proyecto Laravel y el panel en Edge: vmconnect.exe localhost $Name"
     } elseif ((Get-VM -Name $Name).State -ne 'Off') {
         # Every test starts from «limpia»: nothing to keep, and the memory goes back to this computer.
         Stop-VM -Name $Name -TurnOff -Force

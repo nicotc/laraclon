@@ -19,28 +19,28 @@ import (
 )
 
 const daemonUsage = `
-  clon run [--foreground]           inicia clon (icono en la bandeja); --foreground lo deja en esta consola
-  clon start | stop | restart       inicia, detiene o reinicia los servicios
-  clon status                       estado de servicios y sitios
-  clon quit                         cierra clon (detiene todo)
-  clon sites                        lista los sitios .test
+  nido run [--foreground]           inicia Nido (icono en la bandeja); --foreground lo deja en esta consola
+  nido start | stop | restart       inicia, detiene o reinicia los servicios
+  nido status                       estado de servicios y sitios
+  nido quit                         cierra Nido (detiene todo)
+  nido sites                        lista los sitios .test
 
-  clon ca status | trust | untrust  CA local para HTTPS (trust pide confirmación a Windows)
-  clon hosts status | sync          archivo hosts (sync pide permiso de administrador)
-  clon path add | remove            añade o quita shims\ del PATH de tu usuario
+  nido ca status | trust | untrust  CA local para HTTPS (trust pide confirmación a Windows)
+  nido hosts status | sync          archivo hosts (sync pide permiso de administrador)
+  nido path add | remove            añade o quita shims\ del PATH de tu usuario
 `
 
-// cmdRun starts the daemon: in the background with the tray icon (clonw.exe), or in this console.
+// cmdRun starts the daemon: in the background with the tray icon (nidow.exe), or in this console.
 func cmdRun(ctx context.Context, env *app.Env, args []string) error {
 	if _, err := app.Connect(env.Home.Root); err == nil {
-		fmt.Println("clon ya está corriendo")
+		fmt.Println("Nido ya está corriendo")
 		return nil
 	}
 	foreground := len(args) > 0 && args[0] == "--foreground"
 	if !foreground {
-		exe := env.Home.Path("clonw.exe")
+		exe := env.Home.Path("nidow.exe")
 		if _, err := os.Stat(exe); err != nil {
-			return fmt.Errorf("falta %s; usa 'clon run --foreground'", exe)
+			return fmt.Errorf("falta %s; usa 'nido run --foreground'", exe)
 		}
 		if err := startDetached(exe); err != nil {
 			return err
@@ -48,17 +48,17 @@ func cmdRun(ctx context.Context, env *app.Env, args []string) error {
 		for i := 0; i < 50; i++ {
 			time.Sleep(200 * time.Millisecond)
 			if _, err := app.Connect(env.Home.Root); err == nil {
-				fmt.Println("clon iniciado (icono en la bandeja del sistema)")
+				fmt.Println("Nido iniciado (icono en la bandeja del sistema)")
 				return nil
 			}
 		}
-		return fmt.Errorf("clon no respondió; mira %s", env.Home.Logs("clon.log"))
+		return fmt.Errorf("Nido no respondió; mira %s", env.Home.Logs("nido.log"))
 	}
 	d, err := app.NewDaemon(env)
 	if err != nil {
 		return err
 	}
-	fmt.Println("clon en primer plano. Panel:", d.PanelURL(), "· Ctrl+C para salir")
+	fmt.Println("Nido en primer plano. Panel:", d.PanelURL(), "· Ctrl+C para salir")
 	return d.Run(ctx)
 }
 
@@ -84,7 +84,7 @@ func startDetached(exe string) error {
 func withDaemon(env *app.Env, fn func(*app.Client) error) error {
 	c, err := app.Connect(env.Home.Root)
 	if err != nil {
-		return fmt.Errorf("clon no está corriendo (inícialo con 'clon run')")
+		return fmt.Errorf("Nido no está corriendo (inícialo con 'nido run')")
 	}
 	return fn(c)
 }
@@ -105,7 +105,7 @@ func cmdQuit(env *app.Env) error {
 		if err := c.Call("POST", "/api/shutdown", nil, nil); err != nil {
 			return err
 		}
-		fmt.Println("clon se está cerrando y detiene los servicios")
+		fmt.Println("Nido se está cerrando y detiene los servicios")
 		return nil
 	})
 }
@@ -151,10 +151,10 @@ func printStatus(st app.Status) {
 		fmt.Printf("  ! %s: %s\n", k, v)
 	}
 	if !st.CATrusted {
-		fmt.Println("  ! Windows aún no confía en la CA local: 'clon ca trust'")
+		fmt.Println("  ! Windows aún no confía en la CA local: 'nido ca trust'")
 	}
 	if len(st.HostsMissing) > 0 {
-		fmt.Printf("  ! %d sitio(s) sin entrada en hosts: 'clon hosts sync'\n", len(st.HostsMissing))
+		fmt.Printf("  ! %d sitio(s) sin entrada en hosts: 'nido hosts sync'\n", len(st.HostsMissing))
 	}
 }
 
@@ -218,11 +218,11 @@ func cmdCA(env *app.Env, args []string) error {
 		if authority.Trusted() {
 			fmt.Println("Windows confía en ella (Chrome, Edge y Firefox la usan).")
 		} else {
-			fmt.Println("Windows todavía no confía en ella. Ejecuta 'clon ca trust'.")
+			fmt.Println("Windows todavía no confía en ella. Ejecuta 'nido ca trust'.")
 		}
 		return nil
 	case "trust":
-		fmt.Println("Windows te pedirá confirmar que confías en la CA local de clon (solo para tu usuario)…")
+		fmt.Println("Windows te pedirá confirmar que confías en la CA local de Nido (solo para tu usuario)…")
 		if err := authority.Trust(); err != nil {
 			return err
 		}
@@ -231,7 +231,7 @@ func cmdCA(env *app.Env, args []string) error {
 	case "untrust":
 		return authority.Untrust()
 	}
-	return fmt.Errorf("uso: clon ca status | trust | untrust")
+	return fmt.Errorf("uso: nido ca status | trust | untrust")
 }
 
 func cmdHosts(env *app.Env, args []string) error {
@@ -260,11 +260,11 @@ func cmdHosts(env *app.Env, args []string) error {
 		for _, n := range missing {
 			fmt.Println("  ", n)
 		}
-		fmt.Println("Ejecuta 'clon hosts sync' (Windows pedirá permiso de administrador).")
+		fmt.Println("Ejecuta 'nido hosts sync' (Windows pedirá permiso de administrador).")
 		return nil
 	case "sync":
 		if hosts.InSync(string(content), names) {
-			fmt.Println("El bloque de clon en hosts ya está al día.")
+			fmt.Println("El bloque de Nido en hosts ya está al día.")
 			return nil
 		}
 		list := env.Home.Run("hosts-names.txt")
@@ -272,18 +272,18 @@ func cmdHosts(env *app.Env, args []string) error {
 			return err
 		}
 		fmt.Println("Windows te pedirá permiso de administrador para actualizar el archivo hosts…")
-		if err := hosts.RequestElevated(env.Home.Path("clon.exe"), list); err != nil {
+		if err := hosts.RequestElevated(env.Home.Path("nido.exe"), list); err != nil {
 			return err
 		}
-		fmt.Printf("Archivo hosts actualizado (%d nombres). Copia previa en %s.clon.bak\n", len(names), hosts.Path())
+		fmt.Printf("Archivo hosts actualizado (%d nombres). Copia previa en %s.nido.bak\n", len(names), hosts.Path())
 		return nil
 	}
-	return fmt.Errorf("uso: clon hosts status | sync")
+	return fmt.Errorf("uso: nido hosts status | sync")
 }
 
 func cmdPath(env *app.Env, args []string) error {
 	if len(args) == 0 || (args[0] != "add" && args[0] != "remove") {
-		return fmt.Errorf("uso: clon path add | remove")
+		return fmt.Errorf("uso: nido path add | remove")
 	}
 	dirs := []string{env.Home.Shims(), env.NPMPrefix()}
 	if args[0] == "add" {

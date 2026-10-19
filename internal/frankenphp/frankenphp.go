@@ -35,11 +35,11 @@ type Options struct {
 	Home      paths.Home
 	Version   versions.Version
 	AdminPort int    // Caddy's admin API: health check, reload and stop
-	IniDir    string // folder with the php.ini clon generates for FrankenPHP's PHP (PHPRC)
+	IniDir    string // folder with the php.ini Nido generates for FrankenPHP's PHP (PHPRC)
 	Sites     []Site
 }
 
-var caddyTemplate = template.Must(template.New("Caddyfile").Funcs(template.FuncMap{"q": strconv.Quote}).Parse(`# Generado por clon el {{.Now}}. No lo edites: se regenera al cambiar sitios o versiones.
+var caddyTemplate = template.Must(template.New("Caddyfile").Funcs(template.FuncMap{"q": strconv.Quote}).Parse(`# Generado por Nido el {{.Now}}. No lo edites: se regenera al cambiar sitios o versiones.
 {
 	admin 127.0.0.1:{{.AdminPort}}
 	persist_config off
@@ -60,7 +60,7 @@ http://:{{.Port}} {
 }
 {{end}}`))
 
-// Dir is FrankenPHP's working folder inside clon: generated\frankenphp (Caddyfile, Caddy's data).
+// Dir is FrankenPHP's working folder inside Nido: generated\frankenphp (Caddyfile, Caddy's data).
 func Dir(home paths.Home) string { return home.Generated("frankenphp") }
 
 // ConfPath is the generated Caddyfile.
@@ -93,7 +93,7 @@ func Write(o Options) (string, error) {
 
 func exe(v versions.Version) string { return filepath.Join(v.Path, "frankenphp.exe") }
 
-// env keeps Caddy's data inside clon (instead of %AppData%\Caddy) and points PHP to clon's php.ini.
+// env keeps Caddy's data inside Nido (instead of %AppData%\Caddy) and points PHP to Nido's php.ini.
 func env(o Options) []string {
 	return []string{
 		"PHPRC=" + o.IniDir,

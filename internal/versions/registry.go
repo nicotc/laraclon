@@ -39,7 +39,7 @@ type Version struct {
 	Component  Component `json:"component"`
 	Version    string    `json:"version"`
 	Path       string    `json:"path"`
-	Source     string    `json:"source"` // download, laragon, import
+	Source     string    `json:"source"` // download, import
 	Arch       string    `json:"arch,omitempty"`
 	ThreadSafe *bool     `json:"thread_safe,omitempty"`
 	PHP        string    `json:"php,omitempty"` // PHP built into the program (FrankenPHP)

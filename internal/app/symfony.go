@@ -14,10 +14,10 @@ import (
 )
 
 // createSymfony checks a Symfony request and starts creating it: symfony/skeleton, plus the webapp
-// pack (Twig, Doctrine, forms, security…) when asked, wired to one of clon's databases.
+// pack (Twig, Doctrine, forms, security…) when asked, wired to one of Nido's databases.
 func (d *Daemon) createSymfony(p NewProject, name, root, dir, cancelled string) (Job, error) {
 	if _, err := os.Stat(install.ComposerPhar(d.env.Home)); err != nil {
-		return Job{}, fmt.Errorf("falta Composer: instálalo con 'clon composer install'")
+		return Job{}, fmt.Errorf("falta Composer: instálalo con 'nido composer install'")
 	}
 	var ref InstanceRef
 	if p.Webapp {
@@ -46,7 +46,7 @@ func (d *Daemon) createSymfony(p NewProject, name, root, dir, cancelled string) 
 
 // buildSymfony creates a Symfony project with Composer. Apache gets the public\.htaccess of
 // symfony/apache-pack (a "contrib" recipe, which Flex only runs when the project allows them), and
-// .env.local points the project at https://<name>.test and, with webapp, at clon's database and
+// .env.local points the project at https://<name>.test and, with webapp, at Nido's database and
 // Mailpit.
 func (d *Daemon) buildSymfony(ctx context.Context, p NewProject, name, root, dir string, ref InstanceRef, phase func(string), log *os.File) error {
 	global, err := d.env.GlobalPHP()
@@ -108,14 +108,14 @@ func (d *Daemon) buildSymfony(ctx context.Context, p NewProject, name, root, dir
 	}
 	envLocal := filepath.Join(dir, ".env.local")
 	if !fileExists(envLocal) {
-		if err := os.WriteFile(envLocal, []byte("# clon: valores de este equipo (no van a Git)\n"), 0o644); err != nil {
+		if err := os.WriteFile(envLocal, []byte("# Nido: valores de este equipo (no van a Git)\n"), 0o644); err != nil {
 			return err
 		}
 	}
 	return editEnvFile(envLocal, values)
 }
 
-// symfonyDatabaseURL is Doctrine's DATABASE_URL for one of clon's databases ("" kind: SQLite, the
+// symfonyDatabaseURL is Doctrine's DATABASE_URL for one of Nido's databases ("" kind: SQLite, the
 // file Symfony's own .env suggests).
 func symfonyDatabaseURL(ref InstanceRef, dbName string) string {
 	switch ref.Kind {

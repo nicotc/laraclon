@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const userAgent = "clon/0.1 (+https://github.com/nicotc/laraclon)"
+const userAgent = "nido/0.1 (+https://github.com/nicotc/laraclon)"
 
 var client = &http.Client{Timeout: 30 * time.Minute}
 

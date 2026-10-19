@@ -1,4 +1,4 @@
-// Package config loads and saves the user settings file (config\clon.toml).
+// Package config loads and saves the user settings file (config\nido.toml).
 package config
 
 import (
@@ -27,7 +27,7 @@ type Config struct {
 	// Services holds the databases by kind ("mysql", "mariadb").
 	Services map[string]Service `toml:"services,omitempty"`
 
-	// MySQL is the single-server section written by earlier versions of clon. It is read once and
+	// MySQL is the single-server section written by earlier versions of Nido. It is read once and
 	// moved into Services (see app.Env), then no longer written.
 	MySQL *LegacyMySQL `toml:"mysql,omitempty"`
 
@@ -46,17 +46,17 @@ type PHP struct {
 	Version  string `toml:"version"`
 	PoolSize int    `toml:"pool_size"`
 	BasePort int    `toml:"base_port"`
-	// Extensions changes clon's default extensions per series ("8.4").
+	// Extensions changes Nido's default extensions per series ("8.4").
 	Extensions map[string]PHPExtensions `toml:"extensions,omitempty"`
 }
 
-// PHPExtensions are the extensions switched on or off in one PHP series, against clon's defaults.
+// PHPExtensions are the extensions switched on or off in one PHP series, against Nido's defaults.
 type PHPExtensions struct {
 	Enable  []string `toml:"enable,omitempty"`
 	Disable []string `toml:"disable,omitempty"`
 }
 
-// SetExtension switches an extension on or off for a PHP series. isDefault says whether clon
+// SetExtension switches an extension on or off for a PHP series. isDefault says whether Nido
 // enables it on its own, so only real changes are written.
 func (p *PHP) SetExtension(series, name string, on, isDefault bool) {
 	if p.Extensions == nil {
@@ -129,8 +129,8 @@ type Service struct {
 }
 
 // ServiceInstance is one series of a service. It runs the newest installed version of the series
-// unless Version pins one. DataDir points to existing data (Laragon's, for example) instead of
-// clon's own data\<kind>-<series>; such a folder is only ever opened with the version that owns
+// unless Version pins one. DataDir points to existing data (another installation's) instead of
+// Nido's own data\<kind>-<series>; such a folder is only ever opened with the version that owns
 // it, because MySQL upgrades data in place and the older version could no longer read it.
 type ServiceInstance struct {
 	Port      int    `toml:"port"`
@@ -171,7 +171,7 @@ type SiteSettings struct {
 	// PHP pins the site to a PHP version ("7.2") instead of the global one: the one exception to the
 	// global PHP, meant for older projects. Its requests go to a pool of php-cgi of that version.
 	PHP string `toml:"php,omitempty"`
-	// Processes start with clon's services: "vite" (npm run dev), "queue", "schedule".
+	// Processes start with Nido's services: "vite" (npm run dev), "queue", "schedule".
 	Processes []string `toml:"processes,omitempty"`
 	// Debug sends the site to a pool of its PHP with Xdebug; the other sites stay without it.
 	Debug bool `toml:"debug,omitempty"`
@@ -187,7 +187,7 @@ func (c *Config) SetSiteDebug(site string, on bool) {
 	c.updateSite(site, func(s *SiteSettings) { s.Debug = on })
 }
 
-// SetSiteProcess marks whether a project process starts with clon's services.
+// SetSiteProcess marks whether a project process starts with Nido's services.
 func (c *Config) SetSiteProcess(site, id string, on bool) {
 	c.updateSite(site, func(s *SiteSettings) {
 		s.Processes = without(s.Processes, id)
@@ -259,7 +259,7 @@ func Load(path string) (Config, error) {
 // Save writes the settings atomically.
 func Save(path string, cfg Config) error {
 	var buf bytes.Buffer
-	buf.WriteString("# Ajustes de clon. Puedes editarlo a mano; clon lo vuelve a leer al arrancar.\n\n")
+	buf.WriteString("# Ajustes de Nido. Puedes editarlo a mano; Nido lo vuelve a leer al arrancar.\n\n")
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
 		return err
 	}

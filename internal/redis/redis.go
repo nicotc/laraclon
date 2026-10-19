@@ -1,4 +1,4 @@
-// Package redis runs Redis instances (community builds for Windows, or the one in Laragon), each with
+// Package redis runs Redis instances (community builds for Windows), each with
 // its own data folder and port, and stops them with redis-cli so the data is saved.
 package redis
 
@@ -38,7 +38,7 @@ func (i Instance) Prepare() error {
 	if err := os.MkdirAll(i.DataDir(), 0o755); err != nil {
 		return err
 	}
-	conf := fmt.Sprintf(`# Generado por clon. No lo edites: se regenera al iniciar %s.
+	conf := fmt.Sprintf(`# Generado por Nido. No lo edites: se regenera al iniciar %s.
 port %d
 bind 127.0.0.1
 protected-mode yes

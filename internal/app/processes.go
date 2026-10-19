@@ -16,7 +16,7 @@ import (
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
-// Project processes are the long-running helpers of a site that clon supervises like a service:
+// Project processes are the long-running helpers of a site that Nido supervises like a service:
 // Vite's dev server, Laravel's queue worker, its scheduler and Reverb, its WebSocket server.
 var projectProcesses = []string{"vite", "queue", "schedule", "reverb"}
 
@@ -38,7 +38,7 @@ func isProcessService(name string) bool {
 type ProcessStatus struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
-	On    bool   `json:"on"` // runs, and starts with clon's services
+	On    bool   `json:"on"` // runs, and starts with Nido's services
 	State string `json:"state"`
 }
 
@@ -85,7 +85,7 @@ func (d *Daemon) sitePHP(s sites.Site) (versions.Version, error) {
 }
 
 // viteEnv makes Vite's dev server answer at https://<site>:5173 with the site's certificate, which
-// Windows trusts through clon's CA. laravel-vite-plugin reads these variables (also from .env).
+// Windows trusts through Nido's CA. laravel-vite-plugin reads these variables (also from .env).
 func (d *Daemon) viteEnv(s sites.Site) ([]string, error) {
 	if _, err := d.ca.Leaf(s.Host); err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (d *Daemon) processSpec(s sites.Site, id string) (supervisor.Spec, error) {
 	case "vite":
 		// Vite listens on the site's name; without its line in hosts it would just exit.
 		if addrs, err := net.LookupHost(s.Host); err != nil || len(addrs) == 0 {
-			return spec, fmt.Errorf("Vite escucha en %s, que todavía no está en el archivo hosts: actualízalo desde el panel («Actualizar hosts») o con 'clon hosts sync'", s.Host)
+			return spec, fmt.Errorf("Vite escucha en %s, que todavía no está en el archivo hosts: actualízalo desde el panel («Actualizar hosts») o con 'nido hosts sync'", s.Host)
 		}
 		// `npm run dev`, or the same with the project's pnpm or yarn, installed first if needed.
 		pm := projectManager(s.Folder)
@@ -168,7 +168,7 @@ func (d *Daemon) findSite(site string) (sites.Site, error) {
 	return sites.Site{}, fmt.Errorf("no hay ningún sitio %s.%s", name, d.env.Cfg.TLD)
 }
 
-// SetSiteProcess runs or stops a process of a site, and remembers it so it starts with clon's
+// SetSiteProcess runs or stops a process of a site, and remembers it so it starts with Nido's
 // services. Turning Vite on also writes its certificate to the project's .env, so `npm run dev` in a
 // terminal serves HTTPS too.
 func (d *Daemon) SetSiteProcess(site, id string, on bool) error {
@@ -209,7 +209,7 @@ func (d *Daemon) SetSiteProcess(site, id string, on bool) error {
 				k, v, _ := strings.Cut(kv, "=")
 				values = append(values, [2]string{k, v})
 			}
-			editEnvFile(filepath.Join(s.Folder, ".env"), values) // a project without .env still runs Vite through clon
+			editEnvFile(filepath.Join(s.Folder, ".env"), values) // a project without .env still runs Vite through Nido
 		}
 	}
 	err = d.startProcess(s, id)
@@ -225,7 +225,7 @@ func (d *Daemon) SetSiteProcess(site, id string, on bool) error {
 }
 
 // viteHot is the file laravel-vite-plugin keeps in public\ while its dev server runs. Stopped with
-// Ctrl+C the plugin removes it; ended by clon it stays, and Laravel would keep pointing the pages at
+// Ctrl+C the plugin removes it; ended by Nido it stays, and Laravel would keep pointing the pages at
 // a server that is gone.
 func viteHot(s sites.Site) string { return filepath.Join(s.Folder, "public", "hot") }
 
@@ -240,7 +240,7 @@ func (d *Daemon) stopProcess(s sites.Site, id string) error {
 	return err
 }
 
-// stopAllProcesses stops every project process (clon's services are stopping).
+// stopAllProcesses stops every project process (Nido's services are stopping).
 func (d *Daemon) stopAllProcesses() {
 	d.mu.Lock()
 	list := append([]sites.Site(nil), d.sites...)
@@ -267,7 +267,7 @@ func (d *Daemon) startProcess(s sites.Site, id string) error {
 	return d.sup.Start(spec)
 }
 
-// startSiteProcesses starts the processes the sites keep on, when clon's services start.
+// startSiteProcesses starts the processes the sites keep on, when Nido's services start.
 func (d *Daemon) startSiteProcesses() error {
 	d.mu.Lock()
 	list := append([]sites.Site(nil), d.sites...)

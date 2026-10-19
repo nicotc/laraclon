@@ -64,7 +64,7 @@ var optionalModules = []string{
 	"deflate", "filter", "expires", "include", "actions", "negotiation", "version", "mime_magic",
 }
 
-var confTemplate = template.Must(template.New("httpd").Parse(`# Generado por clon el {{.Now}}. No lo edites: se regenera al cambiar sitios o versiones.
+var confTemplate = template.Must(template.New("httpd").Parse(`# Generado por Nido el {{.Now}}. No lo edites: se regenera al cambiar sitios o versiones.
 Define SRVROOT "{{.Root}}"
 ServerRoot "{{.Root}}"
 DefaultRuntimeDir "{{.RunDir}}"
@@ -88,8 +88,8 @@ TypesConfig "{{.Root}}/conf/mime.types"
 DirectoryIndex index.php index.html index.htm
 ErrorLog "{{.Logs}}/apache-error.log"
 LogLevel {{.LogLevel}}
-LogFormat "%h %t \"%r\" %>s %b %D \"%{Host}i\" \"%{User-Agent}i\"" clon
-CustomLog "{{.Logs}}/apache-access.log" clon
+LogFormat "%h %t \"%r\" %>s %b %D \"%{Host}i\" \"%{User-Agent}i\"" Nido
+CustomLog "{{.Logs}}/apache-access.log" Nido
 
 <Directory />
     AllowOverride None
@@ -102,7 +102,7 @@ CustomLog "{{.Logs}}/apache-access.log" clon
 # PHP: un grupo de php-cgi por versión (el PHP global y el que fija algún sitio), con reparto por ocupación
 ProxyTimeout 3600
 # mod_proxy_fcgi sends SCRIPT_FILENAME as "proxy:fcgi://127.0.0.1:9100/E:/…" (PHP-FPM strips that
-# prefix itself; php-cgi on Windows does not), so clon hands php-cgi the plain "E:/…" path.
+# prefix itself; php-cgi on Windows does not), so Nido hands php-cgi the plain "E:/…" path.
 ProxyFCGISetEnvIf "reqenv('SCRIPT_FILENAME') =~ m#^(?:proxy:fcgi://[^/]*)?/([A-Za-z]:/.*)$#" SCRIPT_FILENAME "$1"
 ProxyFCGISetEnvIf "reqenv('PATH_TRANSLATED') =~ m#^(?:proxy:fcgi://[^/]*)?/([A-Za-z]:/.*)$#" PATH_TRANSLATED "$1"
 {{range .Pools}}<Proxy "balancer://{{.Name}}">
@@ -111,10 +111,10 @@ ProxyFCGISetEnvIf "reqenv('PATH_TRANSLATED') =~ m#^(?:proxy:fcgi://[^/]*)?/([A-Z
 </Proxy>
 {{end}}
 
-# Comprobación de salud de clon
+# Comprobación de salud de Nido
 Listen 127.0.0.1:{{.AdminPort}}
 <VirtualHost 127.0.0.1:{{.AdminPort}}>
-    ServerName clon-apache.localhost
+    ServerName nido-apache.localhost
     DocumentRoot "{{.EmptyRoot}}"
     <Directory "{{.EmptyRoot}}">
         Require all granted
@@ -185,9 +185,9 @@ func Write(o Options) (string, error) {
 		}
 		sites[i] = s
 	}
-	// CLON_APACHE_LOGLEVEL (for example "warn proxy_fcgi:trace8") helps diagnose FastCGI problems.
+	// NIDO_APACHE_LOGLEVEL (for example "warn proxy_fcgi:trace8") helps diagnose FastCGI problems.
 	logLevel := "warn"
-	if v := os.Getenv("CLON_APACHE_LOGLEVEL"); v != "" {
+	if v := os.Getenv("NIDO_APACHE_LOGLEVEL"); v != "" {
 		logLevel = v
 	}
 	var buf bytes.Buffer

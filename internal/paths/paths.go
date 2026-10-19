@@ -1,4 +1,4 @@
-// Package paths describes the folder layout of a clon installation.
+// Package paths describes the folder layout of a Nido installation.
 package paths
 
 import (
@@ -8,13 +8,13 @@ import (
 	"strings"
 )
 
-// Home is the root folder of an installation. Everything clon owns lives under it.
+// Home is the root folder of an installation. Everything Nido owns lives under it.
 type Home struct{ Root string }
 
-// Resolve returns CLON_HOME when it is set, otherwise the folder of the running executable,
+// Resolve returns NIDO_HOME when it is set, otherwise the folder of the running executable,
 // which makes a copied installation portable.
 func Resolve() (Home, error) {
-	if h := os.Getenv("CLON_HOME"); h != "" {
+	if h := os.Getenv("NIDO_HOME"); h != "" {
 		abs, err := filepath.Abs(h)
 		if err != nil {
 			return Home{}, err
@@ -49,7 +49,7 @@ func (h Home) Shims(elem ...string) string     { return h.join("shims", elem) }
 func (h Home) Tmp(elem ...string) string       { return h.join("tmp", elem) }
 
 // ConfigFile is the user-editable settings file.
-func (h Home) ConfigFile() string { return h.Config("clon.toml") }
+func (h Home) ConfigFile() string { return h.Config("nido.toml") }
 
 // Ensure creates the standard folder layout.
 func (h Home) Ensure() error {

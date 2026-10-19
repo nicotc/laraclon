@@ -11,7 +11,7 @@ import (
 )
 
 func TestWriteSendsEachSiteToItsPHPPool(t *testing.T) {
-	root := t.TempDir() // a fake Apache with the modules clon needs
+	root := t.TempDir() // a fake Apache with the modules Nido needs
 	for _, m := range requiredModules {
 		p := filepath.Join(root, "modules", "mod_"+m+".so")
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {

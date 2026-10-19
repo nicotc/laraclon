@@ -9,7 +9,7 @@ import (
 	"github.com/nicotc/laraclon/internal/install"
 )
 
-// nodeBackend runs the Node actions through the running clon, so its panel, its config and its Vite
+// nodeBackend runs the Node actions through the running Nido, so its panel, its config and its Vite
 // servers follow them, or, when it is not running, on a local daemon object (same code, no services).
 type nodeBackend struct {
 	c *app.Client
@@ -105,7 +105,7 @@ func cmdNode(ctx context.Context, env *app.Env, args []string) error {
 			return err
 		}
 		if len(st.Installed) == 0 {
-			fmt.Println("No hay ninguna versión de Node: instala la LTS con 'clon node install lts'.")
+			fmt.Println("No hay ninguna versión de Node: instala la LTS con 'nido node install lts'.")
 		}
 		for _, v := range st.Installed {
 			mark := " "
@@ -134,7 +134,7 @@ func cmdNode(ctx context.Context, env *app.Env, args []string) error {
 			fmt.Printf("  %-10s %s\n", r.Version, r.Note)
 		}
 		printNodeUpdates(st)
-		fmt.Println("\nOtras versiones: 'clon node install <versión>', por ejemplo 20 o 22.12.0.")
+		fmt.Println("\nOtras versiones: 'nido node install <versión>', por ejemplo 20 o 22.12.0.")
 		return nil
 	case "install":
 		want := "lts"
@@ -153,7 +153,7 @@ func cmdNode(ctx context.Context, env *app.Env, args []string) error {
 		return followJob(ops, j)
 	case "use":
 		if len(rest) == 0 {
-			return fmt.Errorf("uso: clon node use <versión>, por ejemplo 24")
+			return fmt.Errorf("uso: nido node use <versión>, por ejemplo 24")
 		}
 		v, err := b.use(rest[0])
 		if err != nil {
@@ -163,7 +163,7 @@ func cmdNode(ctx context.Context, env *app.Env, args []string) error {
 		return nil
 	case "uninstall", "remove":
 		if len(rest) == 0 {
-			return fmt.Errorf("uso: clon node uninstall <versión exacta> (o pnpm, yarn)")
+			return fmt.Errorf("uso: nido node uninstall <versión exacta> (o pnpm, yarn)")
 		}
 		if isNodeTool(rest[0]) {
 			j, err := b.tool(rest[0], false)
@@ -183,9 +183,9 @@ func cmdNode(ctx context.Context, env *app.Env, args []string) error {
 
 func printNodeUpdates(st app.NodeStatus) {
 	for _, u := range st.Updates {
-		how := fmt.Sprintf("'clon node install %s --use'", u.Version)
+		how := fmt.Sprintf("'nido node install %s --use'", u.Version)
 		if u.Installed {
-			how = fmt.Sprintf("'clon node use %s' (ya está descargada)", u.Version)
+			how = fmt.Sprintf("'nido node use %s' (ya está descargada)", u.Version)
 		}
 		switch {
 		case u.Line:

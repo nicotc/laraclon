@@ -41,7 +41,7 @@ type Site struct {
 	Missing []string `json:"missing,omitempty"`
 	Port    int      `json:"port"` // internal port on its web server
 
-	// Filled in by clon when it plans the PHP pools.
+	// Filled in by Nido when it plans the PHP pools.
 	PHPVersion string `json:"php_version,omitempty"` // the PHP that serves the site
 	Pool       string `json:"-"`                     // name of its php-cgi pool
 	ReverbPort int    `json:"reverb_port,omitempty"` // internal port of its Reverb server
@@ -294,7 +294,7 @@ func (ps *PortStore) Save() error {
 }
 
 // Assign gives every site a port in [from, to]: its previous one when still usable, otherwise
-// the first free one. ownPorts are ports currently held by clon's own web server (not conflicts).
+// the first free one. ownPorts are ports currently held by Nido's own web server (not conflicts).
 func (ps *PortStore) Assign(list []Site, from, to int, ownPorts map[int]bool) error {
 	taken := map[int]bool{}
 	for i := range list {

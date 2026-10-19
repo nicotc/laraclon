@@ -7,7 +7,7 @@ import (
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
-func TestSymfonyDatabaseURLPointsDoctrineAtClonsDatabases(t *testing.T) {
+func TestSymfonyDatabaseURLPointsDoctrineAtNidosDatabases(t *testing.T) {
 	ref := func(kind versions.Component, version string, port int) InstanceRef {
 		return InstanceRef{Kind: kind, Version: versions.Version{Version: version}, Instance: config.ServiceInstance{Port: port}}
 	}

@@ -1,4 +1,4 @@
-// clon is the command line of the local development environment.
+// Nido is the command line of the local development environment.
 package main
 
 import (
@@ -14,32 +14,30 @@ import (
 	"github.com/nicotc/laraclon/internal/download"
 	"github.com/nicotc/laraclon/internal/hosts"
 	"github.com/nicotc/laraclon/internal/install"
-	"github.com/nicotc/laraclon/internal/laragon"
 	"github.com/nicotc/laraclon/internal/vcredist"
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
-const usage = `clon: entorno de desarrollo local para Windows
+const usage = `Nido: entorno de desarrollo local para Windows
 
 Uso:
-  clon setup                        primera configuración (Visual C++, Laragon o PHP y Apache, Node LTS, Composer)
-  clon vcredist status | install    runtime de Visual C++ que necesitan PHP, Apache y MySQL
-  clon import laragon [ruta]        usa las versiones y carpetas de proyectos de Laragon
-  clon versions                     lista todo lo instalado
+  nido setup                        primera configuración: Visual C++, PHP, Apache, MySQL, Node LTS y Composer
+  nido vcredist status | install    runtime de Visual C++ que necesitan PHP, Apache y MySQL
+  nido versions                     lista todo lo instalado
 
-  clon php list | remote            versiones de PHP instaladas | publicadas en windows.php.net
-  clon php install <rama>           descarga PHP (por ejemplo 8.4)
-  clon php use <versión>            cambia el PHP global
-  clon php ext [versión]            extensiones de PHP; 'clon php ext on|off xdebug [versión]' las cambia
+  nido php list | remote            versiones de PHP instaladas | publicadas en windows.php.net
+  nido php install <rama>           descarga PHP (por ejemplo 8.4)
+  nido php use <versión>            cambia el PHP global
+  nido php ext [versión]            extensiones de PHP; 'nido php ext on|off xdebug [versión]' las cambia
 
-  clon node list | remote           versiones de Node instaladas | publicadas en nodejs.org (con avisos)
-  clon node install [lts|latest|24] descarga Node con npm y npx ('--use' lo hace global)
-  clon node use <versión>           cambia el Node global
-  clon node uninstall <versión>     borra una versión descargada
-  clon node install pnpm|yarn       instala o actualiza pnpm o yarn ('clon node uninstall pnpm' lo quita)
+  nido node list | remote           versiones de Node instaladas | publicadas en nodejs.org (con avisos)
+  nido node install [lts|latest|24] descarga Node con npm y npx ('--use' lo hace global)
+  nido node use <versión>           cambia el Node global
+  nido node uninstall <versión>     borra una versión descargada
+  nido node install pnpm|yarn       instala o actualiza pnpm o yarn ('nido node uninstall pnpm' lo quita)
 
-  clon composer install             descarga o actualiza Composer
-  clon shims                        regenera los atajos de shims\ (php, composer, node, npm, npx…)
+  nido composer install             descarga o actualiza Composer
+  nido shims                        regenera los atajos de shims\ (php, composer, node, npm, npx…)
 `
 
 func main() {
@@ -53,13 +51,13 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		fmt.Print(usage + newUsage + apacheUsage + daemonUsage + siteUsage + serviceUsage + mysqlUsage)
+		fmt.Print(usage + newUsage + apacheUsage + daemonUsage + siteUsage + serviceUsage)
 		return nil
 	}
-	// The elevated helper only rewrites clon's block in the hosts file; it touches nothing else.
+	// The elevated helper only rewrites Nido's block in the hosts file; it touches nothing else.
 	if args[0] == "hosts-apply" {
 		if len(args) != 2 {
-			return fmt.Errorf("uso interno: clon hosts-apply <archivo>")
+			return fmt.Errorf("uso interno: nido hosts-apply <archivo>")
 		}
 		return hosts.Apply(args[1])
 	}
@@ -84,8 +82,6 @@ func run(ctx context.Context, args []string) error {
 		return cmdHosts(env, args[1:])
 	case "path":
 		return cmdPath(env, args[1:])
-	case "mysql":
-		return cmdMySQL(env, args[1:])
 	case "service", "services":
 		return cmdServices(env, args[1:])
 	case "site":
@@ -95,12 +91,10 @@ func run(ctx context.Context, args []string) error {
 	case "recipe", "recipes", "receta", "recetas":
 		return cmdRecipes(env, args[1:])
 	case "version":
-		fmt.Println("clon 0.1.0 (fase 1) · instalación:", env.Home.Root)
+		fmt.Println("Nido", app.Version, "· instalación:", env.Home.Root)
 		return nil
 	case "setup":
 		return cmdSetup(ctx, env)
-	case "import":
-		return cmdImport(env, args[1:])
 	case "versions":
 		return cmdVersions(env)
 	case "php":
@@ -116,7 +110,7 @@ func run(ctx context.Context, args []string) error {
 	case "vcredist":
 		return cmdVCRedist(ctx, env, args[1:])
 	}
-	return fmt.Errorf("comando desconocido %q (usa 'clon help')", args[0])
+	return fmt.Errorf("comando desconocido %q (usa 'nido help')", args[0])
 }
 
 func cmdSetup(ctx context.Context, env *app.Env) error {
@@ -130,13 +124,8 @@ func cmdSetup(ctx context.Context, env *app.Env) error {
 		}
 		fmt.Println("\nRuntime de Visual C++ instalado:", vcredist.Version())
 	}
-	if _, err := os.Stat(laragon.DefaultRoot); err == nil && len(env.Reg.List(versions.PHP)) == 0 {
-		fmt.Println("Laragon encontrado en", laragon.DefaultRoot)
-		if err := cmdImport(env, []string{"laragon"}); err != nil {
-			return err
-		}
-	}
-	// Without Laragon, clon brings its own PHP (windows.php.net) and Apache (Apache Lounge).
+	// Nido brings everything from the official sources: PHP (windows.php.net), Apache (Apache
+	// Lounge), MySQL (cdn.mysql.com), Node (nodejs.org) and Composer (getcomposer.org).
 	if len(env.Reg.List(versions.PHP)) == 0 {
 		if err := cmdPHP(ctx, env, []string{"install", "latest"}); err != nil {
 			return err
@@ -144,6 +133,12 @@ func cmdSetup(ctx context.Context, env *app.Env) error {
 	}
 	if len(env.Reg.List(versions.Apache)) == 0 {
 		if err := cmdApache(env, []string{"install"}); err != nil {
+			return err
+		}
+	}
+	// A database server ready from the start, like any local stack: MySQL's long-term support series.
+	if len(env.Reg.List(versions.MySQL)) == 0 && len(env.Reg.List(versions.MariaDB)) == 0 {
+		if err := cmdServices(env, []string{"install", "mysql", "8.4"}); err != nil {
 			return err
 		}
 	}
@@ -181,45 +176,6 @@ func installedFromDownload(env *app.Env, c versions.Component) bool {
 		}
 	}
 	return false
-}
-
-func cmdImport(env *app.Env, args []string) error {
-	if len(args) == 0 || args[0] != "laragon" {
-		return fmt.Errorf("uso: clon import laragon [ruta]")
-	}
-	root := laragon.DefaultRoot
-	if len(args) > 1 {
-		root = args[1]
-	}
-	rep, err := laragon.Import(root, env.Reg, &env.Cfg)
-	if err != nil {
-		return err
-	}
-	env.SyncServices()
-	if err := env.SaveRegistry(); err != nil {
-		return err
-	}
-	if err := env.SaveConfig(); err != nil {
-		return err
-	}
-	fmt.Printf("Importado desde %s (los binarios se usan en su sitio; no se copia ni se modifica nada):\n", root)
-	for _, v := range rep.Versions {
-		fmt.Printf("  %-34s %s\n", v.Label(), v.Path)
-	}
-	for _, r := range rep.Roots {
-		fmt.Println("  carpeta de proyectos:", r)
-	}
-	for c, v := range rep.Defaults {
-		fmt.Printf("  versión predeterminada de %s: %s\n", c, v)
-	}
-	for _, s := range rep.Skipped {
-		fmt.Println("  omitido:", s)
-	}
-	if rep.MissingRuntime {
-		fmt.Println("\nPHP, Apache y MySQL necesitan el runtime de Visual C++ x64, que falta en este equipo.")
-		fmt.Println("Instálalo con 'clon vcredist install' y vuelve a ejecutar 'clon import laragon'.")
-	}
-	return nil
 }
 
 func cmdVersions(env *app.Env) error {
@@ -296,10 +252,12 @@ func cmdPHP(ctx context.Context, env *app.Env, args []string) error {
 		for _, b := range branches {
 			fmt.Printf("  %-5s %s\n", b.Branch, b.Version)
 		}
+		fmt.Println("Las ramas anteriores (8.1, 8.0, 7.4… hasta 5.x) también se instalan, por ejemplo 'nido php install 7.2':")
+		fmt.Println("Nido baja su última versión del archivo de windows.php.net.")
 		return nil
 	case "install":
 		if len(args) < 2 {
-			return fmt.Errorf("uso: clon php install <rama>, por ejemplo 8.4")
+			return fmt.Errorf("uso: nido php install <rama>, por ejemplo 8.4")
 		}
 		if args[1] == "latest" {
 			fmt.Println("Descargando la versión más reciente de PHP (build NTS x64 de windows.php.net)…")
@@ -322,13 +280,13 @@ func cmdPHP(ctx context.Context, env *app.Env, args []string) error {
 		return refreshShims(env)
 	case "use":
 		if len(args) < 2 {
-			return fmt.Errorf("uso: clon php use <versión>, por ejemplo 8.3")
+			return fmt.Errorf("uso: nido php use <versión>, por ejemplo 8.3")
 		}
 		v, ok := env.Reg.Find(versions.PHP, args[1])
 		if !ok {
-			return fmt.Errorf("PHP %s no está instalado (mira 'clon php list')", args[1])
+			return fmt.Errorf("PHP %s no está instalado (mira 'nido php list')", args[1])
 		}
-		// With clon running, the switch also restarts the web pool.
+		// With Nido running, the switch also restarts the web pool.
 		if c, err := app.Connect(env.Home.Root); err == nil {
 			var out map[string]string
 			if err := c.Call("POST", "/api/php", map[string]string{"version": v.Version}, &out); err != nil {
@@ -349,7 +307,7 @@ func cmdPHP(ctx context.Context, env *app.Env, args []string) error {
 
 func cmdComposer(ctx context.Context, env *app.Env, args []string) error {
 	if len(args) == 0 || (args[0] != "install" && args[0] != "update") {
-		return fmt.Errorf("uso: clon composer install")
+		return fmt.Errorf("uso: nido composer install")
 	}
 	fmt.Println("Descargando Composer (última versión estable de getcomposer.org)…")
 	path, err := install.InstallComposer(ctx, env.Home)

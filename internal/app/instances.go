@@ -10,18 +10,18 @@ import (
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
-// serviceKind describes a kind of service clon runs as instances, one per series.
+// serviceKind describes a kind of service Nido runs as instances, one per series.
 type serviceKind struct {
 	kind   versions.Component
 	port   int // standard port: the default instance gets it when free
 	portTo int // last port tried for the other instances
-	// autoDefault makes the first series of the kind its default even when it was imported (from
-	// Laragon); otherwise only a version installed through clon becomes the default by itself, so
-	// importing Laragon does not start services nobody asked for.
+	// autoDefault makes the first series of the kind its default even when Nido did not download
+	// it; otherwise only a version installed through Nido becomes the default by itself, so a
+	// version registered from elsewhere does not start services nobody asked for.
 	autoDefault bool
 }
 
-// serviceKinds only lists the kinds clon knows how to run (see runnerFor).
+// serviceKinds only lists the kinds Nido knows how to run (see runnerFor).
 var serviceKinds = []serviceKind{
 	{versions.MySQL, 3306, 3399, true},
 	{versions.MariaDB, 3306, 3399, true},
@@ -32,7 +32,7 @@ var serviceKinds = []serviceKind{
 	{versions.Meilisearch, 7700, 7799, false},
 }
 
-// ServiceKinds are the services clon runs as instances, in the order the panel shows them.
+// ServiceKinds are the services Nido runs as instances, in the order the panel shows them.
 var ServiceKinds = func() []versions.Component {
 	var out []versions.Component
 	for _, k := range serviceKinds {
@@ -232,7 +232,7 @@ func (e *Env) ensureInstances() bool {
 			svc.Default = series[0]
 			changed = true
 		case !k.autoDefault:
-			// The newest series installed through clon (not imported) becomes the default.
+			// The newest series installed through Nido (not imported) becomes the default.
 			for _, s := range series {
 				if v, _ := e.Reg.Find(k.kind, s); v.Source == "download" {
 					svc.Default = s
@@ -283,7 +283,7 @@ func secondPort(kind versions.Component, port int) int {
 }
 
 // freePort picks a port no other instance is configured with. Only configured ports count, not
-// programs running right now: a port Laragon holds today is free once Laragon is closed, and a
+// programs running right now: a port another program holds today is free once it is closed, and a
 // clash is reported clearly when the instance starts.
 func (e *Env) freePort(kind versions.Component, standard bool, skip string) int {
 	k, _ := kindInfo(kind)
@@ -299,7 +299,7 @@ func (e *Env) freePort(kind versions.Component, standard bool, skip string) int 
 	return 0
 }
 
-// CheckPort explains why an instance cannot use a port (another instance, clon's own ports or a
+// CheckPort explains why an instance cannot use a port (another instance, Nido's own ports or a
 // range Windows reserves), or returns nil. Programs currently listening are checked at start.
 func (e *Env) CheckPort(key string, port int) error {
 	if port < 1024 || port > 65535 {
@@ -329,7 +329,7 @@ func (e *Env) CheckPort(key string, port int) error {
 	}
 	for _, w := range wanted {
 		if who, ok := own[w]; ok {
-			return fmt.Errorf("el puerto %d lo usa %s de clon", w, who)
+			return fmt.Errorf("el puerto %d lo usa %s de Nido", w, who)
 		}
 		if ports.Reserved(w) {
 			return fmt.Errorf("el puerto %d está reservado por Windows (Hyper-V, WSL o Docker)", w)

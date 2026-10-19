@@ -107,13 +107,13 @@ func TestPinnedSitesGetAPoolOfTheirVersion(t *testing.T) {
 	}
 }
 
-// 'clon site php' ends when the site answers with its version, and only waits for that site's pool.
+// 'nido site php' ends when the site answers with its version, and only waits for that site's pool.
 func TestPinningWaitsForTheSitesOwnPool(t *testing.T) {
 	d := &Daemon{env: testEnv(t), sup: supervisor.New(), pools: []phpPool{
 		{Name: "global", Global: true, Ports: []int{9100}},
 		{Name: "7.2", Version: versions.Version{Version: "7.2.0"}, Ports: []int{9200}},
 	}}
-	// With clon's services stopped nothing runs: pinning only changes the configuration.
+	// With Nido's services stopped nothing runs: pinning only changes the configuration.
 	if err := d.waitPinnedPool("7.2.0", false, 50*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}

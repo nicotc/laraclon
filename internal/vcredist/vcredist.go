@@ -1,5 +1,5 @@
 // Package vcredist checks for and installs Microsoft's Visual C++ x64 runtime (v14, shared by
-// Visual Studio 2015 to 2026), which the Windows builds of PHP, Apache and MySQL need. clon only
+// Visual Studio 2015 to 2026), which the Windows builds of PHP, Apache and MySQL need. Nido only
 // runs Microsoft's own signed installer.
 package vcredist
 

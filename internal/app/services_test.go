@@ -36,28 +36,28 @@ func TestSetDefaultSwapsTheStandardPort(t *testing.T) {
 	}
 }
 
-func TestUninstallDeletesOnlyWhatClonDownloaded(t *testing.T) {
+func TestUninstallDeletesOnlyWhatNidoDownloaded(t *testing.T) {
 	e := testEnv(t)
 	if err := e.Home.Ensure(); err != nil {
 		t.Fatal(err)
 	}
 	own := e.Home.Bin("mysql", "8.4.11")
-	laragonDir := filepath.Join(t.TempDir(), "mysql-8.0.30-winx64")
+	externalDir := filepath.Join(t.TempDir(), "mysql-8.0.30-winx64")
 	data := e.Home.Data("mysql-8.4")
-	for _, dir := range []string{own, laragonDir, data} {
+	for _, dir := range []string{own, externalDir, data} {
 		os.MkdirAll(dir, 0o755)
 		os.WriteFile(filepath.Join(dir, "x.txt"), []byte("x"), 0o644)
 	}
 	e.Reg.Add(versions.Version{Component: versions.MySQL, Version: "8.4.11", Path: own, Source: "download"})
-	e.Reg.Add(versions.Version{Component: versions.MySQL, Version: "8.0.30", Path: laragonDir, Source: "laragon"})
+	e.Reg.Add(versions.Version{Component: versions.MySQL, Version: "8.0.30", Path: externalDir, Source: "import"})
 	e.SyncServices()
 	d := testDaemon(t, e)
 
 	if err := d.UninstallService("mysql-8.0"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(laragonDir); err != nil {
-		t.Fatal("Laragon's binaries must never be deleted")
+	if _, err := os.Stat(externalDir); err != nil {
+		t.Fatal("binaries Nido did not download must never be deleted")
 	}
 	if err := d.UninstallService("mysql-8.4"); err != nil {
 		t.Fatal(err)

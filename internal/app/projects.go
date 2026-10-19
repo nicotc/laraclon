@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/nicotc/laraclon/internal/install"
-	"github.com/nicotc/laraclon/internal/laragon"
 	"github.com/nicotc/laraclon/internal/mysql"
+	"github.com/nicotc/laraclon/internal/paths"
 	"github.com/nicotc/laraclon/internal/php"
 	"github.com/nicotc/laraclon/internal/postgres"
 	"github.com/nicotc/laraclon/internal/procutil"
@@ -26,7 +26,7 @@ import (
 
 // NewProject is what «Nuevo proyecto» creates: a Laravel application, with one of the official
 // starter kits or none, a WordPress site, a Symfony project, or a project cloned from Git, wired to a
-// database clon runs.
+// database Nido runs.
 type NewProject struct {
 	Name string `json:"name"`
 	Type string `json:"type,omitempty"` // laravel (""), wordpress or symfony
@@ -73,7 +73,7 @@ var projectDBs = map[string]struct {
 }
 
 // CreateProject checks a request and starts creating the project in the background; the panel and
-// 'clon new' follow it like an installation (Jobs).
+// 'nido new' follow it like an installation (Jobs).
 func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	name, ok := sites.Normalize(p.Name)
 	if !ok {
@@ -140,14 +140,11 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	}
 	var git string
 	if p.Git != "" {
-		var err error
-		if git, err = findGit(); err != nil {
-			return Job{}, err
-		}
+		git = findGit(d.env.Home)
 		p.Kit = ""
 	}
 	if _, err := os.Stat(install.ComposerPhar(d.env.Home)); err != nil {
-		return Job{}, fmt.Errorf("falta Composer: instálalo con 'clon composer install'")
+		return Job{}, fmt.Errorf("falta Composer: instálalo con 'nido composer install'")
 	}
 	if p.Git == "" {
 		if _, err := d.env.GlobalNode(); err != nil {
@@ -157,6 +154,14 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	if p.Git != "" {
 		return d.startCreateJob(p, name, dir, "Git", cancelled,
 			func(ctx context.Context, phase func(string), log *os.File) (string, error) {
+				if git == "" {
+					// A clean Windows has no Git: Nido brings its own, like Node or Composer.
+					phase("descargando Git para Windows (MinGit)")
+					var err error
+					if git, err = install.InstallGit(ctx, d.env.Home, nil); err != nil {
+						return "", err
+					}
+				}
 				phase("clonando " + p.Git)
 				args := []string{"clone"}
 				if p.Branch != "" {
@@ -175,7 +180,7 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 		})
 }
 
-// projectDir checks where a new project goes: in one of clon's project roots ("" = the first), in a
+// projectDir checks where a new project goes: in one of Nido's project roots ("" = the first), in a
 // folder that does not exist yet.
 func (d *Daemon) projectDir(root, name string) (string, string, error) {
 	if root == "" && len(d.env.Cfg.Roots) > 0 {
@@ -186,7 +191,7 @@ func (d *Daemon) projectDir(root, name string) (string, string, error) {
 		known = known || strings.EqualFold(filepath.Clean(r), filepath.Clean(root))
 	}
 	if !known {
-		return "", "", fmt.Errorf("%q no es una carpeta de proyectos de clon (roots en clon.toml)", root)
+		return "", "", fmt.Errorf("%q no es una carpeta de proyectos de Nido (roots en nido.toml)", root)
 	}
 	dir := filepath.Join(root, name)
 	if _, err := os.Stat(dir); err == nil {
@@ -196,7 +201,7 @@ func (d *Daemon) projectDir(root, name string) (string, string, error) {
 }
 
 // SetupProject prepares a project that is already in a project folder, cloned or copied: what it
-// lacks (Composer packages, .env with clon's databases, key, database, compiled frontend, storage
+// lacks (Composer packages, .env with Nido's databases, key, database, compiled frontend, storage
 // link) is done in the background. db chooses the database of a new .env ("" keeps the project's).
 func (d *Daemon) SetupProject(site, db string) (Job, error) {
 	s, err := d.findSite(site)
@@ -211,7 +216,7 @@ func (d *Daemon) SetupProject(site, db string) (Job, error) {
 		return Job{}, fmt.Errorf("base de datos desconocida %q: usa sqlite, mysql, mariadb o postgresql", db)
 	}
 	if _, err := os.Stat(install.ComposerPhar(d.env.Home)); err != nil {
-		return Job{}, fmt.Errorf("falta Composer: instálalo con 'clon composer install'")
+		return Job{}, fmt.Errorf("falta Composer: instálalo con 'nido composer install'")
 	}
 	return d.startProjectJob(s.Name, "preparar", "preparar-"+s.Name, "preparación cancelada",
 		func(ctx context.Context, phase func(string), log *os.File) (string, error) {
@@ -399,8 +404,8 @@ func (d *Daemon) buildProject(ctx context.Context, p NewProject, name, dir strin
 }
 
 // prepareProject gives a project that already exists what it lacks to run here: Composer packages, a
-// .env from .env.example wired to clon's databases (db chooses one; "" keeps the project's), APP_KEY,
-// its database (migrated only when clon created it, so existing data is never touched), the storage
+// .env from .env.example wired to Nido's databases (db chooses one; "" keeps the project's), APP_KEY,
+// its database (migrated only when Nido created it, so existing data is never touched), the storage
 // link and the compiled frontend.
 func (d *Daemon) prepareProject(ctx context.Context, dir, name, db string, phase func(string), log *os.File) error {
 	v, err := d.env.GlobalPHP()
@@ -432,7 +437,7 @@ func (d *Daemon) prepareProject(ctx context.Context, dir, name, db string, phase
 	var ref InstanceRef
 	dbName, createdDB := "", false
 	if laravel && !has(".env") && has(".env.example") {
-		phase("creando el .env con las bases de datos de clon")
+		phase("creando el .env con las bases de datos de Nido")
 		data, err := os.ReadFile(filepath.Join(dir, ".env.example"))
 		if err != nil {
 			return err
@@ -455,7 +460,7 @@ func (d *Daemon) prepareProject(ctx context.Context, dir, name, db string, phase
 				}
 			}
 			if !ok {
-				return fmt.Errorf("el proyecto usa %s y clon no tiene ninguno instalado: instálalo en Servicios", kinds[0].Name())
+				return fmt.Errorf("el proyecto usa %s y Nido no tiene ninguno instalado: instálalo en Servicios", kinds[0].Name())
 			}
 			dbName = envValueOf(envFile, "DB_DATABASE")
 			if dbName == "" || dbName == "laravel" { // the example's name would be shared by every project
@@ -521,7 +526,7 @@ func (d *Daemon) prepareProject(ctx context.Context, dir, name, db string, phase
 	if sites.HasVite(dir) && !has("public", "build", "manifest.json") {
 		pm := projectManager(dir)
 		if pm != sites.PackageManager(dir) {
-			fmt.Fprintf(log, "\r\nclon todavía no instala %s: se usa npm\r\n", sites.PackageManager(dir))
+			fmt.Fprintf(log, "\r\nNido todavía no instala %s: se usa npm\r\n", sites.PackageManager(dir))
 		}
 		run, err := d.ensureJSRunner(ctx, pm, dir, phase, log)
 		if err != nil {
@@ -567,21 +572,18 @@ func lastLine(s string) string {
 	return lines[len(lines)-1]
 }
 
-// findGit locates git.exe: on the PATH, or the copy Laragon ships.
-func findGit() (string, error) {
+// findGit locates git.exe: on the PATH, the one Nido downloaded, or Git for Windows' usual folder
+// ("" when there is none: then Nido downloads MinGit).
+func findGit(home paths.Home) string {
 	if p, err := exec.LookPath("git"); err == nil {
-		return p, nil
+		return p
 	}
-	for _, c := range []string{
-		filepath.Join(laragon.DefaultRoot, "bin", "git", "cmd", "git.exe"),
-		filepath.Join(laragon.DefaultRoot, "bin", "git", "bin", "git.exe"),
-		filepath.Join(os.Getenv("ProgramFiles"), "Git", "cmd", "git.exe"),
-	} {
+	for _, c := range []string{install.GitExe(home), filepath.Join(os.Getenv("ProgramFiles"), "Git", "cmd", "git.exe")} {
 		if fileExists(c) {
-			return c, nil
+			return c
 		}
 	}
-	return "", fmt.Errorf("para clonar hace falta Git: instálalo desde git-scm.com")
+	return ""
 }
 
 // envValueOf reads one key of a .env file ("" when it is missing, empty or commented out).

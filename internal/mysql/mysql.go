@@ -110,10 +110,10 @@ func (i Instance) Ports() []int { return []int{i.Port} }
 // Prepare writes my.ini.
 func (i Instance) Prepare() error { return i.WriteIni() }
 
-// ExternalDir is the existing data folder the instance opens ("" for clon's own).
+// ExternalDir is the existing data folder the instance opens ("" for Nido's own).
 func (i Instance) ExternalDir() string { return i.External }
 
-var iniTemplate = template.Must(template.New("my.ini").Parse(`# Generado por clon. Pon tus cambios en {{.Overrides}}
+var iniTemplate = template.Must(template.New("my.ini").Parse(`# Generado por Nido. Pon tus cambios en {{.Overrides}}
 [client]
 host=127.0.0.1
 port={{.Port}}
@@ -126,7 +126,7 @@ port={{.Port}}
 bind-address=127.0.0.1
 character-set-server=utf8mb4
 max_allowed_packet=256M
-# Same server mode as Laragon (no ONLY_FULL_GROUP_BY), so existing queries behave the same.
+# A permissive server mode for development (no ONLY_FULL_GROUP_BY), as most local stacks use.
 sql_mode="STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
 secure-file-priv=""
 explicit_defaults_for_timestamp=1
@@ -169,7 +169,7 @@ func (i Instance) Initialized() bool {
 }
 
 // Initialize creates the data folder with a root user without password (only reachable on 127.0.0.1).
-// An external data folder (Laragon's) is never initialised, modified or removed here.
+// An external data folder (another installation's) is never initialised, modified or removed here.
 func (i Instance) Initialize() error {
 	if i.Initialized() {
 		return nil

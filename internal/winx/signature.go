@@ -14,9 +14,9 @@ import (
 // VerifySignature checks with Windows' own verifier (revocation included) that file carries a valid
 // Authenticode signature from the organisation org, e.g. "Microsoft Corporation".
 func VerifySignature(file, org string) error {
-	script := `$s = Get-AuthenticodeSignature -LiteralPath $env:CLON_FILE; "{0}|{1}" -f $s.Status, $s.SignerCertificate.Subject`
+	script := `$s = Get-AuthenticodeSignature -LiteralPath $env:NIDO_FILE; "{0}|{1}" -f $s.Status, $s.SignerCertificate.Subject`
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
-	cmd.Env = append(os.Environ(), "CLON_FILE="+file)
+	cmd.Env = append(os.Environ(), "NIDO_FILE="+file)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	out, err := cmd.Output()
 	if err != nil {

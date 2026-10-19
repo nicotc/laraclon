@@ -12,13 +12,13 @@ import (
 )
 
 const siteUsage = `
-  clon site server <sitio> apache|nginx|frankenphp   servidor web de un sitio (la dirección .test no cambia)
-  clon site php <sitio> <versión>|global             PHP propio para un proyecto antiguo, o vuelta al global
-  clon site template <sitio> [nombre]     guarda el proyecto como plantilla (sin vendor, node_modules ni .env)
-  clon site proc <sitio> vite|queue|schedule|reverb on|off
+  nido site server <sitio> apache|nginx|frankenphp   servidor web de un sitio (la dirección .test no cambia)
+  nido site php <sitio> <versión>|global             PHP propio para un proyecto antiguo, o vuelta al global
+  nido site template <sitio> [nombre]     guarda el proyecto como plantilla (sin vendor, node_modules ni .env)
+  nido site proc <sitio> vite|queue|schedule|reverb on|off
                                           npm run dev (con HTTPS), queue:work, schedule:work o Reverb (wss://reverb.<sitio>.test)
-  clon site debug <sitio> on|off                     Xdebug solo para ese sitio (el editor escucha en el 9003)
-  clon site setup <sitio> [--db mysql|…]             prepara un proyecto existente: Composer, .env, base de datos, Vite
+  nido site debug <sitio> on|off                     Xdebug solo para ese sitio (el editor escucha en el 9003)
+  nido site setup <sitio> [--db mysql|…]             prepara un proyecto existente: Composer, .env, base de datos, Vite
 `
 
 func cmdSite(env *app.Env, args []string) error {
@@ -41,7 +41,7 @@ func cmdSite(env *app.Env, args []string) error {
 		}
 		c, err := app.Connect(env.Home.Root)
 		if err != nil {
-			return fmt.Errorf("clon no está corriendo: inícialo con 'clon run' (prepara la base de datos del proyecto)")
+			return fmt.Errorf("Nido no está corriendo: inícialo con 'nido run' (prepara la base de datos del proyecto)")
 		}
 		var j app.Job
 		if err := c.Call("POST", "/api/projects/setup", map[string]string{"site": args[1], "db": db}, &j); err != nil {
@@ -53,7 +53,7 @@ func cmdSite(env *app.Env, args []string) error {
 		on := args[2] == "on" || args[2] == "si" || args[2] == "sí"
 		c, err := app.Connect(env.Home.Root)
 		if err != nil {
-			return fmt.Errorf("clon no está corriendo: inícialo con 'clon run'")
+			return fmt.Errorf("Nido no está corriendo: inícialo con 'nido run'")
 		}
 		if err := c.Call("POST", "/api/sites/debug", map[string]any{"site": args[1], "on": on}, nil); err != nil {
 			return err
@@ -79,7 +79,7 @@ func cmdSite(env *app.Env, args []string) error {
 		fmt.Printf("%s usa ahora %s\n", site, server)
 		return nil
 	}
-	// clon is not running: only the setting changes; it applies on the next start.
+	// Nido is not running: only the setting changes; it applies on the next start.
 	needs := map[string]versions.Component{config.ServerApache: "", config.ServerNginx: versions.Nginx, config.ServerFrankenPHP: versions.FrankenPHP}
 	kind, known := needs[server]
 	if !known {
@@ -90,13 +90,13 @@ func cmdSite(env *app.Env, args []string) error {
 		return err
 	}
 	if _, ok := env.Reg.Find(kind, ""); kind != "" && !ok {
-		return fmt.Errorf("%s no está instalado: 'clon service install %s <versión>'", kind.Name(), kind)
+		return fmt.Errorf("%s no está instalado: 'nido service install %s <versión>'", kind.Name(), kind)
 	}
 	env.Cfg.SetSiteServer(s.Name, server)
 	if err := env.SaveConfig(); err != nil {
 		return err
 	}
-	fmt.Printf("%s usará %s cuando inicies clon\n", s.Host, server)
+	fmt.Printf("%s usará %s cuando inicies Nido\n", s.Host, server)
 	return nil
 }
 
@@ -120,7 +120,7 @@ func cmdSitePHP(env *app.Env, site, want string) error {
 			}
 			v, ok := env.Reg.Find(versions.PHP, want)
 			if !ok {
-				return fmt.Errorf("PHP %s no está instalado (instálalo con 'clon php install %s')", want, versions.MajorMinor(want))
+				return fmt.Errorf("PHP %s no está instalado (instálalo con 'nido php install %s')", want, versions.MajorMinor(want))
 			}
 			if err := env.EnsureComposerFor(context.Background(), v.Version); err != nil {
 				fmt.Println("No se pudo descargar Composer 2.2 LTS (para PHP anterior a 7.2.5):", err)
@@ -142,7 +142,7 @@ func cmdSitePHP(env *app.Env, site, want string) error {
 	return nil
 }
 
-// cmdSiteProc turns a project process on (it runs now and starts with clon) or off.
+// cmdSiteProc turns a project process on (it runs now and starts with Nido) or off.
 func cmdSiteProc(env *app.Env, site, id, state string) error {
 	on := state == "on" || state == "si" || state == "sí"
 	if !on && state != "off" && state != "no" {
@@ -179,7 +179,7 @@ func cmdSiteProc(env *app.Env, site, id, state string) error {
 	if err := env.SaveConfig(); err != nil {
 		return err
 	}
-	fmt.Printf("%s: %s %s cuando inicies clon\n", s.Host, id, map[bool]string{true: "arrancará", false: "no arrancará"}[on])
+	fmt.Printf("%s: %s %s cuando inicies Nido\n", s.Host, id, map[bool]string{true: "arrancará", false: "no arrancará"}[on])
 	return nil
 }
 

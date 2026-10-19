@@ -162,7 +162,7 @@ type NodeUpdate struct {
 }
 
 // NodeUpdates compares the Node in use with the release list: a newer release of its line, and a
-// newer LTS line nobody installed yet. installed are the versions clon knows.
+// newer LTS line nobody installed yet. installed are the versions Nido knows.
 func NodeUpdates(rels []NodeRelease, current string, installed []string) []NodeUpdate {
 	cur := NodeRelease{Version: "v" + current}
 	var out []NodeUpdate
@@ -199,7 +199,7 @@ func NodeUpdates(rels []NodeRelease, current string, installed []string) []NodeU
 	return append(out, NodeUpdate{Version: strings.TrimPrefix(lts.Version, "v"), Line: true, LTS: lts.Codename()})
 }
 
-// NodeTools are the package managers clon installs next to npm, as global npm packages (Node 25
+// NodeTools are the package managers Nido installs next to npm, as global npm packages (Node 25
 // stopped shipping Corepack, which used to provide them).
 var NodeTools = []string{"pnpm", "yarn"}
 

@@ -26,7 +26,7 @@ func TestWriteIniLoadsTheChosenExtensionsInOrder(t *testing.T) {
 	for _, n := range []string{"php_exif.dll", "php_mbstring.dll", "php_ldap.dll", "php_opcache.dll", "php_curl.dll"} {
 		touch(filepath.Join(v.Path, "ext"), n)
 	}
-	touch(ExtDir(home, v), "php_xdebug.dll") // downloaded by clon, outside the PHP folder
+	touch(ExtDir(home, v), "php_xdebug.dll") // downloaded by Nido, outside the PHP folder
 
 	changes := config.PHPExtensions{Enable: []string{"ldap", "xdebug"}, Disable: []string{"exif"}}
 	ini, err := WriteIni(home, v, IniOptions{Extensions: map[string]config.PHPExtensions{"8.4": changes}})

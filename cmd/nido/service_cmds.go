@@ -13,17 +13,17 @@ import (
 )
 
 const serviceUsage = `
-  clon service list                       bases de datos: versiones, puertos y estado
-  clon service remote [mysql|mariadb]     versiones que se pueden instalar (descargas oficiales)
-  clon service install mysql 8.4          instala una serie o versión (MySQL, MariaDB, PostgreSQL, Apache, Nginx…)
-  clon service start | stop <servicio>    inicia o detiene una instancia, por ejemplo mysql-8.4
-  clon service port <servicio> <puerto>   cambia su puerto
-  clon service default <servicio>         la hace predeterminada (puerto 3306 y atajo mysql)
-  clon service autostart <servicio> on|off  que arranque o no con «Iniciar todo»
-  clon service uninstall <servicio>       quita esa serie (sus datos se conservan)
+  nido service list                       bases de datos: versiones, puertos y estado
+  nido service remote [mysql|mariadb]     versiones que se pueden instalar (descargas oficiales)
+  nido service install mysql 8.4          instala una serie o versión (MySQL, MariaDB, PostgreSQL, Apache, Nginx…)
+  nido service start | stop <servicio>    inicia o detiene una instancia, por ejemplo mysql-8.4
+  nido service port <servicio> <puerto>   cambia su puerto
+  nido service default <servicio>         la hace predeterminada (puerto 3306 y atajo mysql)
+  nido service autostart <servicio> on|off  que arranque o no con «Iniciar todo»
+  nido service uninstall <servicio>       quita esa serie (sus datos se conservan)
 `
 
-// serviceOps runs the database actions through the running clon (API) or, when it is not running,
+// serviceOps runs the database actions through the running Nido (API) or, when it is not running,
 // on a local daemon object that only edits settings and files.
 type serviceOps interface {
 	status() (app.Status, error)
@@ -88,7 +88,7 @@ func (l localOps) jobs() ([]app.Job, error) { return l.d.Jobs(), nil }
 func (l localOps) action(name, key string) error {
 	switch name {
 	case "start":
-		return fmt.Errorf("clon no está corriendo: inícialo con 'clon run' (arranca las bases de datos predeterminadas)")
+		return fmt.Errorf("Nido no está corriendo: inícialo con 'nido run' (arranca las bases de datos predeterminadas)")
 	case "stop":
 		return nil
 	case "default":
@@ -123,7 +123,7 @@ func cmdServices(env *app.Env, args []string) error {
 	}
 	need := func(n int, usage string) error {
 		if len(args) < n {
-			return fmt.Errorf("uso: clon service %s", usage)
+			return fmt.Errorf("uso: nido service %s", usage)
 		}
 		return nil
 	}
@@ -156,7 +156,7 @@ func cmdServices(env *app.Env, args []string) error {
 		}
 		return nil
 	case "install":
-		if err := need(3, "install mysql|mariadb <serie o versión>, por ejemplo: clon service install mysql 8.4"); err != nil {
+		if err := need(3, "install mysql|mariadb <serie o versión>, por ejemplo: nido service install mysql 8.4"); err != nil {
 			return err
 		}
 		j, err := ops.install(versions.Component(strings.ToLower(args[1])), args[2])
@@ -257,13 +257,13 @@ func followJob(ops serviceOps, j app.Job) error {
 					if st.Node == cur.Version {
 						fmt.Printf("Instalado: Node %s con npm y npx; ahora es el Node global\n", cur.Version)
 					} else {
-						fmt.Printf("Instalado: Node %s con npm y npx (para usarlo: 'clon node use %s')\n", cur.Version, cur.Version)
+						fmt.Printf("Instalado: Node %s con npm y npx (para usarlo: 'nido node use %s')\n", cur.Version, cur.Version)
 					}
 					return nil
 				}
 				if cur.Kind == "project" {
 					st, _ := ops.status()
-					done := fmt.Sprintf("Listo: %s (aparece en 'clon sites' en unos segundos)", cur.Series)
+					done := fmt.Sprintf("Listo: %s (aparece en 'nido sites' en unos segundos)", cur.Series)
 					for _, s := range st.Sites {
 						if s.Name == cur.Series {
 							done = fmt.Sprintf("Listo: %s en %s", s.URL, s.Folder)
@@ -276,15 +276,15 @@ func followJob(ops serviceOps, j app.Job) error {
 					return nil
 				}
 				if kind == versions.Apache {
-					fmt.Printf("Instalado: Apache %s, que ahora atiende los sitios (para volver a otro: 'clon apache use <versión>')\n", cur.Version)
+					fmt.Printf("Instalado: Apache %s, que ahora atiende los sitios (para volver a otro: 'nido apache use <versión>')\n", cur.Version)
 					return nil
 				}
 				if kind == versions.Adminer {
-					fmt.Printf("Instalado: Adminer %s. Con clon en marcha, ábrelo en https://db.localhost (usuario root o postgres, sin contraseña)\n", cur.Version)
+					fmt.Printf("Instalado: Adminer %s. Con Nido en marcha, ábrelo en https://db.localhost (usuario root o postgres, sin contraseña)\n", cur.Version)
 					return nil
 				}
 				if kind == versions.Nginx || kind == versions.FrankenPHP {
-					fmt.Printf("Instalado: %s %s. Elígelo en un sitio con 'clon site server <sitio> %s'\n", kind.Name(), cur.Version, kind)
+					fmt.Printf("Instalado: %s %s. Elígelo en un sitio con 'nido site server <sitio> %s'\n", kind.Name(), cur.Version, kind)
 					return nil
 				}
 				fmt.Printf("Instalado: %s %s (servicio %s)\n", kind.Name(), cur.Version, app.InstanceKey(kind, cur.Series))
@@ -322,7 +322,7 @@ func printDatabases(st app.Status) {
 		}
 	}
 	if empty {
-		fmt.Println("No hay bases de datos instaladas. Mira 'clon service remote' e instala una con 'clon service install mysql 8.4'.")
+		fmt.Println("No hay bases de datos instaladas. Mira 'nido service remote' e instala una con 'nido service install mysql 8.4'.")
 		return
 	}
 	fmt.Println("\n* = predeterminada (atajo mysql y puerto estándar)")

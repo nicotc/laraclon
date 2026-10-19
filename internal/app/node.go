@@ -32,10 +32,10 @@ type NodeStatus struct {
 // NodeInstalled is one installed Node version.
 type NodeInstalled struct {
 	Version   string `json:"version"`
-	Source    string `json:"source"` // download, laragon…
+	Source    string `json:"source"` // download, import…
 	Path      string `json:"path"`
 	InUse     bool   `json:"in_use,omitempty"`    // the global one
-	Removable bool   `json:"removable,omitempty"` // clon downloaded it, so it can delete it
+	Removable bool   `json:"removable,omitempty"` // Nido downloaded it, so it can delete it
 }
 
 // NodeTool is a package manager installed next to npm.
@@ -103,7 +103,7 @@ func (d *Daemon) checkNodeNews(ctx context.Context) {
 	}
 }
 
-// watchNodeReleases looks for Node updates a little after clon starts and then every hour; nodejs.org
+// watchNodeReleases looks for Node updates a little after Nido starts and then every hour; nodejs.org
 // itself is asked at most every few hours (NodeIndex keeps its list).
 func (d *Daemon) watchNodeReleases(ctx context.Context) {
 	wait := 20 * time.Second
@@ -119,7 +119,7 @@ func (d *Daemon) watchNodeReleases(ctx context.Context) {
 }
 
 // InstallNode starts downloading a Node version: "lts", "latest", a line ("24") or an exact version.
-// With use it becomes the global Node once installed; the first one clon downloads always does.
+// With use it becomes the global Node once installed; the first one Nido downloads always does.
 func (d *Daemon) InstallNode(want string, use bool) (Job, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -139,7 +139,7 @@ func (d *Daemon) InstallNode(want string, use bool) (Job, error) {
 func (d *Daemon) UseNode(want string) (versions.Version, error) {
 	v, ok := d.env.Reg.Find(versions.Node, want)
 	if !ok {
-		return v, fmt.Errorf("Node %s no está instalado (mira 'clon node list')", want)
+		return v, fmt.Errorf("Node %s no está instalado (mira 'nido node list')", want)
 	}
 	d.cfgMu.Lock()
 	d.env.Cfg.Node.Version = v.Version
@@ -155,20 +155,20 @@ func (d *Daemon) UseNode(want string) (versions.Version, error) {
 	return v, nil
 }
 
-// ownsNode reports whether a Node version is a folder clon downloaded into bin\node, which it may
-// delete; versions found elsewhere (Laragon's) are only forgotten.
+// ownsNode reports whether a Node version is a folder Nido downloaded into bin\node, which it may
+// delete; versions found elsewhere are only forgotten.
 func (d *Daemon) ownsNode(v versions.Version) bool {
 	rel, err := filepath.Rel(d.env.Home.Bin("node"), v.Path)
 	return v.Source == "download" && err == nil && rel != "." && !strings.HasPrefix(rel, "..")
 }
 
-// UninstallNode deletes a Node version clon downloaded, or forgets one it found elsewhere without
+// UninstallNode deletes a Node version Nido downloaded, or forgets one it found elsewhere without
 // touching its files. The global one stays.
 func (d *Daemon) UninstallNode(version string) error {
 	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
 	v, ok := d.env.Reg.Find(versions.Node, version)
 	if !ok || v.Version != version {
-		return fmt.Errorf("Node %s no está instalado (mira 'clon node list')", version)
+		return fmt.Errorf("Node %s no está instalado (mira 'nido node list')", version)
 	}
 	if g, err := d.env.GlobalNode(); err == nil && g.Version == v.Version {
 		return fmt.Errorf("Node %s es el global: elige otro antes de quitarlo", v.Version)
@@ -216,7 +216,7 @@ func isNodeTool(name string) bool {
 func (d *Daemon) SetNodeTool(name string, on bool) (Job, error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if !isNodeTool(name) {
-		return Job{}, fmt.Errorf("clon instala pnpm y yarn, no %q", name)
+		return Job{}, fmt.Errorf("Nido instala pnpm y yarn, no %q", name)
 	}
 	if _, err := d.env.GlobalNode(); err != nil {
 		return Job{}, err
@@ -281,7 +281,7 @@ func (d *Daemon) runNodeTool(ctx context.Context, j *Job, name string, on bool) 
 // ---- The package manager of a project ----
 
 // jsRunner runs a project's package manager: npm's own script with the global Node, pnpm or yarn
-// from clon's global npm packages, or Yarn 2 and later through Corepack.
+// from Nido's global npm packages, or Yarn 2 and later through Corepack.
 type jsRunner struct {
 	name string   // npm, pnpm or yarn
 	exe  string   // node.exe, or pnpm.exe
@@ -300,7 +300,7 @@ func (t toolMissing) Error() string {
 	if t == "corepack" {
 		return "este proyecto usa Yarn 2 o posterior, que funciona con Corepack, y este Node no lo trae"
 	}
-	return fmt.Sprintf("este proyecto usa %s, que no está instalado: instálalo en «PHP y Node» o con 'clon node install %s'", string(t), string(t))
+	return fmt.Sprintf("este proyecto usa %s, que no está instalado: instálalo en «PHP y Node» o con 'nido node install %s'", string(t), string(t))
 }
 
 var berryRe = regexp.MustCompile(`^yarn@(\d+)\.`)
@@ -322,10 +322,10 @@ func yarnBerry(dir string) bool {
 	return m != nil && m[1] != "1"
 }
 
-// corepackDir is where clon installs Corepack for the Node versions that no longer bring it.
+// corepackDir is where Nido installs Corepack for the Node versions that no longer bring it.
 func (d *Daemon) corepackDir() string { return d.env.Home.Data("corepack") }
 
-// corepackScript finds Corepack: inside the global Node (it stopped coming with Node 25), in clon's
+// corepackScript finds Corepack: inside the global Node (it stopped coming with Node 25), in Nido's
 // own copy, or among the global npm packages.
 func (d *Daemon) corepackScript(node versions.Version) string {
 	for _, p := range []string{
@@ -340,7 +340,7 @@ func (d *Daemon) corepackScript(node versions.Version) string {
 	return ""
 }
 
-// projectManager is the package manager clon runs for a project; Bun is not available in clon yet,
+// projectManager is the package manager Nido runs for a project; Bun is not available in Nido yet,
 // so its projects use npm.
 func projectManager(dir string) string {
 	if pm := sites.PackageManager(dir); pm != "bun" {
@@ -386,7 +386,7 @@ func (d *Daemon) ensureJSRunner(ctx context.Context, pm, dir string, phase func(
 	phase("instalando " + string(missing) + " con npm")
 	if missing == "corepack" {
 		// In a folder of its own: as a global package its pnpm and yarn commands would clash with
-		// clon's, and clon only runs its script.
+		// Nido's, and Nido only runs its script.
 		own := d.corepackDir()
 		if err := os.MkdirAll(own, 0o755); err != nil {
 			return r, err

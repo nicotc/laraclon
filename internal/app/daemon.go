@@ -50,7 +50,7 @@ const (
 	reverbPortTo   = 18999
 )
 
-// Daemon is the long-running part of clon: it owns the services, the front proxy and the API.
+// Daemon is the long-running part of Nido: it owns the services, the front proxy and the API.
 type Daemon struct {
 	env   *Env
 	sup   *supervisor.Supervisor
@@ -237,6 +237,7 @@ func (d *Daemon) StartAll() {
 	d.setProblem("nginx", d.syncNginx())
 	d.setProblem("frankenphp", d.syncFrankenPHP())
 	d.setProblem("adminer", d.startAdminer(false))
+	d.setProblem("salud", d.startSalud(false))
 	d.setProblem("proxy", d.startProxy())
 	d.startSiteProcesses() // each process reports its own problem
 	d.changed()
@@ -249,6 +250,7 @@ func (d *Daemon) StopAll() {
 	d.mu.Unlock()
 	d.stopAllProcesses()
 	d.sup.Stop(adminerService)
+	d.sup.Stop(saludService)
 	d.sup.Stop(nginx.ServiceName)
 	d.sup.Stop(frankenphp.ServiceName)
 	d.sup.Stop(apache.ServiceName)
@@ -299,18 +301,18 @@ func (d *Daemon) runtimeStatus() RuntimeStatus {
 	return rt
 }
 
-// runtimeProblem is the runtime notice for the tray and 'clon status' (nil when all is well).
+// runtimeProblem is the runtime notice for the tray and 'nido status' (nil when all is well).
 // Programs built for a newer runtime than Windows has usually run anyway (Apache Lounge's do), so
 // that case is a recommendation.
 func (d *Daemon) runtimeProblem() error {
 	rt := d.runtimeStatus()
 	switch {
 	case rt.Missing:
-		return fmt.Errorf("falta el runtime de Visual C++ x64: sin él no arrancan PHP, Apache ni MySQL. Instálalo desde el panel o con 'clon vcredist install'")
+		return fmt.Errorf("falta el runtime de Visual C++ x64: sin él no arrancan PHP, Apache ni MySQL. Instálalo desde el panel o con 'nido vcredist install'")
 	case rt.Needs != "" && rt.Restart:
 		return fmt.Errorf("el runtime de Visual C++ que pide %s ya está instalado; Windows lo termina de aplicar al reiniciar", rt.For)
 	case rt.Needs != "":
-		return fmt.Errorf("%s se compiló para el runtime de Visual C++ %s o más nuevo y Windows tiene %s; Microsoft recomienda actualizarlo desde el panel o con 'clon vcredist install'", rt.For, rt.Needs, rt.Version)
+		return fmt.Errorf("%s se compiló para el runtime de Visual C++ %s o más nuevo y Windows tiene %s; Microsoft recomienda actualizarlo desde el panel o con 'nido vcredist install'", rt.For, rt.Needs, rt.Version)
 	}
 	return nil
 }
@@ -434,7 +436,7 @@ func (d *Daemon) startProxy() error {
 	}
 	for _, p := range []int{d.env.Cfg.Proxy.HTTPPort, d.env.Cfg.Proxy.HTTPSPort} {
 		if err := ports.Check(p); err != nil {
-			return fmt.Errorf("el proxy no puede abrir sus puertos: %w. Cierra ese programa o cambia [proxy] en clon.toml", err)
+			return fmt.Errorf("el proxy no puede abrir sus puertos: %w. Cierra ese programa o cambia [proxy] en nido.toml", err)
 		}
 	}
 	d.front = &proxy.Server{
@@ -454,7 +456,7 @@ func (d *Daemon) startProxy() error {
 // the proxy.
 func (d *Daemon) Rescan() error {
 	list, warns := sites.Scan(d.env.Cfg)
-	// Ports clon's own servers hold right now are not conflicts.
+	// Ports Nido's own servers hold right now are not conflicts.
 	own := map[string]map[int]bool{}
 	d.mu.Lock()
 	for _, s := range d.sites {
@@ -546,6 +548,7 @@ func (d *Daemon) UsePHP(want string) (versions.Version, error) {
 	if d.sup.PID(adminerService) != 0 {
 		d.setProblem("adminer", d.startAdminer(true)) // Adminer runs on the global PHP
 	}
+	d.setProblem("salud", d.startSalud(true)) // so does the health page
 	// A site that pinned the old or the new global version moves between pools.
 	if d.anyPinned() {
 		if err := d.Rescan(); err != nil {
@@ -619,7 +622,7 @@ func (d *Daemon) SyncHosts() error {
 	if err := config.WriteFileAtomic(list, []byte(strings.Join(names, "\r\n"))); err != nil {
 		return err
 	}
-	err = hosts.RequestElevated(d.env.Home.Path("clon.exe"), list)
+	err = hosts.RequestElevated(d.env.Home.Path("nido.exe"), list)
 	if err == nil {
 		d.startSiteProcesses() // Vite servers that were waiting for their site's line in hosts
 	}

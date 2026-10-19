@@ -23,7 +23,7 @@ var panelFiles embed.FS
 
 var panelPage = template.Must(template.ParseFS(panelFiles, "panel/index.html"))
 
-// Status is what the panel, the tray and `clon status` show.
+// Status is what the panel, the tray and `nido status` show.
 type Status struct {
 	Home           string               `json:"home"`
 	Roots          []string             `json:"roots"` // project folders, where new projects go
@@ -39,6 +39,7 @@ type Status struct {
 	FrankenPHPPHP  string               `json:"frankenphp_php"` // the PHP built into FrankenPHP
 	Adminer        string               `json:"adminer"`        // installed version ("" when not)
 	AdminerURL     string               `json:"adminer_url"`    // https://db.localhost
+	HealthURL      string               `json:"health_url"`     // https://salud.localhost
 	DB             string               `json:"db"`             // the default database, e.g. "MySQL 8.4.11"
 	DBPort         int                  `json:"db_port"`
 	Databases      []DBGroup            `json:"databases"`
@@ -72,7 +73,7 @@ func (d *Daemon) Status() Status {
 		CATrusted: d.CATrusted(), CACert: d.ca.CertPath(),
 		Services: d.sup.Statuses(), Jobs: d.Jobs(), Runtime: d.runtimeStatus(),
 	}
-	// The runtime can change outside clon ('clon vcredist install', a restart of Windows).
+	// The runtime can change outside Nido ('nido vcredist install', a restart of Windows).
 	d.setProblem("visual-c++", d.runtimeProblem())
 	if v, err := d.env.GlobalPHP(); err == nil {
 		st.PHP = v.Version
@@ -98,6 +99,9 @@ func (d *Daemon) Status() Status {
 	}
 	if v, ok := d.adminerVersion(); ok {
 		st.Adminer, st.AdminerURL = v.Version, d.AdminerURL()
+	}
+	if _, ok := d.saludRoute(); ok {
+		st.HealthURL = d.HealthURL()
 	}
 	if db, ok := d.env.DefaultDB(); ok {
 		st.DB, st.DBPort = db.Kind.Name()+" "+db.Version.Version, db.Instance.Port
@@ -151,7 +155,7 @@ func (d *Daemon) Handler() http.Handler {
 
 	api := func(pattern string, fn func(r *http.Request) (any, error)) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("X-Clon-Token") != d.token {
+			if r.Header.Get("X-Nido-Token") != d.token {
 				http.Error(w, "token no válido", http.StatusForbidden)
 				return
 			}

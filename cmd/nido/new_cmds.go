@@ -8,20 +8,20 @@ import (
 )
 
 const newUsage = `
-  clon new <nombre> [--kit react|vue|svelte|livewire|ninguno] [--db sqlite|mysql|mariadb|postgresql] [--carpeta <raíz>]
+  nido new <nombre> [--kit react|vue|svelte|livewire|ninguno] [--db sqlite|mysql|mariadb|postgresql] [--carpeta <raíz>]
            [--pnpm | --yarn]              proyecto Laravel nuevo en https://<nombre>.test, con su base de datos y .env
                                           (el frontend se instala con npm, o con pnpm o yarn, como 'laravel new')
-  clon new <nombre> --wordpress [--idioma es_ES] [--db mysql|mariadb]
+  nido new <nombre> --wordpress [--idioma es_ES] [--db mysql|mariadb]
                                           WordPress con WP-CLI: base de datos, wp-config.php y un usuario admin
-  clon new <nombre> --symfony [--webapp] [--db sqlite|mysql|mariadb|postgresql]
+  nido new <nombre> --symfony [--webapp] [--db sqlite|mysql|mariadb|postgresql]
                                           Symfony (symfony/skeleton; --webapp añade Twig, Doctrine, formularios…)
-  clon new <nombre> --git <url> [--rama <rama>] [--db …]
+  nido new <nombre> --git <url> [--rama <rama>] [--db …]
                                           clona un repositorio y lo prepara (Composer, .env, base de datos, Vite)
-  clon new <nombre> --receta <archivo> [--db …]
-                                          desde una plantilla propia de config\recetas ('clon recipe list')
+  nido new <nombre> --receta <archivo> [--db …]
+                                          desde una plantilla propia de config\recetas ('nido recipe list')
 `
 
-// cmdNew creates a project through the running clon, which owns the databases it needs.
+// cmdNew creates a project through the running Nido, which owns the databases it needs.
 func cmdNew(env *app.Env, args []string) error {
 	var p app.NewProject
 	for i := 0; i < len(args); i++ {
@@ -73,7 +73,7 @@ func cmdNew(env *app.Env, args []string) error {
 	}
 	c, err := app.Connect(env.Home.Root)
 	if err != nil {
-		return fmt.Errorf("clon no está corriendo: inícialo con 'clon run' (crea la base de datos del proyecto)")
+		return fmt.Errorf("Nido no está corriendo: inícialo con 'nido run' (crea la base de datos del proyecto)")
 	}
 	var j app.Job
 	if err := c.Call("POST", "/api/projects", p, &j); err != nil {

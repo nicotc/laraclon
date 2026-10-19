@@ -51,10 +51,10 @@ type Options struct {
 	Sites     []Site
 }
 
-// upstream turns a pool name into an nginx upstream name ("php-7-2-0" → "clon_php_7_2_0").
-func upstream(pool string) string { return "clon_" + strings.ReplaceAll(pool, "-", "_") }
+// upstream turns a pool name into an nginx upstream name ("php-7-2-0" → "nido_php_7_2_0").
+func upstream(pool string) string { return "nido_" + strings.ReplaceAll(pool, "-", "_") }
 
-var confTemplate = template.Must(template.New("nginx").Funcs(template.FuncMap{"q": strconv.Quote, "upstream": upstream}).Parse(`# Generado por clon el {{.Now}}. No lo edites: se regenera al cambiar sitios o versiones.
+var confTemplate = template.Must(template.New("nginx").Funcs(template.FuncMap{"q": strconv.Quote, "upstream": upstream}).Parse(`# Generado por Nido el {{.Now}}. No lo edites: se regenera al cambiar sitios o versiones.
 # nginx para Windows atiende con un solo proceso de trabajo.
 worker_processes 1;
 error_log {{q .ErrorLog}} warn;
@@ -87,7 +87,7 @@ http {
 {{range .Ports}}        server 127.0.0.1:{{.}} max_fails=0;
 {{end}}    }
 {{end}}
-    # Comprobación de salud de clon
+    # Comprobación de salud de Nido
     server {
         listen 127.0.0.1:{{.AdminPort}};
         location / { return 204; }
@@ -128,7 +128,7 @@ http {
 {{end}}}
 `))
 
-// Prefix is nginx's working folder inside clon: generated\nginx (config, temp files).
+// Prefix is nginx's working folder inside Nido: generated\nginx (config, temp files).
 func Prefix(home paths.Home) string { return home.Generated("nginx") }
 
 // ConfPath is the generated nginx.conf.
@@ -185,7 +185,7 @@ func Write(o Options) (string, error) {
 
 func exe(v versions.Version) string { return filepath.Join(v.Path, "nginx.exe") }
 
-// run executes nginx with clon's prefix and configuration plus extra arguments.
+// run executes nginx with Nido's prefix and configuration plus extra arguments.
 func run(home paths.Home, v versions.Version, args ...string) (string, error) {
 	all := append([]string{"-p", paths.Slash(Prefix(home)) + "/", "-c", paths.Slash(ConfPath(home))}, args...)
 	return procutil.Output(30*time.Second, v.Path, exe(v), all...)

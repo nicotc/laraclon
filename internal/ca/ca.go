@@ -1,4 +1,4 @@
-// Package ca is clon's local certificate authority. It signs a certificate per site on demand.
+// Package ca is Nido's local certificate authority. It signs a certificate per site on demand.
 // The CA key is stored encrypted with DPAPI, so only the Windows user who created it can use it.
 // Making browsers trust the CA is an explicit, separate step (Trust), confirmed by Windows itself.
 package ca
@@ -43,8 +43,8 @@ type Authority struct {
 	cache map[string]*tls.Certificate
 }
 
-func (a *Authority) CertPath() string { return filepath.Join(a.dir, "clon-ca.crt") }
-func (a *Authority) keyPath() string  { return filepath.Join(a.dir, "clon-ca.key.dpapi") }
+func (a *Authority) CertPath() string { return filepath.Join(a.dir, "nido-ca.crt") }
+func (a *Authority) keyPath() string  { return filepath.Join(a.dir, "nido-ca.key.dpapi") }
 func (a *Authority) CertPEM() []byte  { return a.certPEM }
 
 // LoadOrCreate opens the CA in dir, creating a new one the first time.
@@ -101,7 +101,7 @@ func (a *Authority) create() error {
 	ski := sha1.Sum(pub)
 	tmpl := &x509.Certificate{
 		SerialNumber:          randomSerial(),
-		Subject:               pkix.Name{CommonName: fmt.Sprintf("clon CA local (%s en %s)", owner, host), Organization: []string{"clon (desarrollo local)"}},
+		Subject:               pkix.Name{CommonName: fmt.Sprintf("Nido CA local (%s en %s)", owner, host), Organization: []string{"Nido (desarrollo local)"}},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().AddDate(10, 0, 0),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
@@ -182,7 +182,7 @@ func (a *Authority) issue(host string) (*tls.Certificate, error) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:   randomSerial(),
-		Subject:        pkix.Name{CommonName: host, Organization: []string{"clon (desarrollo local)"}},
+		Subject:        pkix.Name{CommonName: host, Organization: []string{"Nido (desarrollo local)"}},
 		NotBefore:      time.Now().Add(-time.Hour),
 		NotAfter:       time.Now().AddDate(1, 0, 0),
 		KeyUsage:       x509.KeyUsageDigitalSignature,
@@ -229,18 +229,18 @@ func (a *Authority) WriteBundle(mozillaPEM, out string) error {
 	if len(data) > 0 && data[len(data)-1] != '\n' {
 		data = append(data, '\n')
 	}
-	data = append(data, []byte("\n# clon CA local\n")...)
+	data = append(data, []byte("\n# Nido CA local\n")...)
 	data = append(data, a.certPEM...)
 	return config.WriteFileAtomic(out, data)
 }
 
 // Trusted reports whether Windows already trusts the CA (verifies a fresh leaf against the system roots).
 func (a *Authority) Trusted() bool {
-	c, err := a.issueEphemeral("clon-comprobacion.test")
+	c, err := a.issueEphemeral("nido-comprobacion.test")
 	if err != nil {
 		return false
 	}
-	_, err = c.Verify(x509.VerifyOptions{DNSName: "clon-comprobacion.test"})
+	_, err = c.Verify(x509.VerifyOptions{DNSName: "nido-comprobacion.test"})
 	return err == nil
 }
 
