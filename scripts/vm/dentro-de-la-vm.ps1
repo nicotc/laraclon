@@ -57,6 +57,30 @@ function Invoke-Curl([string]$arguments) {
     return $text.Trim()
 }
 
+# The panel's API with the session token of run\control.json. A refused action comes back as an
+# object with its error, like the panel shows it.
+function Invoke-NidoApi([string]$method, [string]$path, $body = $null) {
+    $c = Get-Content "$H\run\control.json" -Raw | ConvertFrom-Json
+    $req = @{ UseBasicParsing = $true; Method = $method; Uri = "http://127.0.0.1:$($c.port)$path"; Headers = @{ 'X-Nido-Token' = $c.token } }
+    if ($null -ne $body) {
+        $req.ContentType = 'application/json; charset=utf-8'
+        $req.Body = $utf8.GetBytes(($body | ConvertTo-Json -Compress))
+    }
+    try {
+        $r = Invoke-WebRequest @req
+        return ($utf8.GetString($r.RawContentStream.ToArray()) | ConvertFrom-Json)
+    } catch {
+        if (-not $_.ErrorDetails.Message) { throw }
+        return [pscustomobject]@{ error = ($_.ErrorDetails.Message | ConvertFrom-Json).error }
+    }
+}
+
+# Saves a configuration file the way the panel does: with the fingerprint it had when read.
+function Save-NidoFile([string]$key, [string]$content) {
+    $f = Invoke-NidoApi GET "/api/file?key=$([uri]::EscapeDataString($key))"
+    return Invoke-NidoApi POST '/api/file' @{ key = $key; content = $content; hash = [string]$f.hash }
+}
+
 Step 'Entorno de Windows' {
     # Windows and Edge updating themselves in the middle of a run made test machines die or restart
     # (Windows Sandbox: 0x80370106); a machine that goes back to a checkpoint needs neither.
@@ -434,6 +458,21 @@ Step 'Proyecto nuevo con nido new: kit de Vue, MySQL y pnpm' {
     "$((($out -split "`n") | Select-Object -Last 1).Trim())`nhttps://tienda-vue.test: HTTP $code con Inertia y assets de Vite · MySQL tienda_vue: $($tables.Trim()) tablas · pnpm-lock.yaml"
 }
 
+Step 'Proyecto nuevo con su entorno elegido: Nginx, PHP 8.3, base con usuario propio y datos sembrados' {
+    $out = Invoke-Tool $nido 'new entorno --servidor nginx --php 8.3 --base entorno_db --usuario-propio --sembrar' 2400
+    $dir = 'C:\nido\www\entorno'
+    $head = Invoke-Curl '--resolve entorno.test:443:127.0.0.1 -D - -o NUL https://entorno.test/'
+    $user = ((Get-Content "$dir\.env" | Where-Object { $_ -match '^DB_USERNAME=' }) -split '=', 2)[1]
+    $users = Invoke-Tool "$shims\mysql.exe" '-N -e "SELECT COUNT(*) FROM entorno_db.users"' 60
+    # Inside its folder, php is the site's PHP: the launchers learn about the new folder by themselves.
+    $php = Invoke-Tool "$shims\php.exe" '-r "echo PHP_VERSION;"' 60 $dir
+    $served = ([regex]'(?mi)^x-powered-by: PHP/(\S+)').Match($head).Groups[1].Value
+    if ($head -notmatch '(?m)^HTTP/\S+ 200' -or $head -notmatch '(?mi)^server: nginx' -or $served -notmatch '^8\.3\.' -or $user -ne 'entorno_db' -or [int]$users.Trim() -lt 1 -or $php -notmatch '^8\.3\.') {
+        throw "cabeceras:`n$head`nusuario de la base: $user · usuarios sembrados: $users · php en su carpeta: $php`n$out"
+    }
+    "$((($out -split "`n") | Select-Object -Last 2) -join "`n")`nhttps://entorno.test con Nginx y PHP $served · base entorno_db con su propio usuario · $($users.Trim()) usuario(s) sembrado(s) · php en su carpeta: $php"
+}
+
 Step 'Proyecto clonado de GitHub y preparado (nido new --git): Composer, .env, MySQL y Vite' {
     $out = Invoke-Tool $nido 'new demo-git --git https://github.com/laravel/laravel.git --db mysql' 2400
     $code = Invoke-Curl '--resolve demo-git.test:443:127.0.0.1 -o NUL -w %{http_code} https://demo-git.test/'
@@ -564,12 +603,61 @@ Step 'Node: líneas de nodejs.org, otra versión, yarn y pnpm (nido node)' {
     if (-not $v22) { throw "Node 22 no se instaló:`n$inst" }
     # A second Node does not replace the global one, and Nido deletes the folders it downloaded.
     if ((Invoke-Tool "$shims\node.exe" '-v' 60).Trim() -ne $global) { throw "el Node global cambió al instalar $v22" }
+    # Node per site: inside the folder of «entorno», node and npm's scripts run Node 22; elsewhere, the global one.
+    Invoke-Tool $nido 'site node entorno 22' 120 | Out-Null
+    $inside = (Invoke-Tool "$shims\node.exe" '-v' 60 'C:\nido\www\entorno').Trim()
+    $npmNode = Invoke-Tool "$shims\npm.exe" 'exec --yes -- node -v' 300 'C:\nido\www\entorno'
+    $outside = (Invoke-Tool "$shims\node.exe" '-v' 60 'C:\nido\www\laravel-demo').Trim()
+    Invoke-Tool $nido 'site node entorno global' 120 | Out-Null
+    if ($inside -ne "v$v22" -or $npmNode -notmatch [regex]::Escape("v$v22") -or $outside -ne $global) {
+        throw "Node por sitio: dentro de entorno $inside, sus scripts de npm $npmNode, en laravel-demo $outside (global $global)"
+    }
     Invoke-Tool $nido "node uninstall $v22" 120 | Out-Null
     if (Test-Path "$H\bin\node\$v22") { throw "quedó la carpeta de Node $v22" }
     Invoke-Tool $nido 'node install pnpm' 600 | Out-Null # the Vue project above may have installed it already
     $yarn = Invoke-Tool $nido 'node install yarn' 600
     $versions = "pnpm $((Invoke-Tool "$shims\pnpm.exe" '--version' 120).Trim()) · yarn $((Invoke-Tool "$shims\yarn.exe" '--version' 120).Trim())"
-    "$(($lines -split "`n" | Where-Object { $_ -match 'LTS|actual' }) -join ' |')`nNode $v22 instalado junto al global ($global) y borrado · $versions"
+    "$(($lines -split "`n" | Where-Object { $_ -match 'LTS|actual' }) -join ' |')`nNode $v22 instalado junto al global ($global), usado por entorno dentro de su carpeta ($inside) y borrado · $versions"
+}
+
+Step 'Ficha del sitio: cada archivo lo revisa su programa antes de aplicarse, y se deshace' {
+    $site = 'laravel-demo'
+    $dir = "C:\nido\www\$site"
+    $problems = @()
+    $files = @(Invoke-NidoApi GET "/api/files?scope=site:$site" | ForEach-Object { $_.key -replace "^site:${site}:", '' })
+    # A directive Apache does not know: refused with Apache's own words, and the file stays as it was.
+    $ht = Invoke-NidoApi GET "/api/file?key=site:${site}:htaccess"
+    $bad = Save-NidoFile "site:${site}:htaccess" ($ht.content + "`nEstoNoExiste on`n")
+    if ($bad.error -notmatch 'EstoNoExiste' -or (Invoke-NidoApi GET "/api/file?key=site:${site}:htaccess").hash -ne $ht.hash) { $problems += "un .htaccess roto: $($bad | ConvertTo-Json -Compress)" }
+    # The site's own Apache directives: applied without dropping requests, and undone.
+    $ok = Save-NidoFile "site:${site}:apache" "Header set X-Nido-Prueba si`n"
+    $with = Invoke-Curl "-D - -o NUL https://$site.test/"
+    Invoke-NidoApi POST '/api/file/undo' @{ key = "site:${site}:apache" } | Out-Null
+    $without = Invoke-Curl "-D - -o NUL https://$site.test/"
+    if ($ok.error -or $with -notmatch '(?mi)^x-nido-prueba: si' -or $without -match '(?mi)^x-nido-prueba') { $problems += "directivas de Apache: $($ok | ConvertTo-Json -Compress)" }
+    # PHP values for this site alone (.user.ini) and for every PHP of the global series (its php.ini).
+    [IO.File]::WriteAllText("$dir\public\nido-ini.php", '<?php echo ini_get("memory_limit"), " ", ini_get("max_input_time");', $utf8)
+    $series = ((Invoke-NidoApi GET '/api/status').php -split '\.')[0..1] -join '.'
+    $before = Invoke-Curl "https://$site.test/nido-ini.php"
+    $ui = Save-NidoFile "site:${site}:user-ini" "memory_limit = 300M`n"
+    $pi = Save-NidoFile "php:$series" "max_input_time = 61`n"
+    Start-Sleep -Seconds 2
+    $changed = Invoke-Curl "https://$site.test/nido-ini.php"
+    Invoke-NidoApi POST '/api/file/undo' @{ key = "site:${site}:user-ini" } | Out-Null
+    Invoke-NidoApi POST '/api/file/undo' @{ key = "php:$series" } | Out-Null
+    Start-Sleep -Seconds 2
+    $after = Invoke-Curl "https://$site.test/nido-ini.php"
+    Remove-Item "$dir\public\nido-ini.php"
+    if ($ui.error -or $pi.error -or $changed -ne '300M 61' -or $after -ne $before) { $problems += "valores de PHP: antes $before, con los cambios $changed, al deshacer $after $($ui.error) $($pi.error)" }
+    # MySQL checks the settings without starting, and restarts with them.
+    $myBad = Save-NidoFile 'service:mysql-8.4' "variable_inventada = 1`n"
+    $my = Save-NidoFile 'service:mysql-8.4' "max_connections = 321`n"
+    $conns = (Invoke-Tool "$shims\mysql.exe" '-N -e "SELECT @@max_connections"' 60).Trim()
+    Invoke-NidoApi POST '/api/file/undo' @{ key = 'service:mysql-8.4' } | Out-Null
+    $connsAfter = (Invoke-Tool "$shims\mysql.exe" '-N -e "SELECT @@max_connections"' 60).Trim()
+    if ($myBad.error -notmatch 'variable_inventada' -or $my.error -or $conns -ne '321' -or $connsAfter -eq '321') { $problems += "my.ini: rechazo $($myBad.error) · guardado $($my.error) · max_connections $conns y luego $connsAfter" }
+    if ($problems) { throw ($problems -join "`n") }
+    "archivos de $site`: $($files -join ', ')`n.htaccess roto rechazado: $($bad.error -replace "`n", ' ')`ncabecera propia de Apache aplicada y deshecha · PHP: $before -> $changed -> $after · MySQL 8.4: max_connections $conns, deshecho a $connsAfter"
 }
 
 # The whole environment at the end of the run, the way the health page sees it: every service in
@@ -588,7 +676,10 @@ Step 'Página de salud en https://salud.localhost: PHP, servicios y la base de c
         throw "página: $($html -match 'Salud del entorno'), PHP $($r.php.version), MySQL OK: $($mysql.Count), laravel-demo.test: $($site.estado) $($site.detalle)`n$($bad -join "`n")"
     }
     if (-not $r.ok -or $code -ne '200') { throw "HTTP $code con $($bad.Count) fallo(s):`n$($bad -join "`n")" }
-    "HTTP $code · $($r.resumen.ok) de $($r.resumen.total) OK · PHP $($r.php.version)`n" +
+    # Nido runs the same check by itself every minute, for its «Salud» tab and the tray.
+    $own = (Invoke-NidoApi GET '/api/status').health
+    if (-not $own -or -not $own.checked -or $own.resumen.total -lt 1) { throw "Nido no tiene su propia comprobación de salud: $($own | ConvertTo-Json -Compress)" }
+    "HTTP $code · $($r.resumen.ok) de $($r.resumen.total) OK · PHP $($r.php.version) · Nido solo: $($own.resumen.ok) de $($own.resumen.total) OK`n" +
     ((@($r.servicios) | ForEach-Object { "$($_.servicio): $($_.estado) · $($_.detalle)" }) -join "`n") + "`n" +
     ((@($r.sitios) | Where-Object { $_.estado -ne 'sin-bd' } | ForEach-Object { "$($_.sitio): $($_.estado) · $($_.bd)" }) -join "`n")
 }
