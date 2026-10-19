@@ -34,6 +34,7 @@ type phpPool struct {
 	Version versions.Version
 	Ports   []int
 	Global  bool
+	Debug   bool // runs with Xdebug, for the sites being debugged
 	Sites   int
 }
 
@@ -41,11 +42,20 @@ type phpPool struct {
 type PoolStatus struct {
 	Version string `json:"version"`
 	Global  bool   `json:"global"`
+	Debug   bool   `json:"debug,omitempty"`
 	Ports   []int  `json:"ports"`
 	Sites   int    `json:"sites"`
 }
 
-func poolName(version string) string { return "php-" + strings.ReplaceAll(version, ".", "-") }
+// poolKey names a pool apart from the global one: its version, and "-debug" with Xdebug.
+func poolKey(version string, debug bool) string {
+	if debug {
+		return version + "-debug"
+	}
+	return version
+}
+
+func poolName(key string) string { return "php-" + strings.ReplaceAll(key, ".", "-") }
 
 // poolStore keeps the ports of each pinned version stable across restarts (state\php-pools.json).
 type poolStore struct {
@@ -119,17 +129,17 @@ func (s *poolStore) assign(version string, from, to int, own map[int]bool) ([]in
 
 // forget drops the blocks of versions that are no longer installed.
 func (s *poolStore) forget(installed map[string]bool) {
-	for v := range s.Ports {
-		if !installed[v] {
-			delete(s.Ports, v)
+	for key := range s.Ports {
+		if !installed[strings.TrimSuffix(key, "-debug")] {
+			delete(s.Ports, key)
 		}
 	}
 }
 
 // planPools decides which pool serves each site and returns the pools, the global one first. Sites
-// served by Apache or Nginx go to the global pool unless they pinned another installed version;
-// FrankenPHP brings its own PHP. It fills in Site.Pool and Site.PHPVersion and returns a note for
-// every pin it cannot honour.
+// served by Apache or Nginx go to the global pool unless they pinned another installed version or
+// are being debugged (a pool of their version with Xdebug); FrankenPHP brings its own PHP. It fills
+// in Site.Pool and Site.PHPVersion and returns a note for every wish it cannot honour.
 func planPools(list []sites.Site, reg *versions.Registry, global versions.Version, globalPorts []int,
 	store *poolStore, from, to int, own map[int]bool) ([]phpPool, []sites.Warning) {
 	pools := []phpPool{{Name: apache.GlobalPool, Version: global, Ports: globalPorts, Global: true}}
@@ -146,29 +156,30 @@ func planPools(list []sites.Site, reg *versions.Registry, global versions.Versio
 		if s.Server == config.ServerFrankenPHP {
 			continue
 		}
-		s.Pool, s.PHPVersion = apache.GlobalPool, global.Version
-		target := 0
+		v := global
 		if s.PHP != "" {
-			v, ok := reg.Find(versions.PHP, s.PHP)
-			switch {
-			case !ok:
+			if pinned, ok := reg.Find(versions.PHP, s.PHP); ok {
+				v = pinned
+			} else {
 				notes = append(notes, sites.Warning{Folder: s.Folder, Reason: fmt.Sprintf("%s fija PHP %s, que no está instalado; usa el PHP global", s.Host, s.PHP)})
-			case v.Version == global.Version:
-				// The global PHP already is that version.
-			default:
-				idx, seen := index[v.Version]
-				if !seen {
-					ports, err := store.assign(v.Version, from, to, own)
-					if err != nil {
-						notes = append(notes, sites.Warning{Folder: s.Folder, Reason: err.Error()})
-						break
-					}
-					pools = append(pools, phpPool{Name: poolName(v.Version), Version: v, Ports: ports})
-					idx = len(pools) - 1
-					index[v.Version] = idx
-				}
-				target = idx
 			}
+		}
+		target := 0
+		// The global pool already is that version, without Xdebug.
+		if v.Version != "" && (s.Debug || v.Version != global.Version) {
+			key := poolKey(v.Version, s.Debug)
+			idx, seen := index[key]
+			if !seen {
+				if ports, err := store.assign(key, from, to, own); err != nil {
+					notes = append(notes, sites.Warning{Folder: s.Folder, Reason: err.Error()})
+					idx = 0
+				} else {
+					pools = append(pools, phpPool{Name: poolName(key), Version: v, Ports: ports, Debug: s.Debug})
+					idx = len(pools) - 1
+					index[key] = idx
+				}
+			}
+			target = idx
 		}
 		pools[target].Sites++
 		s.Pool, s.PHPVersion = pools[target].Name, pools[target].Version.Version
@@ -217,14 +228,16 @@ func (d *Daemon) startPinnedPools(pools []phpPool) error {
 		if p.Global {
 			continue
 		}
-		ini, err := php.WriteIni(d.env.Home, p.Version, d.env.IniOptions())
+		opts := d.env.IniOptions()
+		opts.Debug = p.Debug
+		ini, err := php.WriteIni(d.env.Home, p.Version, opts)
 		if err != nil {
 			errs = append(errs, err.Error())
 			continue
 		}
 		for _, spec := range php.PoolSpecs(d.env.Home, p.Version, ini, p.Ports) {
 			if d.sup.PID(spec.Name) != 0 {
-				if d.poolVersionOn(spec.Port) == p.Version.Version {
+				if d.poolVersionOn(spec.Port) == p.Name {
 					continue
 				}
 				d.sup.Stop(spec.Name) // the port changed hands
@@ -239,7 +252,7 @@ func (d *Daemon) startPinnedPools(pools []phpPool) error {
 				continue
 			}
 			d.mu.Lock()
-			d.poolPortVersion[spec.Port] = p.Version.Version
+			d.poolPortVersion[spec.Port] = p.Name
 			d.mu.Unlock()
 			started = append(started, spec.Name)
 		}
@@ -311,7 +324,7 @@ func (d *Daemon) poolStatuses() []PoolStatus {
 	pools := d.currentPools()
 	var out []PoolStatus
 	for _, p := range pools {
-		out = append(out, PoolStatus{Version: p.Version.Version, Global: p.Global, Ports: p.Ports, Sites: p.Sites})
+		out = append(out, PoolStatus{Version: p.Version.Version, Global: p.Global, Debug: p.Debug, Ports: p.Ports, Sites: p.Sites})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Global != out[j].Global {
@@ -366,6 +379,43 @@ func (d *Daemon) SetSitePHP(site, want string) error {
 	d.refreshShims()
 	err = d.Rescan()
 	d.restartPHPProcesses()
+	d.changed()
+	return err
+}
+
+// SetSiteDebug runs a site with Xdebug (a pool of its PHP version with Xdebug, while the other
+// sites stay fast without it), downloading Xdebug for that version when it lacks it.
+func (d *Daemon) SetSiteDebug(site string, on bool) error {
+	s, err := d.findSite(site)
+	if err != nil {
+		return err
+	}
+	if on {
+		if s.Server == config.ServerFrankenPHP {
+			return fmt.Errorf("%s usa FrankenPHP, que trae su propio PHP sin Xdebug; pásalo a Apache o Nginx para depurarlo", s.Host)
+		}
+		v, err := d.sitePHP(s)
+		if err != nil {
+			return err
+		}
+		if !php.HasXdebug(d.env.Home, v) {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			err := d.env.DownloadExtension(ctx, v, "xdebug")
+			cancel()
+			if err != nil {
+				return fmt.Errorf("no se pudo descargar Xdebug para PHP %s: %w", v.Version, err)
+			}
+		}
+	}
+	d.cfgMu.Lock()
+	d.env.Cfg.SetSiteDebug(s.Name, on)
+	err = d.env.SaveConfig()
+	d.cfgMu.Unlock()
+	if err != nil {
+		return err
+	}
+	d.refreshShims() // phpx
+	err = d.Rescan()
 	d.changed()
 	return err
 }

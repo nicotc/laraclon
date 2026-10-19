@@ -183,6 +183,14 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 		if fileExists(phar) {
 			targets["composer"] = composerT
 		}
+		// phpx: the global PHP with Xdebug waiting for the editor, for Artisan and tests.
+		if php.HasXdebug(e.Home, v) {
+			opts := e.IniOptions()
+			opts.Debug = true
+			if dini, err := php.WriteIni(e.Home, v, opts); err == nil {
+				targets["phpx"] = shims.Target{Exe: phpExe, Args: []string{"-c", dini}, ForceEnv: phpEnv(dini)}
+			}
+		}
 	}
 
 	if v, err := e.GlobalNode(); err == nil {

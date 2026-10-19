@@ -240,7 +240,12 @@ function phpPicker(site) {
     ...versions.map(v => el('option', { value: v, selected: site.php === v },
       v === site.php && site.php_version && site.php_version !== v ? `${v} (${site.php_version})` : v)));
   sel.addEventListener('change', () => act('POST', '/api/sites/php', { site: site.name, php: sel.value }));
-  return sel;
+  // Xdebug for this site alone; clon fetches it for that PHP when it lacks it.
+  const key = 'debug-' + site.name;
+  const debug = el('button', { class: 'proc' + (site.debug ? ' on running' : ''), disabled: !!ui.pending[key],
+    title: site.debug ? 'Con Xdebug: cada petición se conecta al editor en 127.0.0.1:9003 (clic para quitarlo)' : 'Depurar este sitio con Xdebug',
+    onclick: () => act('POST', '/api/sites/debug', { site: site.name, on: !site.debug }, key) }, 'Xdebug');
+  return el('div', { class: 'procs' }, sel, debug);
 }
 
 // ---------- servicios ----------
@@ -325,9 +330,10 @@ function phpBars(s) {
     el('span', { class: 'spacer' }),
     el('a', { href: '#php', onclick: e => { e.preventDefault(); showTab('php'); } }, 'Cambiar versión en «PHP y Node» →'))];
   for (const p of pools.filter(p => !p.global)) {
+    const who = p.sites === 1 ? '1 sitio' : p.sites + ' sitios';
     bars.push(el('div', { class: 'phpbar' },
       statePill(label(procs(p))),
-      el('span', {}, el('b', {}, 'PHP ' + p.version), ` fijado por ${p.sites === 1 ? '1 sitio' : p.sites + ' sitios'} · ${p.ports.length} procesos `, el('span', { class: 'mono' }, 'php-cgi'), range(p)),
+      el('span', {}, el('b', {}, 'PHP ' + p.version + (p.debug ? ' con Xdebug' : '')), (p.debug ? ` para ${who} en depuración` : ` fijado por ${who}`) + ` · ${p.ports.length} procesos `, el('span', { class: 'mono' }, 'php-cgi'), range(p)),
       el('span', { class: 'spacer' }),
       el('a', { href: '#sitios', onclick: e => { e.preventDefault(); showTab('sitios'); } }, 'Cambiarlo en «Sitios» →')));
   }

@@ -36,6 +36,24 @@ type IniOptions struct {
 	Extensions map[string]config.PHPExtensions
 	// Builtin marks a PHP that carries its extensions inside (FrankenPHP's): no DLLs are loaded.
 	Builtin bool
+	// Debug writes the php.ini of the version's debugging pool and of phpx: Xdebug loaded and waiting
+	// for the editor on 127.0.0.1:9003. It lives next to the normal one (<version>-debug).
+	Debug bool
+}
+
+// DebugIniPath is where the php.ini with Xdebug of a version lives.
+func DebugIniPath(home paths.Home, v versions.Version) string {
+	return home.Generated("php", v.Version+"-debug", "php.ini")
+}
+
+// HasXdebug reports whether Xdebug is available to a PHP version (in its folder or downloaded).
+func HasXdebug(home paths.Home, v versions.Version) bool {
+	for _, x := range Extensions(home, v, config.PHPExtensions{}) {
+		if x.Name == "xdebug" {
+			return true
+		}
+	}
+	return false
 }
 
 // ExtDir is where clon keeps the extensions it downloads for a PHP series and thread safety
@@ -161,7 +179,11 @@ func WriteIni(home paths.Home, v versions.Version, opt IniOptions) (string, erro
 
 	if !opt.Builtin {
 		extDir := filepath.Join(v.Path, "ext")
+		debugReady := false
 		for _, e := range loadOrder(Extensions(home, v, opt.Extensions[versions.MajorMinor(v.Version)])) {
+			if opt.Debug && e.Name == "xdebug" {
+				e.Enabled, debugReady = true, true
+			}
 			if !e.Enabled || (e.Name == "gd2" && hasExtension(v, "gd")) {
 				continue
 			}
@@ -175,11 +197,24 @@ func WriteIni(home paths.Home, v versions.Version, opt IniOptions) (string, erro
 				set("extension", value)
 			}
 		}
+		if opt.Debug && !debugReady {
+			return "", fmt.Errorf("PHP %s no tiene Xdebug: actívalo en «Extensiones de PHP» o con 'clon php ext on xdebug %s'", v.Version, versions.MajorMinor(v.Version))
+		}
 	}
 	set("opcache.enable", "1")
 	set("opcache.enable_cli", "0")
 	set("opcache.validate_timestamps", "1")
 	set("opcache.revalidate_freq", "0")
+	if opt.Debug {
+		// Every request starts a debugging session with the editor listening on 9003 (VS Code,
+		// PhpStorm); without one listening, PHP goes on after a short timeout.
+		set("xdebug.mode", "debug,develop")
+		set("xdebug.start_with_request", "yes")
+		set("xdebug.client_host", "127.0.0.1")
+		set("xdebug.client_port", "9003")
+		set("xdebug.connect_timeout_ms", "200")
+		set("xdebug.log_level", "0")
+	}
 
 	for _, extra := range []string{home.Config("php", "all.ini"), home.Config("php", versions.MajorMinor(v.Version)+".ini")} {
 		if data, err := os.ReadFile(extra); err == nil {
@@ -190,6 +225,9 @@ func WriteIni(home paths.Home, v versions.Version, opt IniOptions) (string, erro
 	}
 
 	out := IniPath(home, v)
+	if opt.Debug {
+		out = DebugIniPath(home, v)
+	}
 	if err := config.WriteFileAtomic(out, []byte(b.String())); err != nil {
 		return "", err
 	}

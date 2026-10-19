@@ -352,6 +352,20 @@ Step 'Extensiones de PHP: Xdebug descargado y soap incluida (clon php ext)' {
     "web y terminal con Xdebug y soap ($($dll.FullName.Substring($H.Length + 1)), $([math]::Round($dll.Length / 1KB)) KB); apagadas otra vez: $($after | ConvertTo-Json -Compress)"
 }
 
+Step 'Xdebug solo en demo.test, y phpx en la terminal (clon site debug)' {
+    # ext.php is the page the extensions step left in demo.
+    Invoke-Tool $clon 'site debug demo on' 300 | Out-Null
+    $demo = (Invoke-Curl 'https://demo.test/ext.php') | ConvertFrom-Json
+    $other = Invoke-Tool "$shims\php.exe" '-r "echo extension_loaded(''xdebug'') ? ''con'' : ''sin'';"' 60
+    $phpx = Invoke-Tool "$shims\phpx.exe" '-r "echo extension_loaded(''xdebug'') ? ''con'' : ''sin'';"' 60
+    Invoke-Tool $clon 'site debug demo off' 120 | Out-Null
+    $after = (Invoke-Curl 'https://demo.test/ext.php') | ConvertFrom-Json
+    if (-not $demo.xdebug -or $after.xdebug -or $phpx.Trim() -ne 'con' -or $other.Trim() -ne 'sin') {
+        throw "demo con Xdebug: $($demo.xdebug), después: $($after.xdebug); phpx $phpx Xdebug; php $other Xdebug"
+    }
+    "demo.test con Xdebug mientras se depura y sin él después · terminal: phpx con Xdebug, php sin él"
+}
+
 Step 'Adminer en https://db.localhost: entra como root sin contraseña y ve laravel_demo' {
     Invoke-Tool $clon 'service install adminer latest' 300 | Out-Null
     $jar = Join-Path $env:TEMP 'adminer-cookies.txt'

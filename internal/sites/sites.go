@@ -31,10 +31,11 @@ type Site struct {
 	Kind    string   `json:"kind"`     // laravel, wordpress, symfony, php, static
 	Aliases []string `json:"aliases,omitempty"`
 	HTTPS   bool     `json:"https"`
-	Server  string   `json:"server"`         // apache, nginx, frankenphp
-	PHP     string   `json:"php,omitempty"`  // PHP version the site pinned ("" = the global one)
-	Vite    bool     `json:"vite,omitempty"` // has a Vite config and package.json (npm run dev)
-	Port    int      `json:"port"`           // internal port on its web server
+	Server  string   `json:"server"`          // apache, nginx, frankenphp
+	PHP     string   `json:"php,omitempty"`   // PHP version the site pinned ("" = the global one)
+	Vite    bool     `json:"vite,omitempty"`  // has a Vite config and package.json (npm run dev)
+	Debug   bool     `json:"debug,omitempty"` // runs with Xdebug
+	Port    int      `json:"port"`            // internal port on its web server
 
 	// Filled in by clon when it plans the PHP pools.
 	PHPVersion string `json:"php_version,omitempty"` // the PHP that serves the site
@@ -167,6 +168,7 @@ func Scan(cfg config.Config) ([]Site, []Warning) {
 				Server:  cfg.ServerFor(name),
 				PHP:     settings.PHP,
 				Vite:    hasVite(folder),
+				Debug:   settings.Debug,
 			})
 		}
 	}

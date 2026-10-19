@@ -76,7 +76,7 @@ type Daemon struct {
 	runtimeAt       time.Time
 	pools           []phpPool      // the global PHP pool first, then one per pinned version
 	poolPorts       *poolStore     // ports of the pinned versions
-	poolPortVersion map[int]string // PHP version each pinned pool port runs
+	poolPortVersion map[int]string // pool each pinned pool port runs ("php-7-2-0", "php-8-4-16-debug")
 
 	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
 	cfgMu sync.Mutex

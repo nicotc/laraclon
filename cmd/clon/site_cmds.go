@@ -15,11 +15,28 @@ const siteUsage = `
   clon site server <sitio> apache|nginx|frankenphp   servidor web de un sitio (la dirección .test no cambia)
   clon site php <sitio> <versión>|global             PHP propio para un proyecto antiguo, o vuelta al global
   clon site proc <sitio> vite|queue|schedule on|off  npm run dev (con HTTPS), queue:work o schedule:work del proyecto
+  clon site debug <sitio> on|off                     Xdebug solo para ese sitio (el editor escucha en el 9003)
 `
 
 func cmdSite(env *app.Env, args []string) error {
 	if len(args) == 4 && args[0] == "proc" {
 		return cmdSiteProc(env, args[1], strings.ToLower(args[2]), args[3])
+	}
+	if len(args) == 3 && args[0] == "debug" {
+		on := args[2] == "on" || args[2] == "si" || args[2] == "sí"
+		c, err := app.Connect(env.Home.Root)
+		if err != nil {
+			return fmt.Errorf("clon no está corriendo: inícialo con 'clon run'")
+		}
+		if err := c.Call("POST", "/api/sites/debug", map[string]any{"site": args[1], "on": on}, nil); err != nil {
+			return err
+		}
+		if on {
+			fmt.Printf("%s corre con Xdebug: cada petición se conecta al editor en 127.0.0.1:9003. Para la terminal, usa phpx.\n", args[1])
+		} else {
+			fmt.Printf("%s vuelve a correr sin Xdebug\n", args[1])
+		}
+		return nil
 	}
 	if len(args) != 3 || (args[0] != "server" && args[0] != "php") {
 		return fmt.Errorf("uso:%s", siteUsage)

@@ -64,13 +64,8 @@ func (e *Env) SetPHPExtension(ctx context.Context, v versions.Version, name stri
 		return nil
 	}
 	if !ok {
-		ts := v.ThreadSafe != nil && *v.ThreadSafe
-		rel, err := install.FindPHPExtension(ctx, e.Home, name, series, ts)
-		if err != nil {
+		if err := e.DownloadExtension(ctx, v, name); err != nil {
 			return err
-		}
-		if _, err := install.InstallPHPExtension(ctx, e.Home, rel, php.ExtDir(e.Home, v)); err != nil {
-			return fmt.Errorf("%s %s: %w", name, rel.Version, err)
 		}
 		if ext, ok = find(); !ok {
 			return fmt.Errorf("PHP %s no encuentra la extensión %s", v.Version, name)
@@ -98,6 +93,20 @@ func (e *Env) SetPHPExtension(ctx context.Context, v versions.Version, name stri
 		return err
 	}
 	return e.SaveConfig()
+}
+
+// DownloadExtension fetches the build of an extension for a PHP version into clon's folder, without
+// switching it on.
+func (e *Env) DownloadExtension(ctx context.Context, v versions.Version, name string) error {
+	ts := v.ThreadSafe != nil && *v.ThreadSafe
+	rel, err := install.FindPHPExtension(ctx, e.Home, name, versions.MajorMinor(v.Version), ts)
+	if err != nil {
+		return err
+	}
+	if _, err := install.InstallPHPExtension(ctx, e.Home, rel, php.ExtDir(e.Home, v)); err != nil {
+		return fmt.Errorf("%s %s: %w", name, rel.Version, err)
+	}
+	return nil
 }
 
 // loadedNames maps extensions whose name inside PHP differs from their DLL.

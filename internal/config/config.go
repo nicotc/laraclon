@@ -173,10 +173,18 @@ type SiteSettings struct {
 	PHP string `toml:"php,omitempty"`
 	// Processes start with clon's services: "vite" (npm run dev), "queue", "schedule".
 	Processes []string `toml:"processes,omitempty"`
+	// Debug sends the site to a pool of its PHP with Xdebug; the other sites stay without it.
+	Debug bool `toml:"debug,omitempty"`
 }
 
 func (s SiteSettings) empty() bool {
-	return len(s.Aliases) == 0 && s.PublicDir == "" && s.HTTPS == nil && !s.Ignore && s.Server == "" && s.PHP == "" && len(s.Processes) == 0
+	return len(s.Aliases) == 0 && s.PublicDir == "" && s.HTTPS == nil && !s.Ignore && s.Server == "" && s.PHP == "" &&
+		len(s.Processes) == 0 && !s.Debug
+}
+
+// SetSiteDebug turns Xdebug on or off for one site.
+func (c *Config) SetSiteDebug(site string, on bool) {
+	c.updateSite(site, func(s *SiteSettings) { s.Debug = on })
 }
 
 // SetSiteProcess marks whether a project process starts with clon's services.

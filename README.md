@@ -17,6 +17,10 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
   - clon escribe también `VITE_DEV_SERVER_KEY` y `VITE_DEV_SERVER_CERT` en el `.env`, así `npm run dev` en una terminal también sirve HTTPS. Al apagar Vite, clon borra `public/hot`.
   - Vite necesita que el sitio esté en el archivo `hosts`; si falta, clon lo avisa y lo arranca al actualizar `hosts`.
   - La cola y las tareas usan el PHP del sitio (el fijado o el global) y se reinician al cambiarlo.
+- **Xdebug por sitio:** botón «Xdebug» junto al PHP del sitio, o `clon site debug tienda on`.
+  - Ese sitio pasa a un grupo de `php-cgi` de su versión con Xdebug, que se conecta al editor (VS Code, PhpStorm) en 127.0.0.1:9003. Los demás siguen igual de rápidos, sin Xdebug.
+  - Si a esa versión le falta Xdebug, clon lo descarga.
+  - `phpx` es el PHP global con Xdebug, para depurar Artisan y los tests desde la terminal; `php` sigue sin él.
 - **Sitios `.test` automáticos con HTTPS.**
   - Cada carpeta de tus raíces de proyectos se publica como `https://<carpeta>.test`.
   - Las carpetas nuevas aparecen solas, sin cortar Apache.
@@ -139,6 +143,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon site server tienda nginx` · `frankenphp` · `apache` | Servidor web de un sitio |
 | `clon site php tienda 7.2` · `global` | PHP propio para un proyecto antiguo, o vuelta al global |
 | `clon site proc tienda vite\|queue\|schedule on\|off` | Procesos del proyecto: Vite con HTTPS, cola y tareas programadas |
+| `clon site debug tienda on\|off` · `phpx` | Xdebug solo para ese sitio · PHP con Xdebug en la terminal |
 | `clon service install nginx latest` · `frankenphp 1.13` | Instala un servidor web desde el catálogo |
 | `clon service install adminer latest` | Adminer en `https://db.localhost` |
 | `clon ca status` · `trust` · `untrust` | CA local para HTTPS |
@@ -164,6 +169,7 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - Extensiones de PHP: Xdebug descargado y soap, activadas y apagadas.
 - Adminer en `https://db.localhost`, con entrada sin contraseña en MySQL.
 - Proyecto nuevo con `clon new` (kit de Vue y MySQL) y los procesos de otro: Vite por HTTPS, cola y tareas.
+- Xdebug solo en un sitio, y `phpx` en la terminal.
 - Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
 - Edge sin avisos, cambio de PHP y cierre.
 
@@ -224,6 +230,10 @@ En Windows 11, junto a Laragon y en puertos alternativos:
   - La cola de un proyecto con PostgreSQL procesa un job en 30 ms, y el programador corre cada minuto. Ambos se detienen y vuelven con «Detener todo» e «Iniciar todo».
   - Vite+ 0.3 sirve HTTPS con el certificado de clon, y `public/hot` desaparece al apagarlo.
   - Probado: una opción `--host` haría que la página cargara Vite desde `127.0.0.1`, que el certificado no cubre; por eso clon no la usa.
+- **Xdebug por sitio:**
+  - El sitio depurado carga Xdebug y los demás no.
+  - Sin editor escuchando, la página responde en 0,25 s; con uno en el 9003, Xdebug se conecta y le envía el `init` de DBGp con la ruta del script.
+  - Para PHP 7.2, que no tiene Xdebug publicado, clon lo explica en vez de fallar a medias.
 
 En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 pasos de `probar-en-sandbox.ps1`:
 

@@ -62,6 +62,37 @@ func TestWriteIniLoadsTheChosenExtensionsInOrder(t *testing.T) {
 	}
 }
 
+func TestDebugIniLoadsXdebugApart(t *testing.T) {
+	home := paths.Home{Root: t.TempDir()}
+	ts := true
+	v := versions.Version{Component: versions.PHP, Version: "8.4.16", Path: t.TempDir(), ThreadSafe: &ts}
+	os.MkdirAll(filepath.Join(v.Path, "ext"), 0o755)
+	os.WriteFile(filepath.Join(v.Path, "ext", "php_opcache.dll"), nil, 0o644)
+	if _, err := WriteIni(home, v, IniOptions{Debug: true}); err == nil {
+		t.Fatal("without Xdebug, the debug php.ini cannot be written")
+	}
+	os.MkdirAll(ExtDir(home, v), 0o755)
+	os.WriteFile(filepath.Join(ExtDir(home, v), "php_xdebug.dll"), nil, 0o644)
+	if !HasXdebug(home, v) {
+		t.Fatal("the downloaded Xdebug must be seen")
+	}
+	normal, _ := WriteIni(home, v, IniOptions{})
+	debug, err := WriteIni(home, v, IniOptions{Debug: true})
+	if err != nil || normal == debug || debug != DebugIniPath(home, v) {
+		t.Fatalf("normal %s, debug %s, %v", normal, debug, err)
+	}
+	n, _ := os.ReadFile(normal)
+	d, _ := os.ReadFile(debug)
+	if strings.Contains(string(n), "php_xdebug.dll") || strings.Contains(string(n), "xdebug.mode") {
+		t.Error("the normal php.ini stays without Xdebug")
+	}
+	for _, want := range []string{"php_xdebug.dll", "xdebug.mode = debug,develop", "xdebug.start_with_request = yes", "xdebug.client_port = 9003"} {
+		if !strings.Contains(string(d), want) {
+			t.Errorf("the debug php.ini lacks %q", want)
+		}
+	}
+}
+
 func TestExtensionsListsWhereEachOneComesFrom(t *testing.T) {
 	home := paths.Home{Root: t.TempDir()}
 	v := versions.Version{Component: versions.PHP, Version: "8.3.12", Path: t.TempDir()}

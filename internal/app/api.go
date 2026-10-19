@@ -257,6 +257,17 @@ func (d *Daemon) Handler() http.Handler {
 		err := d.SetSitePHP(req.Site, req.PHP)
 		return d.Status(), err
 	})
+	api("POST /api/sites/debug", func(r *http.Request) (any, error) {
+		var req struct {
+			Site string
+			On   bool
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		err := d.SetSiteDebug(req.Site, req.On)
+		return d.Status(), err
+	})
 	api("POST /api/sites/process", func(r *http.Request) (any, error) {
 		var req struct {
 			Site, ID string

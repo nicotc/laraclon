@@ -10,6 +10,40 @@ import (
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
+func TestDebuggedSitesGetAPoolWithXdebug(t *testing.T) {
+	reg := &versions.Registry{}
+	for _, v := range []string{"8.4.16", "7.2.0"} {
+		reg.Add(versions.Version{Component: versions.PHP, Version: v})
+	}
+	global, _ := reg.Find(versions.PHP, "8.4")
+	store, _ := loadPoolStore(filepath.Join(t.TempDir(), "php-pools.json"))
+	list := []sites.Site{
+		{Name: "app", Server: config.ServerApache},
+		{Name: "depurar", Server: config.ServerApache, Debug: true},           // global version, with Xdebug
+		{Name: "otro", Server: config.ServerNginx, Debug: true},               // shares that pool
+		{Name: "viejo", Server: config.ServerApache, PHP: "7.2", Debug: true}, // pinned and debugged
+	}
+	pools, notes := planPools(list, reg, global, []int{9100}, store, 49300, 49399, nil)
+	if len(notes) != 0 {
+		t.Fatalf("notes: %v", notes)
+	}
+	got := map[string]string{}
+	for _, s := range list {
+		got[s.Name] = s.Pool
+	}
+	want := map[string]string{"app": "php", "depurar": "php-8-4-16-debug", "otro": "php-8-4-16-debug", "viejo": "php-7-2-0-debug"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if len(pools) != 3 || !pools[1].Debug || pools[1].Sites != 2 || pools[1].Version.Version != "8.4.16" || !pools[2].Debug {
+		t.Fatalf("pools %+v", pools)
+	}
+	// The debug pools keep their ports, apart from the plain pool of the same version.
+	if store.Ports["8.4.16-debug"] == 0 || store.Ports["7.2.0-debug"] == 0 {
+		t.Fatalf("store %v", store.Ports)
+	}
+}
+
 func TestPinnedSitesGetAPoolOfTheirVersion(t *testing.T) {
 	reg := &versions.Registry{}
 	for _, v := range []string{"8.4.16", "8.3.12", "7.2.0"} {
