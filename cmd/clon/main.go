@@ -51,7 +51,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		fmt.Print(usage + apacheUsage + daemonUsage + siteUsage + serviceUsage + mysqlUsage)
+		fmt.Print(usage + newUsage + apacheUsage + daemonUsage + siteUsage + serviceUsage + mysqlUsage)
 		return nil
 	}
 	// The elevated helper only rewrites clon's block in the hosts file; it touches nothing else.
@@ -88,6 +88,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdServices(env, args[1:])
 	case "site":
 		return cmdSite(env, args[1:])
+	case "new":
+		return cmdNew(env, args[1:])
 	case "version":
 		fmt.Println("clon 0.1.0 (fase 1) · instalación:", env.Home.Root)
 		return nil

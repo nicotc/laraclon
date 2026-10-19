@@ -50,7 +50,9 @@
       <input id="filter" type="search" placeholder="Filtrar sitios…">
       <span class="spacer"></span>
       <button data-action="rescan" class="secondary">Buscar sitios</button>
+      <button id="new-project">＋ Nuevo proyecto</button>
     </div>
+    <div id="project-jobs"></div>
     <table class="sites">
       <thead><tr><th>Sitio</th><th>Tipo</th><th>Servidor</th><th>PHP</th><th>Carpeta</th><th>Puerto interno</th></tr></thead>
       <tbody id="sites"></tbody>
@@ -94,6 +96,20 @@
       <div class="catalog" id="dialog-body"></div>
       <div class="dialog-foot">
         <span>🔒 Descargas oficiales, comprobadas antes de instalar (SHA-256 publicado o firma del fabricante).</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="project-dialog" class="scrim" hidden>
+    <div class="dialog narrow" role="dialog" aria-labelledby="project-title">
+      <div class="dialog-head">
+        <h2 id="project-title">Nuevo proyecto Laravel</h2>
+        <span class="spacer"></span>
+        <button class="ghost" id="project-close" title="Cerrar">✕</button>
+      </div>
+      <div class="form" id="project-body"></div>
+      <div class="dialog-foot">
+        <span>Composer crea el proyecto; clon escribe el <code>.env</code>, crea la base de datos y migra. Con un kit, también compila el frontend con Vite.</span>
       </div>
     </div>
   </div>

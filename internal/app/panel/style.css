@@ -136,3 +136,17 @@ footer { margin-top: 24px; }
 .ext-grid label.busy { opacity: .5; cursor: progress; }
 .ext-grid .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
 .ext-grid .tag.get { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+/* «Nuevo proyecto» */
+.dialog.narrow { width: 600px; }
+.form { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+.form .field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.form .field > span:first-child { font-weight: 600; font-size: 13px; color: var(--muted); }
+.form input[type=text] { font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.form .row { display: flex; gap: 8px; align-items: center; }
+.form .job { border: 1px solid var(--line); border-radius: 8px; }
+.kits { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.kit { display: flex; gap: 8px; align-items: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+.kit:has(input:checked) { border-color: var(--accent-line); background: var(--accent-soft); }
+.kit > span { display: flex; flex-direction: column; }
+.job.error span { white-space: pre-wrap; }
+#project-jobs .job { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; background: #fff; }

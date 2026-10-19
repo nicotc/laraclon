@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -81,6 +82,35 @@ func exitHintOf(err error) string {
 		return ExitHint(exitErr.ExitCode())
 	}
 	return ""
+}
+
+// RunTree runs a long command (Composer, npm) with its output going to out. When ctx ends, the
+// whole process tree is ended: Composer and npm start children of their own that would otherwise
+// keep running.
+func RunTree(ctx context.Context, dir string, env []string, out io.Writer, exe string, args ...string) error {
+	cmd := exec.Command(exe, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Stdout, cmd.Stderr = out, out
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if hint := exitHintOf(err); hint != "" {
+			return fmt.Errorf("%s no puede arrancar: %s", exe, hint)
+		}
+		return err
+	case <-ctx.Done():
+		kill := exec.Command("taskkill", "/T", "/F", "/PID", fmt.Sprint(cmd.Process.Pid))
+		kill.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+		kill.Run()
+		<-done
+		return ctx.Err()
+	}
 }
 
 // LastLines returns at most n trailing lines of text.

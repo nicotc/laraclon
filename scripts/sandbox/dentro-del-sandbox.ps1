@@ -425,6 +425,17 @@ Step 'Nginx y FrankenPHP desde el catálogo, un sitio en cada uno (clon site ser
     $out
 }
 
+Step 'Proyecto nuevo con clon new: kit de Vue y MySQL' {
+    $out = Invoke-Tool $clon 'new tienda-vue --kit vue --db mysql' 2400
+    # A new site waits for its line in hosts (one more permission); --resolve stands in for it here.
+    $code = Invoke-Curl "--resolve tienda-vue.test:443:127.0.0.1 -o $R\tienda-vue.html -w %{http_code} https://tienda-vue.test/"
+    $html = Get-Content "$R\tienda-vue.html" -Raw -Encoding UTF8
+    if ($code -ne '200' -or $html -notmatch 'data-page' -or $html -notmatch '/build/assets/') { throw "tienda-vue.test respondió HTTP $code sin la página de Inertia compilada:`n$out" }
+    $tables = Invoke-Tool "$shims\mysql.exe" '-N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=''tienda_vue''"' 60
+    if ([int]$tables.Trim() -lt 5) { throw "la base tienda_vue tiene $tables tablas" }
+    "$((($out -split "`n") | Select-Object -Last 1).Trim())`nhttps://tienda-vue.test: HTTP $code con Inertia y assets de Vite · MySQL tienda_vue: $($tables.Trim()) tablas"
+}
+
 Step 'Node, npm, npx, Composer y PHP desde shims\' {
     # Invoke-Tool, not &: Composer writes to stderr, which Windows PowerShell 5.1 turns into errors.
     @(

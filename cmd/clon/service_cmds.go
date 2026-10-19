@@ -203,9 +203,13 @@ func sourceOf(list []install.Release) string {
 	return "sin versiones"
 }
 
-// followJob prints an installation's progress until it ends.
+// followJob prints the progress of an installation or a new project until it ends.
 func followJob(ops serviceOps, j app.Job) error {
-	fmt.Printf("Instalando %s %s…\n", versions.Component(j.Kind).Name(), j.Version)
+	if j.Kind == "project" {
+		fmt.Printf("Creando %s (%s)…\n", j.Series, j.Version)
+	} else {
+		fmt.Printf("Instalando %s %s…\n", versions.Component(j.Kind).Name(), j.Version)
+	}
 	phase := ""
 	for {
 		list, err := ops.jobs()
@@ -231,6 +235,17 @@ func followJob(ops serviceOps, j app.Job) error {
 					return fmt.Errorf("%s", cur.Error)
 				}
 				kind := versions.Component(cur.Kind)
+				if cur.Kind == "project" {
+					st, _ := ops.status()
+					for _, s := range st.Sites {
+						if s.Name == cur.Series {
+							fmt.Printf("Listo: %s en %s\n", s.URL, s.Folder)
+							return nil
+						}
+					}
+					fmt.Printf("Listo: %s (aparece en 'clon sites' en unos segundos)\n", cur.Series)
+					return nil
+				}
 				if kind == versions.Apache {
 					fmt.Printf("Instalado: Apache %s, que ahora atiende los sitios (para volver a otro: 'clon apache use <versión>')\n", cur.Version)
 					return nil

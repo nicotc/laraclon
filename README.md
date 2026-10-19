@@ -6,6 +6,11 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
 
 ## Qué hace hoy
 
+- **Proyectos Laravel nuevos en un paso:** botón «Nuevo proyecto» en la pestaña «Sitios», o `clon new tienda --kit react --db mysql`.
+  - Laravel sin kit o con los kits oficiales: React, Vue, Svelte o Livewire. Se crean como con el instalador de Laravel, incluidos los pasos propios de cada kit.
+  - clon escribe el `.env` (nombre, `APP_URL` en https, la base de datos elegida y el correo a Mailpit), crea la base en MySQL, MariaDB o PostgreSQL (o usa SQLite) y migra.
+  - Con un kit, también instala las dependencias de npm y compila el frontend con Vite.
+  - El sitio queda en `https://tienda.test`. El panel muestra cada fase y se puede cancelar.
 - **Sitios `.test` automáticos con HTTPS.**
   - Cada carpeta de tus raíces de proyectos se publica como `https://<carpeta>.test`.
   - Las carpetas nuevas aparecen solas, sin cortar Apache.
@@ -111,6 +116,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | Comando | Qué hace |
 |---|---|
 | `clon run [--foreground]` | Inicia clon (bandeja), o en la consola actual con `--foreground` |
+| `clon new tienda [--kit react\|vue\|svelte\|livewire] [--db sqlite\|mysql\|mariadb\|postgresql]` | Proyecto Laravel nuevo en `https://tienda.test` |
 | `clon start` · `stop` · `restart` · `quit` | Servicios on/off; `quit` cierra clon |
 | `clon status` · `sites` · `versions` | Estado, sitios y versiones instaladas |
 | `clon php list` · `remote` · `install 8.4` · `use 8.3` | Versiones de PHP |
@@ -202,6 +208,10 @@ En Windows 11, junto a Laragon y en puertos alternativos:
 - **PostgreSQL 18:** crea sus datos, arranca sin permisos de administrador, responde a `psql`, se detiene con `pg_ctl` y conserva las bases al reiniciar. Sin pgAdmin ocupa 156 MB.
 - **Redis 8.10** (comunitario) responde a `redis-cli` y guarda sus datos al detenerse; **Mailpit** recibe un correo por SMTP; **Meilisearch 1.55** responde en `/health`. Todo a la vez que MySQL, MariaDB y MongoDB.
 - **Adminer 6.1** entra sin contraseña como root en MySQL 8.0 y como postgres en PostgreSQL 18, y lista sus bases. Una petición a `db.localhost` desde otra dirección recibe 403.
+- **Proyectos nuevos:**
+  - `clon new "Prueba MySQL" --db mysql` deja en 3 minutos `https://prueba-mysql.test` respondiendo, con su `.env` completo y la base migrada (9 tablas).
+  - `clon new prueba-react --kit react --db postgresql` tarda 5 minutos (Composer, los pasos del kit, migraciones en PostgreSQL, npm y Vite) y sirve la página de Inertia con el frontend compilado.
+  - Cancelar una creación corta todo el árbol de procesos (Composer, Artisan, npm).
 
 En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 pasos de `probar-en-sandbox.ps1`:
 

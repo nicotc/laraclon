@@ -123,6 +123,8 @@ function render() {
   const editing = view.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName);
   if (!editing) renderServices();
   if (ui.dialog) renderDialog();
+  // The form is not redrawn while you type; a creation in progress is.
+  if (ui.projectOpen && ui.project.job) renderProjectDialog();
   document.getElementById('count-sites').textContent = (s.sites || []).length || '';
   const instances = (s.databases || []).reduce((n, g) => n + g.instances.length, 0);
   document.getElementById('count-services').textContent = instances || '';
@@ -158,8 +160,29 @@ function renderAlerts(s) {
   }
 }
 
+// renderProjectJobs shows the projects being created (from the panel or with 'clon new') above the sites.
+function renderProjectJobs() {
+  const box = document.getElementById('project-jobs');
+  const jobs = (state.jobs || []).filter(j => j.kind === 'project' && !ui.dismissed[j.id]);
+  box.replaceChildren(...jobs.map(j => {
+    const close = el('button', { class: 'small secondary', onclick: () => { ui.dismissed[j.id] = true; renderProjectJobs(); } }, 'Cerrar');
+    if (j.finished && j.error) {
+      return el('div', { class: 'job error' }, el('span', {}, `No se pudo crear ${j.series}: ${j.error}`), el('span', { class: 'spacer' }), close);
+    }
+    if (j.finished) {
+      const site = (state.sites || []).find(s => s.name === j.series);
+      return el('div', { class: 'job' }, el('span', {}, el('b', {}, j.series), ` (${j.version}) está listo`),
+        site ? el('a', { href: site.url, target: '_blank' }, 'Abrir ' + site.url + ' ↗') : null, el('span', { class: 'spacer' }), close);
+    }
+    return el('div', { class: 'job' }, el('span', {}, el('b', {}, j.series), ` (${j.version}): ${j.phase}…`),
+      el('div', { class: 'progress indeterminate' }, el('span')),
+      el('button', { class: 'small danger', onclick: () => act('POST', '/api/jobs/cancel', { id: j.id }) }, 'Cancelar'));
+  }));
+}
+
 function renderSites() {
   if (!state) return;
+  renderProjectJobs();
   const tbody = document.getElementById('sites');
   if (tbody.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;
   const q = document.getElementById('filter').value.toLowerCase();
@@ -586,6 +609,119 @@ async function toggleExtension(x, on) {
   }
 }
 
+// ---------- «Nuevo proyecto» ----------
+
+const KITS = [
+  ['', 'Sin kit', 'Laravel con Blade'],
+  ['react', 'React', 'Inertia, React y Tailwind'],
+  ['vue', 'Vue', 'Inertia, Vue y Tailwind'],
+  ['svelte', 'Svelte', 'Inertia, Svelte y Tailwind'],
+  ['livewire', 'Livewire', 'Livewire y Tailwind'],
+];
+ui.project = { name: '', kit: '', db: 'sqlite', root: '', job: null, error: null };
+
+// slug turns a name into the site name the server will use ("Mi Tienda" → "mi-tienda").
+const slug = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63);
+
+function projectDBOptions() {
+  const opts = [['sqlite', 'SQLite (un archivo dentro del proyecto)']];
+  for (const kind of ['mysql', 'mariadb', 'postgresql']) {
+    const g = groupOf(kind);
+    const def = g.instances.find(i => i.default);
+    if (def) opts.push([kind, `${g.name} ${def.version} (puerto ${def.port})`]);
+  }
+  return opts;
+}
+
+function openProjectDialog() {
+  ui.projectOpen = true;
+  document.getElementById('project-dialog').hidden = false;
+  renderProjectDialog();
+  const input = document.getElementById('project-name');
+  if (input) input.focus();
+}
+
+function closeProjectDialog() {
+  ui.projectOpen = false;
+  document.getElementById('project-dialog').hidden = true;
+}
+
+function renderProjectDialog() {
+  if (!state) return;
+  const p = ui.project;
+  const body = document.getElementById('project-body');
+  const job = p.job && (state.jobs || []).find(j => j.id === p.job);
+  const again = () => { ui.project = { name: '', kit: p.kit, db: p.db, root: p.root, job: null, error: null }; renderProjectDialog(); };
+  if (job && job.finished && !job.error) {
+    const site = (state.sites || []).find(s => s.name === job.series);
+    body.replaceChildren(
+      el('div', {}, el('b', {}, 'Listo. '), site ? el('a', { href: site.url, target: '_blank' }, 'Abrir ' + site.url + ' ↗') : job.series),
+      el('div', { class: 'svc-sub' }, site ? 'Carpeta: ' + site.folder : ''),
+      el('div', { class: 'row' }, el('span', { class: 'spacer' }), el('button', { class: 'secondary', onclick: again }, 'Crear otro'),
+        el('button', { onclick: closeProjectDialog }, 'Cerrar')));
+    return;
+  }
+  if (job && job.finished) {
+    body.replaceChildren(el('div', { class: 'job error' }, el('span', {}, `No se pudo crear ${job.series}: ${job.error}`)),
+      el('div', { class: 'row' }, el('span', { class: 'spacer' }), el('button', { class: 'secondary', onclick: () => { p.job = null; renderProjectDialog(); } }, 'Volver')));
+    return;
+  }
+  if (job) {
+    body.replaceChildren(el('div', { class: 'job' },
+      el('span', {}, `${job.series} · ${job.version}: ${job.phase}…`),
+      el('div', { class: 'progress indeterminate' }, el('span')),
+      el('button', { class: 'small danger', onclick: () => act('POST', '/api/jobs/cancel', { id: job.id }) }, 'Cancelar')),
+      el('div', { class: 'svc-sub' }, 'Puedes cerrar esta ventana: la creación sigue y el sitio aparece en la lista al terminar.'));
+    return;
+  }
+  const name = el('input', { id: 'project-name', type: 'text', value: p.name, placeholder: 'mi-tienda', autocomplete: 'off', spellcheck: 'false' });
+  const preview = el('div', { class: 'svc-sub' });
+  const roots = state.roots || [];
+  const showPreview = () => {
+    const s = slug(name.value);
+    preview.textContent = s ? `https://${s}.test · en ${(p.root || roots[0] || '').replace(/\\$/, '')}\\${s}` : 'El nombre da la dirección: mi-tienda → https://mi-tienda.test';
+  };
+  name.addEventListener('input', () => { p.name = name.value; showPreview(); });
+  name.addEventListener('keydown', e => { if (e.key === 'Enter') createProject(); });
+  showPreview();
+  const kits = el('div', { class: 'kits' }, ...KITS.map(([k, label, desc]) => {
+    const radio = el('input', { type: 'radio', name: 'kit', value: k, checked: p.kit === k });
+    radio.addEventListener('change', () => { p.kit = k; });
+    return el('label', { class: 'kit' }, radio, el('span', {}, el('b', {}, label), el('span', { class: 'svc-sub' }, desc)));
+  }));
+  const dbSel = el('select', { 'aria-label': 'Base de datos' }, ...projectDBOptions().map(([k, label]) => el('option', { value: k, selected: p.db === k }, label)));
+  dbSel.addEventListener('change', () => { p.db = dbSel.value; });
+  let rootField = null;
+  if (roots.length > 1) {
+    const rootSel = el('select', { 'aria-label': 'Carpeta' }, ...roots.map(r => el('option', { value: r, selected: (p.root || roots[0]) === r }, r)));
+    rootSel.addEventListener('change', () => { p.root = rootSel.value; showPreview(); });
+    rootField = el('label', { class: 'field' }, el('span', {}, 'Carpeta de proyectos'), rootSel);
+  }
+  // replaceChildren, unlike el, would show a null as the text "null".
+  body.replaceChildren(...[
+    el('label', { class: 'field' }, el('span', {}, 'Nombre'), name, preview),
+    el('div', { class: 'field' }, el('span', {}, 'Kit de inicio'), kits),
+    el('label', { class: 'field' }, el('span', {}, 'Base de datos'), dbSel),
+    rootField,
+    p.error ? el('div', { class: 'row-error' }, p.error) : null,
+    el('div', { class: 'row' }, el('span', { class: 'spacer' }), el('button', { onclick: createProject }, 'Crear proyecto')),
+  ].filter(Boolean));
+}
+
+async function createProject() {
+  const p = ui.project;
+  p.error = null;
+  try {
+    const j = await call('POST', '/api/projects', { name: p.name, kit: p.kit, db: p.db, root: p.root });
+    p.job = j.id;
+    await refresh();
+  } catch (e) {
+    p.error = e.message;
+  }
+  renderProjectDialog();
+}
+
 // ---------- «Añadir servicio» ----------
 
 function openDialog() {
@@ -630,6 +766,8 @@ document.getElementById('filter').addEventListener('input', renderSites);
 document.querySelectorAll('#tabs a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); showTab(a.dataset.tab); }));
 document.getElementById('dialog-close').addEventListener('click', closeDialog);
 document.getElementById('ext-version').addEventListener('change', e => { ui.extVersion = e.target.value; loadExtensions(); });
+document.getElementById('new-project').addEventListener('click', openProjectDialog);
+document.getElementById('project-close').addEventListener('click', closeProjectDialog);
 document.getElementById('dialog').addEventListener('click', e => { if (e.target.id === 'dialog') closeDialog(); });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;

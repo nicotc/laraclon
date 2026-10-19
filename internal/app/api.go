@@ -25,6 +25,7 @@ var panelPage = template.Must(template.ParseFS(panelFiles, "panel/index.html"))
 // Status is what the panel, the tray and `clon status` show.
 type Status struct {
 	Home           string              `json:"home"`
+	Roots          []string            `json:"roots"` // project folders, where new projects go
 	PHP            string              `json:"php"`
 	PHPVersions    []string            `json:"php_versions"`
 	PHPPools       []PoolStatus        `json:"php_pools"` // the global PHP's pool first, then the pinned versions'
@@ -63,7 +64,7 @@ type SiteStatus struct {
 // Status collects the current state.
 func (d *Daemon) Status() Status {
 	st := Status{
-		Home: d.env.Home.Root, PanelURL: d.PanelURL(),
+		Home: d.env.Home.Root, Roots: d.env.Cfg.Roots, PanelURL: d.PanelURL(),
 		HTTPPort: d.env.Cfg.Proxy.HTTPPort, HTTPSPort: d.env.Cfg.Proxy.HTTPSPort,
 		CATrusted: d.CATrusted(), CACert: d.ca.CertPath(),
 		Services: d.sup.Statuses(), Jobs: d.Jobs(), Runtime: d.runtimeStatus(),
@@ -251,6 +252,13 @@ func (d *Daemon) Handler() http.Handler {
 		}
 		err := d.SetSitePHP(req.Site, req.PHP)
 		return d.Status(), err
+	})
+	api("POST /api/projects", func(r *http.Request) (any, error) {
+		var req NewProject
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return d.CreateProject(req)
 	})
 	api("GET /api/jobs", func(*http.Request) (any, error) { return d.Jobs(), nil })
 	api("POST /api/jobs/cancel", func(r *http.Request) (any, error) {
