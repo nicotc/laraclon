@@ -25,14 +25,17 @@ import (
 )
 
 // NewProject is what «Nuevo proyecto» creates: a Laravel application, with one of the official
-// starter kits or none, or a project cloned from Git, wired to a database clon runs.
+// starter kits or none, a WordPress site, or a project cloned from Git, wired to a database clon runs.
 type NewProject struct {
 	Name string `json:"name"`
-	Kit  string `json:"kit"`  // "" (none), react, vue, svelte or livewire
-	DB   string `json:"db"`   // sqlite, mysql, mariadb or postgresql ("" with Git: the project's own)
-	Root string `json:"root"` // one of the project roots ("" = the first)
+	Type string `json:"type,omitempty"` // laravel ("") or wordpress
+	Kit  string `json:"kit"`            // "" (none), react, vue, svelte or livewire
+	DB   string `json:"db"`             // sqlite, mysql, mariadb or postgresql ("" with Git: the project's own)
+	Root string `json:"root"`           // one of the project roots ("" = the first)
 	// PM installs and builds the frontend: npm (""), pnpm or yarn, like `laravel new --pnpm`.
 	PM string `json:"pm,omitempty"`
+	// Locale is WordPress's language ("es_ES" when empty).
+	Locale string `json:"locale,omitempty"`
 	// Git clones a repository instead (Kit is then ignored), on its default branch or Branch.
 	Git    string `json:"git,omitempty"`
 	Branch string `json:"branch,omitempty"`
@@ -69,6 +72,22 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	if !ok {
 		return Job{}, fmt.Errorf("«%s» no sirve como nombre: usa letras, números y guiones", p.Name)
 	}
+	root, dir, err := d.projectDir(p.Root, name)
+	if err != nil {
+		return Job{}, err
+	}
+	if _, err := d.env.GlobalPHP(); err != nil {
+		return Job{}, err
+	}
+	cancelled := "creación cancelada (la carpeta a medio crear queda en " + dir + ")"
+	p.DB = strings.ToLower(strings.TrimSpace(p.DB))
+	switch strings.ToLower(strings.TrimSpace(p.Type)) {
+	case "", "laravel":
+	case "wordpress", "wp":
+		return d.createWordPress(p, name, dir, cancelled)
+	default:
+		return Job{}, fmt.Errorf("tipo de proyecto desconocido %q: usa laravel o wordpress", p.Type)
+	}
 	p.Kit = strings.ToLower(strings.TrimSpace(p.Kit))
 	if p.Kit == "ninguno" || p.Kit == "none" {
 		p.Kit = ""
@@ -84,7 +103,6 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	default:
 		return Job{}, fmt.Errorf("gestor de paquetes desconocido %q: usa npm, pnpm o yarn", p.PM)
 	}
-	p.DB = strings.ToLower(strings.TrimSpace(p.DB))
 	if p.DB == "" && p.Git == "" {
 		p.DB = "sqlite"
 	}
@@ -110,24 +128,6 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 		}
 		p.Kit = ""
 	}
-	root := p.Root
-	if root == "" && len(d.env.Cfg.Roots) > 0 {
-		root = d.env.Cfg.Roots[0]
-	}
-	known := false
-	for _, r := range d.env.Cfg.Roots {
-		known = known || strings.EqualFold(filepath.Clean(r), filepath.Clean(root))
-	}
-	if !known {
-		return Job{}, fmt.Errorf("%q no es una carpeta de proyectos de clon (roots en clon.toml)", root)
-	}
-	dir := filepath.Join(root, name)
-	if _, err := os.Stat(dir); err == nil {
-		return Job{}, fmt.Errorf("ya existe %s", dir)
-	}
-	if _, err := d.env.GlobalPHP(); err != nil {
-		return Job{}, err
-	}
 	if _, err := os.Stat(install.ComposerPhar(d.env.Home)); err != nil {
 		return Job{}, fmt.Errorf("falta Composer: instálalo con 'clon composer install'")
 	}
@@ -137,8 +137,8 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 		}
 	}
 	if p.Git != "" {
-		return d.startProjectJob(name, "Git", "nuevo-"+name, "creación cancelada (la carpeta a medio crear queda en "+dir+")",
-			func(ctx context.Context, phase func(string), log *os.File) error {
+		return d.startProjectJob(name, "Git", "nuevo-"+name, cancelled,
+			func(ctx context.Context, phase func(string), log *os.File) (string, error) {
 				phase("clonando " + p.Git)
 				args := []string{"clone"}
 				if p.Branch != "" {
@@ -146,15 +146,35 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 				}
 				// Without a terminal, Git must fail instead of asking for a user name or password.
 				if err := procutil.RunTree(ctx, root, []string{"GIT_TERMINAL_PROMPT=0"}, log, git, append(args, p.Git, dir)...); err != nil {
-					return fmt.Errorf("git clone: %w", err)
+					return "", fmt.Errorf("git clone: %w", err)
 				}
-				return d.prepareProject(ctx, dir, name, p.DB, phase, log)
+				return "", d.prepareProject(ctx, dir, name, p.DB, phase, log)
 			})
 	}
-	return d.startProjectJob(name, kitLabels[p.Kit], "nuevo-"+name, "creación cancelada (la carpeta a medio crear queda en "+dir+")",
-		func(ctx context.Context, phase func(string), log *os.File) error {
-			return d.buildProject(ctx, p, name, dir, phase, log)
+	return d.startProjectJob(name, kitLabels[p.Kit], "nuevo-"+name, cancelled,
+		func(ctx context.Context, phase func(string), log *os.File) (string, error) {
+			return "", d.buildProject(ctx, p, name, dir, phase, log)
 		})
+}
+
+// projectDir checks where a new project goes: in one of clon's project roots ("" = the first), in a
+// folder that does not exist yet.
+func (d *Daemon) projectDir(root, name string) (string, string, error) {
+	if root == "" && len(d.env.Cfg.Roots) > 0 {
+		root = d.env.Cfg.Roots[0]
+	}
+	known := false
+	for _, r := range d.env.Cfg.Roots {
+		known = known || strings.EqualFold(filepath.Clean(r), filepath.Clean(root))
+	}
+	if !known {
+		return "", "", fmt.Errorf("%q no es una carpeta de proyectos de clon (roots en clon.toml)", root)
+	}
+	dir := filepath.Join(root, name)
+	if _, err := os.Stat(dir); err == nil {
+		return "", "", fmt.Errorf("ya existe %s", dir)
+	}
+	return root, dir, nil
 }
 
 // SetupProject prepares a project that is already in a project folder, cloned or copied: what it
@@ -176,14 +196,18 @@ func (d *Daemon) SetupProject(site, db string) (Job, error) {
 		return Job{}, fmt.Errorf("falta Composer: instálalo con 'clon composer install'")
 	}
 	return d.startProjectJob(s.Name, "preparar", "preparar-"+s.Name, "preparación cancelada",
-		func(ctx context.Context, phase func(string), log *os.File) error {
-			return d.prepareProject(ctx, s.Folder, s.Name, db, phase, log)
+		func(ctx context.Context, phase func(string), log *os.File) (string, error) {
+			return "", d.prepareProject(ctx, s.Folder, s.Name, db, phase, log)
 		})
 }
 
+// projectWork is the work of a project job: phase names each step and the tools write their output
+// to log. The note it returns is shown when the job ends (WordPress's generated password, say).
+type projectWork func(ctx context.Context, phase func(string), log *os.File) (note string, err error)
+
 // startProjectJob runs work on a project in the background, as a job the panel and the CLI follow
 // phase by phase; the tools' output goes to logs\<logName>.log.
-func (d *Daemon) startProjectJob(name, label, logName, cancelled string, work func(ctx context.Context, phase func(string), log *os.File) error) (Job, error) {
+func (d *Daemon) startProjectJob(name, label, logName, cancelled string, work projectWork) (Job, error) {
 	d.jobs.mu.Lock()
 	defer d.jobs.mu.Unlock()
 	for _, j := range d.jobs.jobs {
@@ -201,16 +225,17 @@ func (d *Daemon) startProjectJob(name, label, logName, cancelled string, work fu
 	return *j, nil
 }
 
-func (d *Daemon) runProjectJob(ctx context.Context, j *Job, logName, cancelled string, work func(ctx context.Context, phase func(string), log *os.File) error) {
+func (d *Daemon) runProjectJob(ctx context.Context, j *Job, logName, cancelled string, work projectWork) {
 	defer j.cancel()
 	logPath := d.env.Home.Logs(logName + ".log")
 	logf, err := os.Create(logPath)
+	note := ""
 	if err == nil {
 		phase := func(s string) {
 			d.jobs.update(j, func(j *Job) { j.Phase = s })
 			fmt.Fprintf(logf, "\r\n==== %s · %s ====\r\n", time.Now().Format("15:04:05"), s)
 		}
-		err = work(ctx, phase, logf)
+		note, err = work(ctx, phase, logf)
 		logf.Close()
 	}
 	if err != nil && !errors.Is(err, context.Canceled) {
@@ -233,7 +258,7 @@ func (d *Daemon) runProjectJob(ctx context.Context, j *Job, logName, cancelled s
 		case err != nil:
 			j.Phase, j.Error = "error", err.Error()
 		default:
-			j.Phase = "listo"
+			j.Phase, j.Note = "listo", note
 		}
 	})
 	d.changed()

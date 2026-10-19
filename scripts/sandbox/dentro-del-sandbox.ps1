@@ -461,6 +461,20 @@ Step 'Proyecto clonado de GitHub y preparado (clon new --git): Composer, .env, M
     "$((($out -split "`n") | Select-Object -Last 1).Trim())`nhttps://demo-git.test: HTTP $code · MySQL demo_git: $($tables.Trim()) tablas · vendor y frontend compilado"
 }
 
+Step 'WordPress con clon new --wordpress: en español, enlaces permanentes y acceso de admin' {
+    $out = Invoke-Tool $clon 'new "Blog de Prueba" --wordpress --db mysql' 1200
+    $pass = ([regex]'contraseña (\S+)').Match($out).Groups[1].Value
+    if (-not $pass) { throw "la salida no trae la contraseña de admin:`n$out" }
+    $site = '--resolve blog-de-prueba.test:443:127.0.0.1 https://blog-de-prueba.test'
+    $html = Invoke-Curl "$site/"
+    $post = Invoke-Curl "-o NUL -w %{http_code} $site/hola-mundo/"
+    $login = Invoke-Curl "-b wordpress_test_cookie=WP%20Cookie%20check -o NUL -w %{http_code}:%{redirect_url} --data-urlencode log=admin --data-urlencode pwd=$pass --data-urlencode testcookie=1 $site/wp-login.php"
+    if ($html -notmatch '<html[^>]*lang="es' -or $post -ne '200' -or $login -notmatch '^302:.*/wp-admin/') {
+        throw "portada en español: $($html -match 'lang=.es'), /hola-mundo/: HTTP $post, acceso: $login`n$out"
+    }
+    "$((($out -split "`n") | Select-Object -Last 2) -join "`n")`nportada en español · /hola-mundo/: HTTP $post · admin entra ($login)"
+}
+
 Step 'Procesos del proyecto: Vite con HTTPS, cola y tareas (clon site proc)' {
     $hot = 'C:\www\laravel-demo\public\hot'
     Invoke-Tool $clon 'site proc laravel-demo vite on' 120 | Out-Null

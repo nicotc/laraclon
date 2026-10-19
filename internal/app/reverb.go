@@ -98,18 +98,18 @@ func (d *Daemon) useReverb(s sites.Site) error {
 		return nil
 	}
 	_, err := d.startProjectJob(s.Name, "Reverb", "reverb-"+s.Name, "recompilación cancelada",
-		func(ctx context.Context, phase func(string), log *os.File) error {
+		func(ctx context.Context, phase func(string), log *os.File) (string, error) {
 			pm := projectManager(s.Folder)
 			run, err := d.ensureJSRunner(ctx, pm, s.Folder, phase, log)
 			if err != nil {
-				return err
+				return "", err
 			}
 			phase("compilando el frontend para " + reverbHost(s))
 			env := []string{d.env.ChildPATH(), "NPM_CONFIG_PREFIX=" + d.env.NPMPrefix()}
 			if err := run.run(ctx, s.Folder, env, log, "run", "build"); err != nil {
-				return fmt.Errorf("%s run build: %w", pm, err)
+				return "", fmt.Errorf("%s run build: %w", pm, err)
 			}
-			return nil
+			return "", nil
 		})
 	return err
 }

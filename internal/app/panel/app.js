@@ -193,7 +193,8 @@ function renderProjectJobs() {
     if (j.finished) {
       const site = (state.sites || []).find(s => s.name === j.series);
       return el('div', { class: 'job' }, el('span', {}, el('b', {}, j.series), ` (${j.version}) está listo`),
-        site ? el('a', { href: site.url, target: '_blank' }, 'Abrir ' + site.url + ' ↗') : null, el('span', { class: 'spacer' }), close);
+        site ? el('a', { href: site.url, target: '_blank' }, 'Abrir ' + site.url + ' ↗') : null,
+        j.note ? el('span', { class: 'note' }, j.note) : null, el('span', { class: 'spacer' }), close);
     }
     return el('div', { class: 'job' }, el('span', {}, el('b', {}, j.series), ` (${j.version}): ${j.phase}…`),
       el('div', { class: 'progress indeterminate' }, el('span')),
@@ -824,7 +825,10 @@ const KITS = [
   ['svelte', 'Svelte', 'Inertia, Svelte y Tailwind'],
   ['livewire', 'Livewire', 'Livewire y Tailwind'],
 ];
-ui.project = { source: 'laravel', name: '', kit: '', db: 'sqlite', pm: 'npm', root: '', git: '', branch: '', job: null, error: null };
+ui.project = { source: 'laravel', name: '', kit: '', db: 'sqlite', pm: 'npm', locale: 'es_ES', root: '', git: '', branch: '', job: null, error: null };
+// WordPress languages offered first (any WordPress locale works from 'clon new --idioma').
+const WP_LOCALES = [['es_ES', 'Español (España)'], ['es_MX', 'Español (México)'], ['es_AR', 'Español (Argentina)'], ['es_CO', 'Español (Colombia)'],
+  ['es_CL', 'Español (Chile)'], ['en_US', 'English (US)'], ['pt_BR', 'Português (Brasil)'], ['fr_FR', 'Français'], ['de_DE', 'Deutsch'], ['it_IT', 'Italiano']];
 // Package managers a new project can install its frontend with, like 'laravel new --pnpm'.
 const PMS = [['npm', 'npm (viene con Node)'], ['pnpm', 'pnpm'], ['yarn', 'yarn']];
 
@@ -860,12 +864,13 @@ function renderProjectDialog() {
   const p = ui.project;
   const body = document.getElementById('project-body');
   const job = p.job && (state.jobs || []).find(j => j.id === p.job);
-  const again = () => { ui.project = { source: p.source, name: '', kit: p.kit, db: p.db, pm: p.pm, root: p.root, git: '', branch: '', job: null, error: null }; renderProjectDialog(); };
+  const again = () => { ui.project = { source: p.source, name: '', kit: p.kit, db: p.db, pm: p.pm, locale: p.locale, root: p.root, git: '', branch: '', job: null, error: null }; renderProjectDialog(); };
   if (job && job.finished && !job.error) {
     const site = (state.sites || []).find(s => s.name === job.series);
     body.replaceChildren(
       el('div', {}, el('b', {}, 'Listo. '), site ? el('a', { href: site.url, target: '_blank' }, 'Abrir ' + site.url + ' ↗') : job.series),
       el('div', { class: 'svc-sub' }, site ? 'Carpeta: ' + site.folder : ''),
+      job.note ? el('div', { class: 'note' }, job.note) : null,
       el('div', { class: 'row' }, el('span', { class: 'spacer' }), el('button', { class: 'secondary', onclick: again }, 'Crear otro'),
         el('button', { onclick: closeProjectDialog }, 'Cerrar')));
     return;
@@ -894,11 +899,15 @@ function renderProjectDialog() {
   name.addEventListener('keydown', e => { if (e.key === 'Enter') createProject(); });
   showPreview();
   const fromGit = p.source === 'git';
-  const sources = el('div', { class: 'chips' }, ...[['laravel', 'Laravel nuevo'], ['git', 'Desde Git']].map(([k, label]) =>
+  const wordpress = p.source === 'wordpress';
+  const sources = el('div', { class: 'chips' }, ...[['laravel', 'Laravel nuevo'], ['wordpress', 'WordPress'], ['git', 'Desde Git']].map(([k, label]) =>
     el('span', { class: 'chip' + (p.source === k ? ' on' : ''), onclick: () => {
       p.source = k;
       if (k === 'git' && p.db === 'sqlite') p.db = '';
       if (k === 'laravel' && p.db === '') p.db = 'sqlite';
+      // WordPress runs on MySQL or MariaDB only.
+      if (k === 'wordpress' && !['mysql', 'mariadb'].includes(p.db)) p.db = (projectDBOptions().find(([d]) => d === 'mysql' || d === 'mariadb') || [''])[0];
+      if (k !== 'wordpress' && p.source !== 'git' && !p.db) p.db = 'sqlite';
       renderProjectDialog();
     } }, label)));
   let kits;
@@ -914,6 +923,11 @@ function renderProjectDialog() {
     branch.addEventListener('input', () => { p.branch = branch.value; });
     kits = el('div', { class: 'field' }, el('span', {}, 'Repositorio'), url,
       el('div', { class: 'row' }, el('span', { class: 'svc-sub' }, 'Rama'), branch));
+  } else if (wordpress) {
+    const locale = el('select', { 'aria-label': 'Idioma' }, ...WP_LOCALES.map(([k, label]) => el('option', { value: k, selected: p.locale === k }, label)));
+    locale.addEventListener('change', () => { p.locale = locale.value; });
+    kits = el('label', { class: 'field' }, el('span', {}, 'Idioma'), locale,
+      el('div', { class: 'svc-sub' }, 'clon descarga WordPress y su traducción, crea la base de datos y wp-config.php, e instala el sitio con un usuario admin y una contraseña generada.'));
   } else {
     kits = el('div', { class: 'field' }, el('span', {}, 'Kit de inicio'), el('div', { class: 'kits' }, ...KITS.map(([k, label, desc]) => {
       const radio = el('input', { type: 'radio', name: 'kit', value: k, checked: p.kit === k });
@@ -921,14 +935,15 @@ function renderProjectDialog() {
       return el('label', { class: 'kit' }, radio, el('span', {}, el('b', {}, label), el('span', { class: 'svc-sub' }, desc)));
     })));
   }
-  const dbOptions = projectDBOptions();
+  let dbOptions = projectDBOptions();
   if (fromGit) dbOptions.unshift(['', 'La que diga el proyecto (.env.example)']);
+  if (wordpress) dbOptions = dbOptions.filter(([k]) => k === 'mysql' || k === 'mariadb');
   const dbSel = el('select', { 'aria-label': 'Base de datos' }, ...dbOptions.map(([k, label]) => el('option', { value: k, selected: p.db === k }, label)));
   dbSel.addEventListener('change', () => { p.db = dbSel.value; });
   name.addEventListener('input', () => { p.nameTouched = true; });
   const pmSel = el('select', { 'aria-label': 'Gestor de paquetes' }, ...PMS.map(([k, label]) => el('option', { value: k, selected: (p.pm || 'npm') === k }, label)));
   pmSel.addEventListener('change', () => { p.pm = pmSel.value; });
-  const pmField = fromGit ? null : el('label', { class: 'field' }, el('span', {}, 'Paquetes de JavaScript'), pmSel,
+  const pmField = fromGit || wordpress ? null : el('label', { class: 'field' }, el('span', {}, 'Paquetes de JavaScript'), pmSel,
     el('div', { class: 'svc-sub' }, 'Instala y compila el frontend. pnpm y yarn se instalan solos si hacen falta.'));
   let rootField = null;
   if (roots.length > 1) {
@@ -942,7 +957,8 @@ function renderProjectDialog() {
     fromGit ? kits : null,
     el('label', { class: 'field' }, el('span', {}, 'Nombre'), name, preview),
     fromGit ? null : kits,
-    el('label', { class: 'field' }, el('span', {}, 'Base de datos'), dbSel),
+    el('label', { class: 'field' }, el('span', {}, 'Base de datos'), dbOptions.length ? dbSel
+      : el('div', { class: 'row-error' }, 'WordPress necesita MySQL o MariaDB: instala uno en Servicios.')),
     pmField,
     rootField,
     p.error ? el('div', { class: 'row-error' }, p.error) : null,
@@ -956,6 +972,7 @@ async function createProject() {
   try {
     const body = { name: p.name, kit: p.kit, db: p.db, pm: p.pm, root: p.root };
     if (p.source === 'git') Object.assign(body, { kit: '', git: p.git, branch: p.branch });
+    if (p.source === 'wordpress') Object.assign(body, { type: 'wordpress', kit: '', pm: '', locale: p.locale });
     const j = await call('POST', '/api/projects', body);
     p.job = j.id;
     await refresh();

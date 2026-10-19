@@ -183,6 +183,8 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 		phar := install.ComposerPhar(e.Home)
 		phpT := shims.Target{Exe: phpExe, Args: []string{"-c", ini}, ForceEnv: phpEnv(ini)}
 		composerT := shims.Target{Exe: phpExe, Args: []string{"-c", ini, phar}, ForceEnv: phpEnv(ini)}
+		wp := install.WPCLIPhar(e.Home)
+		wpT := shims.Target{Exe: phpExe, Args: []string{"-c", ini, wp}, ForceEnv: phpEnv(ini)}
 		// Inside a project that pinned its own PHP, php and composer (and so Artisan) use that one.
 		list, _ := sites.Scan(e.Cfg)
 		for _, s := range list {
@@ -199,6 +201,7 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 			}
 			pexe := filepath.Join(pv.Path, "php.exe")
 			phpT.Dirs = append(phpT.Dirs, shims.DirTarget{Dir: s.Folder, Exe: pexe, Args: []string{"-c", pini}, ForceEnv: phpEnv(pini)})
+			wpT.Dirs = append(wpT.Dirs, shims.DirTarget{Dir: s.Folder, Exe: pexe, Args: []string{"-c", pini, wp}, ForceEnv: phpEnv(pini)})
 			// PHP older than 7.2.5 needs Composer 2.2 LTS (fetched when the site is pinned).
 			if pphar := install.ComposerFor(e.Home, pv.Version); fileExists(pphar) {
 				composerT.Dirs = append(composerT.Dirs, shims.DirTarget{Dir: s.Folder, Exe: pexe, Args: []string{"-c", pini, pphar}, ForceEnv: phpEnv(pini)})
@@ -207,6 +210,10 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 		targets["php"] = phpT
 		if fileExists(phar) {
 			targets["composer"] = composerT
+		}
+		// wp: WP-CLI, downloaded with the first WordPress project.
+		if fileExists(wp) {
+			targets["wp"] = wpT
 		}
 		// phpx: the global PHP with Xdebug waiting for the editor, for Artisan and tests.
 		if php.HasXdebug(e.Home, v) {

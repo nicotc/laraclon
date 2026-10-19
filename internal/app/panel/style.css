@@ -166,3 +166,4 @@ footer { margin-top: 24px; }
 .grid2 .svc { margin-bottom: 0; }
 .news { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-top: 1px solid #eef1f4; font-size: 14px; }
 .news.warn { background: var(--warn-soft); }
+.note { font-size: 13px; background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 6px; padding: 4px 10px; color: var(--fg); }

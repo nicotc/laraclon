@@ -263,13 +263,16 @@ func followJob(ops serviceOps, j app.Job) error {
 				}
 				if cur.Kind == "project" {
 					st, _ := ops.status()
+					done := fmt.Sprintf("Listo: %s (aparece en 'clon sites' en unos segundos)", cur.Series)
 					for _, s := range st.Sites {
 						if s.Name == cur.Series {
-							fmt.Printf("Listo: %s en %s\n", s.URL, s.Folder)
-							return nil
+							done = fmt.Sprintf("Listo: %s en %s", s.URL, s.Folder)
 						}
 					}
-					fmt.Printf("Listo: %s (aparece en 'clon sites' en unos segundos)\n", cur.Series)
+					fmt.Println(done)
+					if cur.Note != "" {
+						fmt.Println(cur.Note)
+					}
 					return nil
 				}
 				if kind == versions.Apache {

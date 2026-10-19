@@ -59,6 +59,31 @@ func fetchPhar(ctx context.Context, url, dest string) (string, error) {
 	return dest, nil
 }
 
+const wpcliReleaseURL = "https://api.github.com/repos/wp-cli/wp-cli/releases/latest"
+
+// WPCLIPhar is where WP-CLI, WordPress's command line, lives.
+func WPCLIPhar(home paths.Home) string { return home.Bin("wp-cli", "wp-cli.phar") }
+
+// InstallWPCLI downloads the latest WP-CLI release (wp-cli-X.Y.Z.phar on GitHub), verified with the
+// SHA-256 GitHub publishes for it.
+func InstallWPCLI(ctx context.Context, home paths.Home) (string, error) {
+	var rel githubRelease
+	if err := download.JSON(ctx, wpcliReleaseURL, &rel); err != nil {
+		return "", fmt.Errorf("no se pudo consultar la última versión de WP-CLI en GitHub: %w", err)
+	}
+	for _, a := range rel.Assets {
+		sum, ok := strings.CutPrefix(a.Digest, "sha256:")
+		if !ok || len(sum) != 64 || !strings.HasPrefix(a.Name, "wp-cli-") || !strings.HasSuffix(a.Name, ".phar") {
+			continue
+		}
+		if _, err := download.File(ctx, a.URL, WPCLIPhar(home), sum, nil); err != nil {
+			return "", err
+		}
+		return WPCLIPhar(home), nil
+	}
+	return "", fmt.Errorf("WP-CLI %s no publica su wp-cli.phar con SHA-256 en GitHub", rel.Tag)
+}
+
 // MozillaBundle is the public CA list PHP and Composer need for external HTTPS (curl.se mirror).
 func MozillaBundle(home paths.Home) string { return home.SSL("mozilla-cacert.pem") }
 

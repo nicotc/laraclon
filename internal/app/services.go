@@ -373,6 +373,7 @@ type Job struct {
 	Done     int64     `json:"done"`
 	Total    int64     `json:"total"`
 	Error    string    `json:"error,omitempty"`
+	Note     string    `json:"note,omitempty"` // shown when it ends well (a generated password, for example)
 	Finished bool      `json:"finished"`
 	Started  time.Time `json:"started"`
 	Ended    time.Time `json:"ended,omitempty"`
