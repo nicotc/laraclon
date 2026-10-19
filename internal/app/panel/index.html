@@ -13,38 +13,85 @@
     <div class="actions">
       <button data-action="start">Iniciar todo</button>
       <button data-action="stop" class="secondary">Detener todo</button>
-      <button data-action="rescan" class="secondary">Buscar sitios</button>
     </div>
   </header>
 
+  <nav class="tabs" id="tabs">
+    <a href="#resumen" data-tab="resumen" class="active">Resumen</a>
+    <a href="#sitios" data-tab="sitios">Sitios <span class="count" id="count-sites"></span></a>
+    <a href="#servicios" data-tab="servicios">Servicios <span class="count" id="count-services"></span></a>
+    <a href="#php" data-tab="php">PHP y Node</a>
+  </nav>
+
   <section id="alerts"></section>
 
-  <section class="cards">
-    <div class="card">
-      <h2>PHP global</h2>
-      <select id="php"></select>
-      <p class="muted">Afecta a la web, la terminal, Composer y Artisan.</p>
-    </div>
-    <div class="card">
-      <h2>Node</h2>
-      <p id="node" class="big">—</p>
-      <p class="muted">Con npm y npx. Cambia con <code>clon node use</code>.</p>
-    </div>
-    <div class="card">
-      <h2>Servicios</h2>
-      <ul id="services" class="plain"></ul>
+  <section data-panel="resumen">
+    <div class="cards">
+      <div class="card">
+        <h2>PHP global</h2>
+        <select class="php-select"></select>
+        <p class="muted">Afecta a la web, la terminal, Composer y Artisan.</p>
+      </div>
+      <div class="card">
+        <h2>Node</h2>
+        <p class="big node-version">—</p>
+        <p class="muted">Con npm y npx. Cambia con <code>clon node use</code>.</p>
+      </div>
+      <div class="card">
+        <h2>Procesos</h2>
+        <ul id="processes" class="plain"></ul>
+      </div>
     </div>
   </section>
 
-  <section>
-    <h2>Sitios <span id="site-count" class="muted"></span></h2>
-    <input id="filter" type="search" placeholder="Filtrar sitios…">
-    <table>
+  <section data-panel="sitios" hidden>
+    <div class="toolbar">
+      <h2>Sitios</h2>
+      <input id="filter" type="search" placeholder="Filtrar sitios…">
+      <span class="spacer"></span>
+      <button data-action="rescan" class="secondary">Buscar sitios</button>
+    </div>
+    <table class="sites">
       <thead><tr><th>Sitio</th><th>Tipo</th><th>Carpeta</th><th>Puerto interno</th></tr></thead>
       <tbody id="sites"></tbody>
     </table>
   </section>
 
+  <section data-panel="servicios" hidden>
+    <div id="services-view"></div>
+  </section>
+
+  <section data-panel="php" hidden>
+    <div class="cards">
+      <div class="card">
+        <h2>PHP global</h2>
+        <select class="php-select"></select>
+        <p class="muted">Lo usan la web, la terminal, Composer y Artisan. El cambio es en caliente: Apache no se reinicia.</p>
+        <p class="muted">Instala otra rama con <code>clon php install 8.3</code>.</p>
+      </div>
+      <div class="card">
+        <h2>Node</h2>
+        <p class="big node-version">—</p>
+        <p class="muted">Con npm y npx. Instala o cambia con <code>clon node install lts</code> y <code>clon node use 24</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="dialog" class="scrim" hidden>
+    <div class="dialog" role="dialog" aria-labelledby="dialog-title">
+      <div class="dialog-head">
+        <h2 id="dialog-title">Añadir servicio</h2>
+        <span class="spacer"></span>
+        <button class="ghost" id="dialog-close" title="Cerrar">✕</button>
+      </div>
+      <div class="catalog" id="dialog-body"></div>
+      <div class="dialog-foot">
+        <span>🔒 Descargas oficiales, comprobadas antes de instalar (SHA-256 publicado o firma del fabricante).</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" hidden></div>
   <footer class="muted" id="footer"></footer>
   <script src="/static/app.js"></script>
 </body>

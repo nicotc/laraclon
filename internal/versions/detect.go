@@ -71,11 +71,15 @@ func DetectApache(dir string) (Version, error) {
 
 var mysqlVersionRe = regexp.MustCompile(`Ver (\d+\.\d+\.\d+)(-MariaDB)?`)
 
-// DetectMySQL recognises MySQL and MariaDB folders (bin\mysqld.exe).
+// DetectMySQL recognises MySQL and MariaDB folders (bin\mysqld.exe, or bin\mariadbd.exe in the
+// MariaDB versions that dropped the old name).
 func DetectMySQL(dir string) (Version, error) {
 	exe := filepath.Join(dir, "bin", "mysqld.exe")
 	if !exists(exe) {
-		return Version{}, fmt.Errorf("no hay bin\\mysqld.exe en %s", dir)
+		exe = filepath.Join(dir, "bin", "mariadbd.exe")
+	}
+	if !exists(exe) {
+		return Version{}, fmt.Errorf("no hay bin\\mysqld.exe ni bin\\mariadbd.exe en %s", dir)
 	}
 	out, err := procutil.Output(probeTimeout, dir, exe, "--version")
 	if err != nil {

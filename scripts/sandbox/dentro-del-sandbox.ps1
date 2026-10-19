@@ -214,6 +214,24 @@ Step 'Base de datos y migraciones de Laravel en MySQL' {
     Invoke-Tool "$shims\php.exe" 'artisan migrate --force' 300 'C:\www\laravel-demo'
 }
 
+Step 'MariaDB desde el catálogo, en paralelo con MySQL (clon service install)' {
+    $out = Invoke-Tool $clon 'service install mariadb 11.8' 900
+    $deadline = (Get-Date).AddSeconds(120)
+    do {
+        Start-Sleep -Seconds 2
+        $list = Invoke-Tool $clon 'service list' 30
+    } while ($list -notmatch 'mariadb-11\.8\s+\S+\s+puerto\s+\d+\s+en marcha' -and (Get-Date) -lt $deadline)
+    if ($list -notmatch 'mariadb-11\.8\s+\S+\s+puerto\s+(\d+)\s+en marcha') { throw "MariaDB no arrancó:`n$list" }
+    $port = $Matches[1]
+    $client = Get-ChildItem "$H\bin\mariadb\*\bin\mariadb.exe" | Select-Object -First 1
+    $version = Invoke-Tool $client.FullName "--host=127.0.0.1 --port=$port --user=root -N -e `"SELECT VERSION()`"" 60
+    if ($list -notmatch 'mysql-8\.0\s+\S+\s+puerto\s+\d+\s+en marcha') { throw "MySQL dejó de estar en marcha:`n$list" }
+    # The MariaDB client may add a warning about TLS on stderr; keep the version line.
+    $v = ($version -split "`n" | Where-Object { $_ -match '^\s*\d+\.\d+\.\d+' } | Select-Object -First 1)
+    if (-not $v) { throw "MariaDB no respondió: $version" }
+    "$(($out -split "`n" | Select-Object -Last 1).Trim())`nMariaDB responde en el puerto ${port}: $($v.Trim())`n$list"
+}
+
 Step 'https://demo.test con el hosts y la CA de Windows (sin --resolve ni --cacert)' {
     $raw = Invoke-Curl 'https://demo.test/'
     $j = $raw | ConvertFrom-Json

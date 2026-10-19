@@ -45,24 +45,39 @@ func cmdMySQL(env *app.Env, args []string) error {
 		if _, err := os.Stat(filepath.Join(dir, "mysql")); err != nil {
 			return fmt.Errorf("%s no parece una carpeta de datos de MySQL", dir)
 		}
-		env.Cfg.MySQL.Version = v.Version
-		env.Cfg.MySQL.DataDir = dir
-		env.Cfg.MySQL.DataDirVersion = v.Version
+		// The instance of that series opens Laragon's folder, pinned to Laragon's exact version,
+		// and becomes the default MySQL.
+		series := versions.MajorMinor(v.Version)
+		svc := env.Cfg.Service(string(versions.MySQL))
+		inst, ok := svc.Instances[series]
+		if !ok {
+			inst.Port = app.DBStandardPort
+		}
+		inst.DataDir, inst.Version = dir, v.Version
+		svc.Instances[series] = inst
+		svc.Default = series
+		env.Cfg.SetService(string(versions.MySQL), svc)
 		if err := env.SaveConfig(); err != nil {
 			return err
 		}
-		fmt.Printf("MySQL de clon usará tus bases de datos de Laragon: %s (MySQL %s).\n", dir, v.Version)
+		key := app.InstanceKey(versions.MySQL, series)
+		fmt.Printf("%s (MySQL %s) usará tus bases de datos de Laragon: %s\n", key, v.Version, dir)
 		fmt.Println("No se copia nada. Nunca corren los dos a la vez: si el MySQL de Laragon está abierto, clon no arranca el suyo.")
-		fmt.Println("Para que tus proyectos no cambien su .env, usa el mismo puerto que Laragon: [mysql] port = 3306 en clon.toml (con Laragon cerrado).")
+		if inst.Port != app.DBStandardPort {
+			fmt.Printf("Para que tus proyectos no cambien su .env, usa el puerto de Laragon (con Laragon cerrado): clon service port %s %d\n", key, app.DBStandardPort)
+		}
 		return nil
 	case "own-data":
-		env.Cfg.MySQL.DataDir = ""
-		env.Cfg.MySQL.DataDirVersion = ""
-		if err := env.SaveConfig(); err != nil {
-			return err
+		svc := env.Cfg.Service(string(versions.MySQL))
+		for series, inst := range svc.Instances {
+			if inst.DataDir != "" {
+				inst.DataDir, inst.Version = "", ""
+				svc.Instances[series] = inst
+				fmt.Printf("%s vuelve a su propia carpeta de datos (%s).\n", app.InstanceKey(versions.MySQL, series), env.Home.Data(app.InstanceKey(versions.MySQL, series)))
+			}
 		}
-		fmt.Println("MySQL de clon vuelve a su propia carpeta de datos.")
-		return nil
+		env.Cfg.SetService(string(versions.MySQL), svc)
+		return env.SaveConfig()
 	}
 	return fmt.Errorf("uso:%s", mysqlUsage)
 }

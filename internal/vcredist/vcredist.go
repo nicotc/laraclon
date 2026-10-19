@@ -6,10 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
 	"unsafe"
 
@@ -74,7 +71,7 @@ func Install(ctx context.Context, home paths.Home, installer string, progress do
 		}
 	}
 	start := time.Now()
-	if err := verifyMicrosoftSignature(installer); err != nil {
+	if err := winx.VerifySignature(installer, "Microsoft Corporation"); err != nil {
 		return err
 	}
 	report("Firma de Microsoft comprobada en %.1f s. Instalando; en un Windows recién instalado tarda unos minutos…", time.Since(start).Seconds())
@@ -91,21 +88,4 @@ func Install(ctx context.Context, home paths.Home, installer string, progress do
 		return fmt.Errorf("Visual C++ quedó instalado pero Windows pide reiniciar para terminar")
 	}
 	return fmt.Errorf("el instalador de Visual C++ terminó con código %d", code)
-}
-
-// verifyMicrosoftSignature checks the Authenticode signature with Windows' own verifier.
-func verifyMicrosoftSignature(file string) error {
-	script := `$s = Get-AuthenticodeSignature -LiteralPath $env:CLON_FILE; "{0}|{1}" -f $s.Status, $s.SignerCertificate.Subject`
-	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
-	cmd.Env = append(os.Environ(), "CLON_FILE="+file)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
-	out, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("no se pudo comprobar la firma de %s: %w", file, err)
-	}
-	status, subject, _ := strings.Cut(strings.TrimSpace(string(out)), "|")
-	if status != "Valid" || !strings.Contains(subject, "O=Microsoft Corporation") {
-		return fmt.Errorf("%s no tiene una firma válida de Microsoft (%s %s); no se ejecuta", file, status, subject)
-	}
-	return nil
 }

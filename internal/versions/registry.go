@@ -37,9 +37,19 @@ type Version struct {
 	ThreadSafe *bool     `json:"thread_safe,omitempty"`
 }
 
+var componentNames = map[Component]string{PHP: "PHP", Apache: "Apache", MySQL: "MySQL", MariaDB: "MariaDB", Nginx: "Nginx", Node: "Node", Redis: "Redis", Composer: "Composer"}
+
+// Name is the product name shown to the user, e.g. "MariaDB".
+func (c Component) Name() string {
+	if n, ok := componentNames[c]; ok {
+		return n
+	}
+	return string(c)
+}
+
 // Label is a short human description, e.g. "PHP 8.4.16 (NTS x64)".
 func (v Version) Label() string {
-	name := map[Component]string{PHP: "PHP", Apache: "Apache", MySQL: "MySQL", MariaDB: "MariaDB", Nginx: "Nginx", Node: "Node", Redis: "Redis", Composer: "Composer"}[v.Component]
+	name := v.Component.Name()
 	extra := []string{}
 	if v.ThreadSafe != nil {
 		if *v.ThreadSafe {

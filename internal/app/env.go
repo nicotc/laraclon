@@ -10,6 +10,7 @@ import (
 
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/install"
+	"github.com/nicotc/laraclon/internal/mysql"
 	"github.com/nicotc/laraclon/internal/paths"
 	"github.com/nicotc/laraclon/internal/php"
 	"github.com/nicotc/laraclon/internal/shims"
@@ -40,7 +41,13 @@ func Open() (*Env, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Env{Home: home, Cfg: cfg, Reg: reg}, nil
+	e := &Env{Home: home, Cfg: cfg, Reg: reg}
+	if e.SyncServices() {
+		if err := e.SaveConfig(); err != nil {
+			return nil, err
+		}
+	}
+	return e, nil
 }
 
 func (e *Env) SaveConfig() error   { return config.Save(e.Home.ConfigFile(), e.Cfg) }
@@ -63,15 +70,6 @@ func (e *Env) GlobalNode() (versions.Version, error) {
 	v, ok := e.Reg.Find(versions.Node, e.Cfg.Node.Version)
 	if !ok {
 		return v, fmt.Errorf("no hay ninguna versión de Node instalada (usa 'clon node install lts')")
-	}
-	return v, nil
-}
-
-// MySQLVersion is the MySQL used by the mysql service and the mysql shim.
-func (e *Env) MySQLVersion() (versions.Version, error) {
-	v, ok := e.Reg.Find(versions.MySQL, e.Cfg.MySQL.Version)
-	if !ok {
-		return v, fmt.Errorf("no hay ninguna versión de MySQL instalada")
 	}
 	return v, nil
 }
@@ -163,9 +161,10 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 		}
 	}
 
-	if v, err := e.MySQLVersion(); err == nil {
-		if client := filepath.Join(v.Path, "bin", "mysql.exe"); fileExists(client) {
-			targets["mysql"] = shims.Target{Exe: client, Args: []string{"--host=127.0.0.1", fmt.Sprintf("--port=%d", e.Cfg.MySQL.Port), "--user=root"}}
+	// `mysql` opens the default database (MySQL, or MariaDB when there is no MySQL).
+	if db, ok := e.DefaultDB(); ok {
+		if client := mysql.ClientExe(db.Version); client != "" {
+			targets["mysql"] = shims.Target{Exe: client, Args: []string{"--host=127.0.0.1", fmt.Sprintf("--port=%d", db.Instance.Port), "--user=root"}}
 		}
 	}
 

@@ -20,8 +20,14 @@ type Config struct {
 	PHP    PHP    `toml:"php"`
 	Node   Node   `toml:"node"`
 	Apache Apache `toml:"apache"`
-	MySQL  MySQL  `toml:"mysql"`
 	Hosts  Hosts  `toml:"hosts"`
+
+	// Services holds the databases by kind ("mysql", "mariadb").
+	Services map[string]Service `toml:"services,omitempty"`
+
+	// MySQL is the single-server section written by earlier versions of clon. It is read once and
+	// moved into Services (see app.Env), then no longer written.
+	MySQL *LegacyMySQL `toml:"mysql,omitempty"`
 
 	Sites map[string]SiteSettings `toml:"sites,omitempty"`
 }
@@ -48,15 +54,48 @@ type Apache struct {
 	Version string `toml:"version"`
 }
 
-type MySQL struct {
-	Enabled bool   `toml:"enabled"`
-	Version string `toml:"version"`
-	Port    int    `toml:"port"`
-	// DataDir uses an existing data folder (for example Laragon's) instead of clon's own.
-	// DataDirVersion is the MySQL version that folder belongs to; clon refuses to open it with
-	// another version, because MySQL would upgrade it in place.
+// LegacyMySQL is the [mysql] section of earlier versions: one server with one data folder.
+type LegacyMySQL struct {
+	Enabled        bool   `toml:"enabled"`
+	Version        string `toml:"version"`
+	Port           int    `toml:"port"`
 	DataDir        string `toml:"data_dir,omitempty"`
 	DataDirVersion string `toml:"data_dir_version,omitempty"`
+}
+
+// Service lists the instances of one kind of service, one per series ("8.4"). The default one
+// uses the standard port, always starts with «Iniciar todo» and is what the `mysql` shortcut opens.
+type Service struct {
+	Default   string                     `toml:"default,omitempty"`
+	Instances map[string]ServiceInstance `toml:"instances,omitempty"`
+}
+
+// ServiceInstance is one series of a service. It runs the newest installed version of the series
+// unless Version pins one. DataDir points to existing data (Laragon's, for example) instead of
+// clon's own data\<kind>-<series>; such a folder is only ever opened with the version that owns
+// it, because MySQL upgrades data in place and the older version could no longer read it.
+type ServiceInstance struct {
+	Port      int    `toml:"port"`
+	Autostart bool   `toml:"autostart,omitempty"`
+	Version   string `toml:"version,omitempty"`
+	DataDir   string `toml:"data_dir,omitempty"`
+}
+
+// Service returns the settings of one kind of service (empty when there are none).
+func (c *Config) Service(kind string) Service {
+	s := c.Services[kind]
+	if s.Instances == nil {
+		s.Instances = map[string]ServiceInstance{}
+	}
+	return s
+}
+
+// SetService stores the settings of one kind of service.
+func (c *Config) SetService(kind string, s Service) {
+	if c.Services == nil {
+		c.Services = map[string]Service{}
+	}
+	c.Services[kind] = s
 }
 
 // Hosts controls the managed block in the Windows hosts file.
@@ -77,7 +116,6 @@ func Defaults() Config {
 		TLD:    "test",
 		Proxy:  Proxy{HTTPPort: 80, HTTPSPort: 443},
 		PHP:    PHP{PoolSize: 4, BasePort: 9100},
-		MySQL:  MySQL{Enabled: true, Port: 3306},
 		Hosts:  Hosts{Manage: true},
 		Apache: Apache{},
 	}

@@ -122,7 +122,11 @@ func cmdStatus(env *app.Env) error {
 }
 
 func printStatus(st app.Status) {
-	fmt.Printf("PHP %s · Node %s · Apache %s · MySQL %s (puerto %d)\n", dash(st.PHP), dash(st.Node), dash(st.Apache), dash(st.MySQL), st.MySQLPort)
+	db := dash(st.DB)
+	if st.DBPort != 0 {
+		db += fmt.Sprintf(" (puerto %d)", st.DBPort)
+	}
+	fmt.Printf("PHP %s · Node %s · Apache %s · %s\n", dash(st.PHP), dash(st.Node), dash(st.Apache), db)
 	proxy := "detenido"
 	if st.ProxyUp {
 		proxy = fmt.Sprintf("en marcha en %d/%d", st.HTTPPort, st.HTTPSPort)

@@ -50,7 +50,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		fmt.Print(usage + daemonUsage + mysqlUsage)
+		fmt.Print(usage + daemonUsage + serviceUsage + mysqlUsage)
 		return nil
 	}
 	// The elevated helper only rewrites clon's block in the hosts file; it touches nothing else.
@@ -83,6 +83,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdPath(env, args[1:])
 	case "mysql":
 		return cmdMySQL(env, args[1:])
+	case "service", "services":
+		return cmdServices(env, args[1:])
 	case "version":
 		fmt.Println("clon 0.1.0 (fase 1) · instalación:", env.Home.Root)
 		return nil
@@ -167,6 +169,7 @@ func cmdImport(env *app.Env, args []string) error {
 	if err != nil {
 		return err
 	}
+	env.SyncServices()
 	if err := env.SaveRegistry(); err != nil {
 		return err
 	}
@@ -221,8 +224,12 @@ func activeVersion(env *app.Env, c versions.Component) string {
 		v, err = env.GlobalPHP()
 	case versions.Node:
 		v, err = env.GlobalNode()
-	case versions.MySQL:
-		v, err = env.MySQLVersion()
+	case versions.MySQL, versions.MariaDB:
+		def := env.Cfg.Service(string(c)).Default
+		if def == "" {
+			return ""
+		}
+		v, err = env.InstanceVersion(c, def)
 	case versions.Apache:
 		var ok bool
 		v, ok = env.Reg.Find(versions.Apache, env.Cfg.Apache.Version)

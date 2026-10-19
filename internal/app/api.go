@@ -29,8 +29,10 @@ type Status struct {
 	PHPVersions  []string            `json:"php_versions"`
 	Node         string              `json:"node"`
 	Apache       string              `json:"apache"`
-	MySQL        string              `json:"mysql"`
-	MySQLPort    int                 `json:"mysql_port"`
+	DB           string              `json:"db"` // the default database, e.g. "MySQL 8.4.11"
+	DBPort       int                 `json:"db_port"`
+	Databases    []DBGroup           `json:"databases"`
+	Jobs         []Job               `json:"jobs"`
 	PanelURL     string              `json:"panel_url"`
 	ProxyUp      bool                `json:"proxy_up"`
 	HTTPPort     int                 `json:"http_port"`
@@ -56,7 +58,7 @@ func (d *Daemon) Status() Status {
 		Home: d.env.Home.Root, PanelURL: d.PanelURL(),
 		HTTPPort: d.env.Cfg.Proxy.HTTPPort, HTTPSPort: d.env.Cfg.Proxy.HTTPSPort,
 		CATrusted: d.CATrusted(), CACert: d.ca.CertPath(),
-		Services: d.sup.Statuses(), MySQLPort: d.env.Cfg.MySQL.Port,
+		Services: d.sup.Statuses(), Jobs: d.Jobs(),
 	}
 	if v, err := d.env.GlobalPHP(); err == nil {
 		st.PHP = v.Version
@@ -70,8 +72,8 @@ func (d *Daemon) Status() Status {
 	if v, err := d.apacheVersion(); err == nil {
 		st.Apache = v.Version
 	}
-	if v, err := d.env.MySQLVersion(); err == nil && d.env.Cfg.MySQL.Enabled {
-		st.MySQL = v.Version
+	if db, ok := d.env.DefaultDB(); ok {
+		st.DB, st.DBPort = db.Kind.Name()+" "+db.Version.Version, db.Instance.Port
 	}
 	d.mu.Lock()
 	st.ProxyUp = d.proxyUp
@@ -84,6 +86,7 @@ func (d *Daemon) Status() Status {
 		st.Problems[k] = v
 	}
 	d.mu.Unlock()
+	st.Databases = d.dbGroups(st.Problems)
 	if content, err := os.ReadFile(hosts.Path()); err == nil {
 		st.HostsMissing = hosts.Missing(string(content), d.hostNames())
 	}
@@ -134,6 +137,60 @@ func (d *Daemon) Handler() http.Handler {
 	api("POST /api/hosts/sync", func(*http.Request) (any, error) { return d.Status(), d.SyncHosts() })
 	api("POST /api/ca/trust", func(*http.Request) (any, error) { return d.Status(), d.TrustCA() })
 	api("POST /api/shutdown", func(*http.Request) (any, error) { go d.Shutdown(); return map[string]bool{"ok": true}, nil })
+
+	// Databases: catalog, installs and one action per instance ("mysql-8.4").
+	keyAction := func(fn func(string) error) func(*http.Request) (any, error) {
+		return func(r *http.Request) (any, error) {
+			var req struct{ Key string }
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				return nil, err
+			}
+			err := fn(req.Key)
+			return d.Status(), err
+		}
+	}
+	api("GET /api/catalog", func(r *http.Request) (any, error) {
+		q := r.URL.Query()
+		return d.Catalog(r.Context(), versions.Component(q.Get("kind")), q.Get("refresh") == "1")
+	})
+	api("POST /api/services/install", func(r *http.Request) (any, error) {
+		var req struct{ Kind, Version string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return d.InstallService(versions.Component(req.Kind), req.Version)
+	})
+	api("POST /api/services/start", keyAction(d.StartService))
+	api("POST /api/services/stop", keyAction(d.StopService))
+	api("POST /api/services/default", keyAction(d.SetDefaultService))
+	api("POST /api/services/uninstall", keyAction(d.UninstallService))
+	api("POST /api/services/settings", func(r *http.Request) (any, error) {
+		var req struct {
+			Key       string
+			Port      *int
+			Autostart *bool
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		err := d.ServiceSettings(req.Key, req.Port, req.Autostart)
+		return d.Status(), err
+	})
+	api("POST /api/services/open", func(r *http.Request) (any, error) {
+		var req struct{ Key, What string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, d.OpenPath(req.Key, req.What)
+	})
+	api("GET /api/jobs", func(*http.Request) (any, error) { return d.Jobs(), nil })
+	api("POST /api/jobs/cancel", func(r *http.Request) (any, error) {
+		var req struct{ ID string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, d.CancelJob(req.ID)
+	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host

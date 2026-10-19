@@ -13,7 +13,11 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
 - **Proxy frontal propio (80/443).** Presenta un certificado por sitio, firmado por una CA local, y redirige HTTP a HTTPS. Los sitios desconocidos reciben una página de error útil.
 - **PHP global con cambio en caliente.** Funciona con cualquier versión, incluida la 7.2. PHP corre por FastCGI (un pool de `php-cgi`), así que Apache no se reinicia al cambiarlo, y la terminal, Composer y Artisan siguen al mismo PHP.
 - **Apache 2.4** con un puerto interno por sitio y `.htaccess` (`AllowOverride All`). PHP recibe `HTTPS=on` y las URLs correctas.
-- **MySQL** con su propia carpeta de datos, o con las bases de una instalación de Laragon sin copiarlas (`clon mysql laragon-data`), protegido para no abrirlas nunca a la vez que Laragon.
+- **MySQL y MariaDB, varias versiones a la vez.** La pestaña «Servicios» del panel (o `clon service`) instala versiones desde un catálogo de descargas oficiales:
+  - MySQL de cdn.mysql.com, con la firma de Oracle comprobada.
+  - MariaDB de mariadb.org, con su SHA-256 comprobado.
+
+  Cada versión tiene su puerto, su carpeta de datos y su interruptor. Una por tipo es la predeterminada: usa el 3306, arranca con «Iniciar todo» y es la que abre el atajo `mysql`. También puede usar las bases de una instalación de Laragon sin copiarlas (`clon mysql laragon-data`), sin abrirlas nunca a la vez que Laragon.
 - **Node incluido:** descarga la LTS oficial, verificada, con `npm` y `npx`. Los paquetes globales de npm sobreviven a los cambios de versión.
 - **Composer** actualizado y atajos de terminal (`php`, `php84`, `php83`…, `composer`, `node`, `npm`, `npx`, `mysql`) en una sola carpeta `shims\`. Los procesos PHP que lanzan Composer o Artisan heredan el mismo `php.ini`.
 - **Importación desde Laragon.** Usa en su sitio, sin copiar ni modificar, sus versiones de PHP, Apache, MySQL, Nginx, Node y Redis, y sus carpetas de proyectos.
@@ -26,7 +30,8 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
 - **Runtime de Visual C++ 2015–2022 x64 de Microsoft.** Lo necesitan los binarios de PHP, Apache y MySQL para Windows. Si falta, `clon setup` (o `clon vcredist install`) instala la versión oficial de Microsoft tras comprobar su firma; Windows pide permiso de administrador. En un Windows recién instalado, el instalador de Microsoft tarda unos 4 minutos.
 - **Go 1.27 o posterior,** solo para compilar.
 - **PHP, Node y Composer:** clon los descarga solo.
-- **Apache y MySQL:** por ahora salen de una instalación de Laragon (`clon import laragon`). La descarga directa está en la hoja de ruta.
+- **MySQL y MariaDB:** se instalan desde el panel o con `clon service install`; también se importan de Laragon.
+- **Apache:** por ahora sale de una instalación de Laragon (`clon import laragon`). La descarga directa está en la hoja de ruta.
 
 ## Compilar
 
@@ -52,21 +57,18 @@ C:\clon\clon.exe run       # arranca clon con el icono en la bandeja
 C:\clon\clon.exe status    # servicios, sitios y avisos
 ```
 
-Para usarlo a la vez que Laragon, que ocupa los puertos 80, 443, 3306 y 6379, elige otros puertos en `C:\clon\config\clon.toml`:
+Para usarlo a la vez que Laragon, que ocupa los puertos 80, 443, 3306 y 6379, elige otros puertos para el proxy en `C:\clon\config\clon.toml`, y para las bases de datos en el panel o con `clon service port mysql-8.0 3307`:
 
 ```toml
 [proxy]
   http_port = 8081
   https_port = 8444
-
-[mysql]
-  port = 3307
 ```
 
 ## Pasar de Laragon a clon
 
 1. Cierra Laragon.
-2. En `config\clon.toml`, deja `[proxy] http_port = 80` y `https_port = 443`, y `[mysql] port = 3306`.
+2. En `config\clon.toml`, deja `[proxy] http_port = 80` y `https_port = 443`. Tu MySQL predeterminado debe usar el 3306 (`clon service list` lo muestra).
 3. `clon mysql laragon-data`: usa tus bases de datos de Laragon sin copiarlas.
 4. `clon ca trust`: Windows te pide confirmar la CA local, solo para tu usuario.
 5. `clon hosts sync`: Windows pide permiso de administrador para escribir el archivo `hosts`.
@@ -87,7 +89,10 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon composer install` | Descarga o actualiza Composer |
 | `clon vcredist status` · `install [instalador.exe]` | Runtime de Visual C++ que necesitan PHP, Apache y MySQL |
 | `clon import laragon [ruta]` | Importa versiones y carpetas de Laragon |
-| `clon mysql laragon-data` · `own-data` | Elige la carpeta de datos de MySQL |
+| `clon service list` · `remote` · `install mysql 8.4` | Bases de datos instaladas · catálogo · instalar una versión |
+| `clon service start` · `stop` · `default` · `uninstall mysql-8.4` | Una instancia: iniciar, detener, hacerla predeterminada o quitarla (los datos se conservan) |
+| `clon service port mysql-8.4 3307` · `autostart mysql-8.4 on` | Su puerto y si arranca con «Iniciar todo» |
+| `clon mysql laragon-data` · `own-data` | Usa las bases de Laragon o la carpeta de datos propia |
 | `clon ca status` · `trust` · `untrust` | CA local para HTTPS |
 | `clon hosts status` · `sync` | Bloque gestionado del archivo `hosts` |
 | `clon path add` · `remove` | Atajos de clon en el PATH de tu usuario |
@@ -106,6 +111,7 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - Confiar en la CA y escribir el archivo `hosts`.
 - Puertos 80/443.
 - Proyecto Laravel nuevo con MySQL y `npm run build`.
+- MariaDB instalada desde el catálogo y corriendo a la vez que MySQL.
 - Edge sin avisos, cambio de PHP y cierre.
 
 Tarda unos 10 minutos. No cierres la ventana del sandbox hasta que diga «Prueba terminada»: al cerrarla se descarta todo lo de dentro. Al terminar, clon queda arrancado con el proyecto Laravel y el panel abiertos en Edge, para probarlo a mano. El informe queda en `dist\sandbox\<fecha>\resultados\report.md`. El instalador de Visual C++ se descarga en el equipo anfitrión (`dist\cache`) y se comparte con el sandbox, porque dentro su descarga resultó poco fiable.
@@ -119,7 +125,7 @@ cmd/clon-shim    atajos php/node/npm…         internal/sites       detección 
 internal/app     servicio principal y API     internal/hosts       bloque del archivo hosts
 internal/apache  httpd.conf y control         internal/supervisor  procesos y job objects
 internal/php     php.ini y pool de php-cgi    internal/ports       puertos libres y reservados
-internal/mysql   my.ini, datos y control      internal/install     descargas oficiales verificadas
+internal/mysql   MySQL y MariaDB: my.ini      internal/install     descargas oficiales verificadas
 internal/laragon importación de Laragon       internal/versions    catálogo de versiones
 ```
 
@@ -137,6 +143,11 @@ En Windows 11, junto a Laragon y en puertos alternativos:
 - **Panel:** sin token responde 403, y con otro `Host` u `Origin` no es alcanzable.
 - **Laragon:** clon se niega a abrir los datos de MySQL de Laragon mientras Laragon los usa.
 - **Node y atajos:** Node 24 LTS descargado y verificado; `npm`, `npx`, `php` y `composer` funcionan desde `shims\`.
+- **Bases de datos:**
+  - Funcionan a la vez MySQL 8.0 (de Laragon), MySQL 8.4 y MariaDB 11.8 (descargadas), cada una en su puerto.
+  - Al cambiar la predeterminada, el atajo `mysql` la sigue.
+  - «Iniciar todo» arranca solo las predeterminadas y las marcadas.
+  - Cancelar una descarga no deja restos. Desinstalar borra los programas descargados, conserva los datos y nunca toca los archivos de Laragon.
 
 En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 24 pasos de `probar-en-sandbox.ps1`:
 
@@ -147,14 +158,13 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 24 p
 
 ## Hoja de ruta
 
-- **Fase 1 (núcleo), pendiente:**
-  - Descarga directa de Apache y MySQL.
-  - Probar MariaDB.
-- **Fase 2:**
-  - Nginx y FrankenPHP por sitio.
+- **Fase 1 (núcleo), pendiente:** descarga directa de Apache.
+- **Fase 2, en este orden:**
+  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez.
+  - Nginx por sitio.
+  - FrankenPHP por sitio.
+  - MongoDB, PostgreSQL, Redis, Mailpit y Meilisearch.
   - Varias versiones de Apache, incluidos perfiles legacy con su propio PHP.
-  - Varias versiones de cada base de datos en paralelo.
-  - PostgreSQL, Redis, MongoDB, Meilisearch y Mailpit.
 - **Fase 3:**
   - Instaladores: Laravel con sus starter kits, WordPress, Symfony, desde Git y recetas propias.
   - `.env` automático y procesos del proyecto (cola, scheduler, Reverb, Vite).

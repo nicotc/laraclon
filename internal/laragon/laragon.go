@@ -133,9 +133,13 @@ func Import(root string, reg *versions.Registry, cfg *config.Config) (Report, er
 			cfg.PHP.Version = v.Version
 			rep.Defaults[versions.PHP] = v.Version
 		}
-		if v, ok := pick("mysql", "mysql"); ok && cfg.MySQL.Version == "" {
-			cfg.MySQL.Version = v.Version
-			rep.Defaults[versions.MySQL] = v.Version
+		// Laragon's active MySQL becomes clon's default MySQL series (the one on port 3306).
+		if v, ok := pick("mysql", "mysql"); ok && cfg.MySQL == nil {
+			if svc := cfg.Service(string(versions.MySQL)); svc.Default == "" && len(svc.Instances) == 0 {
+				svc.Default = versions.MajorMinor(v.Version)
+				cfg.SetService(string(versions.MySQL), svc)
+				rep.Defaults[versions.MySQL] = v.Version
+			}
 		}
 		if v, ok := pick("nodejs", "nodejs"); ok && cfg.Node.Version == "" {
 			cfg.Node.Version = v.Version

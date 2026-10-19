@@ -37,6 +37,27 @@ func get(ctx context.Context, url string) (*http.Response, error) {
 	return resp, nil
 }
 
+var headClient = &http.Client{Timeout: 30 * time.Second}
+
+// Head checks that a remote file exists (following redirects) and returns its size, or -1 when the
+// server does not say.
+func Head(ctx context.Context, url string) (int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := headClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("HEAD %s: %s", url, resp.Status)
+	}
+	return resp.ContentLength, nil
+}
+
 // Text downloads a small text resource.
 func Text(ctx context.Context, url string) (string, error) {
 	resp, err := get(ctx, url)

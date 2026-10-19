@@ -52,7 +52,7 @@ func (i Instance) InUseBy() (pid int, exe string, busy bool) {
 		if _, err := fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &p); err != nil || p == 0 {
 			continue
 		}
-		if path, alive := processImage(p); alive && strings.EqualFold(filepath.Base(path), "mysqld.exe") {
+		if path, alive := processImage(p); alive && (strings.EqualFold(filepath.Base(path), "mysqld.exe") || strings.EqualFold(filepath.Base(path), "mariadbd.exe")) {
 			return p, path, true
 		}
 	}
@@ -61,6 +61,48 @@ func (i Instance) InUseBy() (pid int, exe string, busy bool) {
 func (i Instance) bin(name string) string {
 	return filepath.Join(i.Version.Path, "bin", name)
 }
+
+// firstBin returns the first program of names that exists in bin\ (MariaDB renamed its programs:
+// mysqld.exe became mariadbd.exe and the old names are not always shipped), or the first name.
+func firstBin(v versions.Version, names ...string) string {
+	for _, n := range names {
+		p := filepath.Join(v.Path, "bin", n)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return filepath.Join(v.Path, "bin", names[0])
+}
+
+func (i Instance) serverExe() string {
+	if i.Version.Component == versions.MariaDB {
+		return firstBin(i.Version, "mariadbd.exe", "mysqld.exe")
+	}
+	return firstBin(i.Version, "mysqld.exe")
+}
+
+func (i Instance) adminExe() string {
+	if i.Version.Component == versions.MariaDB {
+		return firstBin(i.Version, "mariadb-admin.exe", "mysqladmin.exe")
+	}
+	return firstBin(i.Version, "mysqladmin.exe")
+}
+
+// ClientExe is the command-line client of a MySQL or MariaDB version ("" when it has none).
+func ClientExe(v versions.Version) string {
+	names := []string{"mysql.exe"}
+	if v.Component == versions.MariaDB {
+		names = []string{"mariadb.exe", "mysql.exe"}
+	}
+	p := firstBin(v, names...)
+	if _, err := os.Stat(p); err != nil {
+		return ""
+	}
+	return p
+}
+
+// LogPath is the log of the instance's server.
+func (i Instance) LogPath() string { return i.Home.Logs(i.Key() + ".log") }
 
 var iniTemplate = template.Must(template.New("my.ini").Parse(`# Generado por clon. Pon tus cambios en {{.Overrides}}
 [client]
@@ -138,7 +180,7 @@ func (i Instance) Initialize() error {
 		}
 		out, err = procutil.Output(5*time.Minute, i.Version.Path, tool, "--datadir="+i.DataDir(), fmt.Sprintf("--port=%d", i.Port))
 	} else {
-		out, err = procutil.Output(5*time.Minute, i.Version.Path, i.bin("mysqld.exe"), "--defaults-file="+i.IniPath(), "--initialize-insecure", "--console")
+		out, err = procutil.Output(5*time.Minute, i.Version.Path, i.serverExe(), "--defaults-file="+i.IniPath(), "--initialize-insecure", "--console")
 	}
 	if err != nil {
 		os.RemoveAll(i.DataDir())
@@ -151,14 +193,14 @@ func (i Instance) Initialize() error {
 func (i Instance) Spec() supervisor.Spec {
 	return supervisor.Spec{
 		Name:    i.ServiceName(),
-		Exe:     i.bin("mysqld.exe"),
+		Exe:     i.serverExe(),
 		Args:    []string{"--defaults-file=" + i.IniPath(), "--console"},
 		Dir:     i.Version.Path,
-		LogPath: i.Home.Logs(i.Key() + ".log"),
+		LogPath: i.LogPath(),
 		Port:    i.Port,
 		Restart: true,
 		Stop: func(int) error {
-			_, err := procutil.Output(30*time.Second, i.Version.Path, i.bin("mysqladmin.exe"), "--defaults-file="+i.IniPath(), "shutdown")
+			_, err := procutil.Output(30*time.Second, i.Version.Path, i.adminExe(), "--defaults-file="+i.IniPath(), "shutdown")
 			return err
 		},
 		StopTimeout: 45 * time.Second,

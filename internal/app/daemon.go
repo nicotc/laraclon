@@ -21,7 +21,6 @@ import (
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/hosts"
 	"github.com/nicotc/laraclon/internal/install"
-	"github.com/nicotc/laraclon/internal/mysql"
 	"github.com/nicotc/laraclon/internal/php"
 	"github.com/nicotc/laraclon/internal/ports"
 	"github.com/nicotc/laraclon/internal/proxy"
@@ -60,6 +59,10 @@ type Daemon struct {
 	trusted     bool
 	trustedAt   time.Time
 
+	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
+	cfgMu sync.Mutex
+	jobs  jobList
+
 	// OnChange is called after anything visible changes (tray menu refresh).
 	OnChange func()
 	quit     chan struct{}
@@ -91,6 +94,7 @@ func NewDaemon(env *Env) (*Daemon, error) {
 		token:    hex.EncodeToString(tok),
 		problems: map[string]string{},
 		quit:     make(chan struct{}),
+		jobs:     jobList{jobs: map[string]*Job{}},
 	}
 	d.sup.OnChange = d.changed
 	return d, nil
@@ -168,8 +172,8 @@ func (d *Daemon) Shutdown() {
 	}
 }
 
-// StartAll starts MySQL, the PHP pool, Apache and the front proxy, collecting problems instead of
-// stopping at the first one.
+// StartAll starts the databases, the PHP pool, Apache and the front proxy, collecting problems
+// instead of stopping at the first one.
 func (d *Daemon) StartAll() {
 	if missing := vcredist.Missing(); len(missing) > 0 {
 		d.setProblem("visual-c++", fmt.Errorf("falta el runtime de Visual C++ 2015-2022 x64 (%s): sin él no arrancan PHP, Apache ni MySQL. Instálalo con 'clon vcredist install' y luego 'clon import laragon'", strings.Join(missing, ", ")))
@@ -179,7 +183,9 @@ func (d *Daemon) StartAll() {
 	if err := d.Rescan(); err != nil {
 		d.setProblem("sitios", err)
 	}
-	d.setProblem("mysql", d.startMySQL())
+	d.cfgMu.Lock()
+	d.startDatabases()
+	d.cfgMu.Unlock()
 	d.setProblem("php", d.startPHP())
 	d.setProblem("apache", d.startApache())
 	d.setProblem("proxy", d.startProxy())
@@ -192,47 +198,6 @@ func (d *Daemon) StopAll() {
 	d.sup.StopMatching(func(n string) bool { return strings.HasPrefix(n, "php-cgi-") })
 	d.sup.StopMatching(func(n string) bool { return strings.HasPrefix(n, "mysql-") || strings.HasPrefix(n, "mariadb-") })
 	d.changed()
-}
-
-func (d *Daemon) mysqlInstance() (*mysql.Instance, error) {
-	if !d.env.Cfg.MySQL.Enabled {
-		return nil, nil
-	}
-	v, err := d.env.MySQLVersion()
-	if err != nil {
-		return nil, err
-	}
-	c := d.env.Cfg.MySQL
-	if c.DataDir != "" && c.DataDirVersion != "" && c.DataDirVersion != v.Version {
-		return nil, fmt.Errorf("la carpeta de datos %s es de MySQL %s; abrirla con MySQL %s la actualizaría y la versión anterior (Laragon) ya no podría usarla. Pon [mysql] version = %q o quita data_dir", c.DataDir, c.DataDirVersion, v.Version, c.DataDirVersion)
-	}
-	return &mysql.Instance{Home: d.env.Home, Version: v, Port: c.Port, External: c.DataDir}, nil
-}
-
-func (d *Daemon) startMySQL() error {
-	inst, err := d.mysqlInstance()
-	if err != nil || inst == nil {
-		return err
-	}
-	if d.sup.PID(inst.ServiceName()) != 0 {
-		return nil
-	}
-	if pid, exe, busy := inst.InUseBy(); busy {
-		return fmt.Errorf("otro MySQL ya usa la carpeta de datos %s: %s (PID %d). Detenlo (por ejemplo, cierra Laragon) antes de iniciar el de clon", inst.DataDir(), exe, pid)
-	}
-	if inst.External != "" && !inst.Initialized() {
-		return fmt.Errorf("%s no contiene datos de MySQL", inst.DataDir())
-	}
-	if err := ports.Check(inst.Port); err != nil {
-		return fmt.Errorf("MySQL no puede usar su puerto: %w. Cambia [mysql] port en clon.toml", err)
-	}
-	if err := inst.WriteIni(); err != nil {
-		return err
-	}
-	if err := inst.Initialize(); err != nil {
-		return err
-	}
-	return d.sup.Start(inst.Spec())
 }
 
 func (d *Daemon) startPHP() error {
