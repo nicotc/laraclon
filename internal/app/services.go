@@ -420,27 +420,33 @@ func (d *Daemon) InstallService(kind versions.Component, want string) (Job, erro
 	if err != nil {
 		return Job{}, err
 	}
-	if v, ok := d.env.Reg.Find(kind, rel.Version); ok && v.Version == rel.Version {
+	return d.startInstall(rel, false)
+}
+
+// startInstall installs a release in the background; use makes it the version in use once
+// installed (Node).
+func (d *Daemon) startInstall(rel install.Release, use bool) (Job, error) {
+	if v, ok := d.env.Reg.Find(rel.Kind, rel.Version); ok && v.Version == rel.Version {
 		return Job{}, fmt.Errorf("%s ya está instalado", v.Label())
 	}
 	d.jobs.mu.Lock()
 	defer d.jobs.mu.Unlock()
 	for _, j := range d.jobs.jobs {
-		if !j.Finished && j.Kind == string(kind) && j.Series == rel.Series {
+		if !j.Finished && j.Kind == string(rel.Kind) && j.Series == rel.Series {
 			return *j, nil
 		}
 	}
 	id := make([]byte, 6)
 	rand.Read(id)
 	ctx, cancel := context.WithCancel(context.Background())
-	j := &Job{ID: hex.EncodeToString(id), Kind: string(kind), Series: rel.Series, Version: rel.Version,
+	j := &Job{ID: hex.EncodeToString(id), Kind: string(rel.Kind), Series: rel.Series, Version: rel.Version,
 		Phase: "preparando", Total: rel.Size, Started: time.Now(), cancel: cancel}
 	d.jobs.jobs[j.ID] = j
-	go d.runInstall(ctx, j, rel)
+	go d.runInstall(ctx, j, rel, use)
 	return *j, nil
 }
 
-func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release) {
+func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release, use bool) {
 	defer j.cancel()
 	v, err := install.InstallRelease(ctx, d.env.Home, rel,
 		func(phase string) { d.jobs.update(j, func(j *Job) { j.Phase = phase }) },
@@ -452,7 +458,7 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release) {
 				}
 			})
 		})
-	isDefault := false
+	isDefault, nodeSwitched := false, false
 	if err == nil {
 		d.cfgMu.Lock()
 		d.env.Reg.Add(v)
@@ -461,7 +467,14 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release) {
 		if rel.Kind == versions.Apache {
 			d.env.Cfg.Apache.Version = v.Version
 		}
-		if err == nil && (d.env.SyncServices() || rel.Kind == versions.Apache) {
+		// A downloaded Node becomes the global one when asked to, or when the global one is not a
+		// Node clon downloaded (none yet, or Laragon's).
+		if rel.Kind == versions.Node {
+			if cur, cerr := d.env.GlobalNode(); use || cerr != nil || cur.Source != "download" {
+				d.env.Cfg.Node.Version, nodeSwitched = v.Version, true
+			}
+		}
+		if err == nil && (d.env.SyncServices() || rel.Kind == versions.Apache || nodeSwitched) {
 			err = d.env.SaveConfig()
 		}
 		isDefault = d.env.Cfg.Service(string(rel.Kind)).Default == rel.Series
@@ -497,6 +510,12 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release) {
 			d.setProblem("sitios", err)
 		}
 		d.setProblem("adminer", d.startAdminer(true))
+	// The Vite servers move to the new global Node.
+	case err == nil && rel.Kind == versions.Node:
+		if nodeSwitched {
+			d.restartNodeProcesses()
+		}
+		d.checkNodeNews(context.Background())
 	}
 	d.changed()
 }

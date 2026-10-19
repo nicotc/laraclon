@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/nicotc/laraclon/internal/hosts"
+	"github.com/nicotc/laraclon/internal/install"
 	"github.com/nicotc/laraclon/internal/sites"
 	"github.com/nicotc/laraclon/internal/supervisor"
 	"github.com/nicotc/laraclon/internal/versions"
@@ -24,35 +25,36 @@ var panelPage = template.Must(template.ParseFS(panelFiles, "panel/index.html"))
 
 // Status is what the panel, the tray and `clon status` show.
 type Status struct {
-	Home           string              `json:"home"`
-	Roots          []string            `json:"roots"` // project folders, where new projects go
-	PHP            string              `json:"php"`
-	PHPVersions    []string            `json:"php_versions"`
-	PHPPools       []PoolStatus        `json:"php_pools"` // the global PHP's pool first, then the pinned versions'
-	Node           string              `json:"node"`
-	Apache         string              `json:"apache"`
-	ApacheVersions []string            `json:"apache_versions"`
-	Nginx          string              `json:"nginx"` // version the Nginx sites use ("" when not installed)
-	FrankenPHP     string              `json:"frankenphp"`
-	FrankenPHPPHP  string              `json:"frankenphp_php"` // the PHP built into FrankenPHP
-	Adminer        string              `json:"adminer"`        // installed version ("" when not)
-	AdminerURL     string              `json:"adminer_url"`    // https://db.localhost
-	DB             string              `json:"db"`             // the default database, e.g. "MySQL 8.4.11"
-	DBPort         int                 `json:"db_port"`
-	Databases      []DBGroup           `json:"databases"`
-	Jobs           []Job               `json:"jobs"`
-	PanelURL       string              `json:"panel_url"`
-	ProxyUp        bool                `json:"proxy_up"`
-	HTTPPort       int                 `json:"http_port"`
-	HTTPSPort      int                 `json:"https_port"`
-	CATrusted      bool                `json:"ca_trusted"`
-	Runtime        RuntimeStatus       `json:"runtime"` // Microsoft's Visual C++ runtime
-	CACert         string              `json:"ca_cert"`
-	HostsMissing   []string            `json:"hosts_missing"`
-	Services       []supervisor.Status `json:"services"`
-	Sites          []SiteStatus        `json:"sites"`
-	Warnings       []sites.Warning     `json:"warnings"`
-	Problems       map[string]string   `json:"problems"`
+	Home           string               `json:"home"`
+	Roots          []string             `json:"roots"` // project folders, where new projects go
+	PHP            string               `json:"php"`
+	PHPVersions    []string             `json:"php_versions"`
+	PHPPools       []PoolStatus         `json:"php_pools"` // the global PHP's pool first, then the pinned versions'
+	Node           string               `json:"node"`
+	NodeUpdates    []install.NodeUpdate `json:"node_updates,omitempty"` // newer releases than the global Node
+	Apache         string               `json:"apache"`
+	ApacheVersions []string             `json:"apache_versions"`
+	Nginx          string               `json:"nginx"` // version the Nginx sites use ("" when not installed)
+	FrankenPHP     string               `json:"frankenphp"`
+	FrankenPHPPHP  string               `json:"frankenphp_php"` // the PHP built into FrankenPHP
+	Adminer        string               `json:"adminer"`        // installed version ("" when not)
+	AdminerURL     string               `json:"adminer_url"`    // https://db.localhost
+	DB             string               `json:"db"`             // the default database, e.g. "MySQL 8.4.11"
+	DBPort         int                  `json:"db_port"`
+	Databases      []DBGroup            `json:"databases"`
+	Jobs           []Job                `json:"jobs"`
+	PanelURL       string               `json:"panel_url"`
+	ProxyUp        bool                 `json:"proxy_up"`
+	HTTPPort       int                  `json:"http_port"`
+	HTTPSPort      int                  `json:"https_port"`
+	CATrusted      bool                 `json:"ca_trusted"`
+	Runtime        RuntimeStatus        `json:"runtime"` // Microsoft's Visual C++ runtime
+	CACert         string               `json:"ca_cert"`
+	HostsMissing   []string             `json:"hosts_missing"`
+	Services       []supervisor.Status  `json:"services"`
+	Sites          []SiteStatus         `json:"sites"`
+	Warnings       []sites.Warning      `json:"warnings"`
+	Problems       map[string]string    `json:"problems"`
 }
 
 // SiteStatus is one site as shown to the user.
@@ -102,6 +104,7 @@ func (d *Daemon) Status() Status {
 	}
 	d.mu.Lock()
 	st.ProxyUp = d.proxyUp
+	st.NodeUpdates = d.nodeNews
 	list := append([]sites.Site(nil), d.sites...)
 	d.mu.Unlock()
 	for _, s := range list {
@@ -179,6 +182,44 @@ func (d *Daemon) Handler() http.Handler {
 		}
 		v, list, err := d.PHPExtensions(req.Version)
 		return map[string]any{"version": v.Version, "extensions": list}, err
+	})
+	api("GET /api/node", func(r *http.Request) (any, error) {
+		return d.NodeStatus(r.Context(), r.URL.Query().Get("refresh") == "1"), nil
+	})
+	api("POST /api/node/install", func(r *http.Request) (any, error) {
+		var req struct {
+			Version string
+			Use     bool
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return d.InstallNode(req.Version, req.Use)
+	})
+	api("POST /api/node/use", func(r *http.Request) (any, error) {
+		var req struct{ Version string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		v, err := d.UseNode(req.Version)
+		return map[string]string{"node": v.Version}, err
+	})
+	api("POST /api/node/uninstall", func(r *http.Request) (any, error) {
+		var req struct{ Version string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return map[string]bool{"ok": true}, d.UninstallNode(req.Version)
+	})
+	api("POST /api/node/tool", func(r *http.Request) (any, error) {
+		var req struct {
+			Name string
+			On   bool
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return d.SetNodeTool(req.Name, req.On)
 	})
 	api("POST /api/apache", func(r *http.Request) (any, error) {
 		var req struct{ Version string }

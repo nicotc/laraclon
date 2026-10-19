@@ -32,9 +32,11 @@ Uso:
   clon php use <versión>            cambia el PHP global
   clon php ext [versión]            extensiones de PHP; 'clon php ext on|off xdebug [versión]' las cambia
 
-  clon node list | remote           versiones de Node instaladas | publicadas en nodejs.org
-  clon node install [lts|latest|24] descarga Node con npm y npx
+  clon node list | remote           versiones de Node instaladas | publicadas en nodejs.org (con avisos)
+  clon node install [lts|latest|24] descarga Node con npm y npx ('--use' lo hace global)
   clon node use <versión>           cambia el Node global
+  clon node uninstall <versión>     borra una versión descargada
+  clon node install pnpm|yarn       instala o actualiza pnpm o yarn ('clon node uninstall pnpm' lo quita)
 
   clon composer install             descarga o actualiza Composer
   clon shims                        regenera los atajos de shims\ (php, composer, node, npm, npx…)
@@ -337,96 +339,6 @@ func cmdPHP(ctx context.Context, env *app.Env, args []string) error {
 		return refreshShims(env)
 	}
 	return fmt.Errorf("subcomando de php desconocido: %s", args[0])
-}
-
-func cmdNode(ctx context.Context, env *app.Env, args []string) error {
-	if len(args) == 0 {
-		args = []string{"list"}
-	}
-	switch args[0] {
-	case "list":
-		active := activeVersion(env, versions.Node)
-		for _, v := range env.Reg.List(versions.Node) {
-			mark := " "
-			if v.Version == active {
-				mark = "*"
-			}
-			fmt.Printf("%s %-16s %-9s %s\n", mark, v.Label(), v.Source, v.Path)
-		}
-		return nil
-	case "remote":
-		rels, err := install.NodeReleases(ctx)
-		if err != nil {
-			return err
-		}
-		shown := 0
-		seenMajor := map[string]bool{}
-		for _, r := range rels {
-			major := strings.SplitN(strings.TrimPrefix(r.Version, "v"), ".", 2)[0]
-			if seenMajor[major] {
-				continue
-			}
-			seenMajor[major] = true
-			tag := ""
-			if r.IsLTS() {
-				tag = "LTS " + r.Codename()
-			}
-			fmt.Printf("  %-10s %-10s %s\n", r.Version, r.Date, tag)
-			if shown++; shown >= 8 {
-				break
-			}
-		}
-		return nil
-	case "install":
-		want := "lts"
-		if len(args) > 1 {
-			want = args[1]
-		}
-		rels, err := install.NodeReleases(ctx)
-		if err != nil {
-			return err
-		}
-		rel, err := install.ResolveNode(rels, want)
-		if err != nil {
-			return err
-		}
-		tag := ""
-		if rel.IsLTS() {
-			tag = " (LTS " + rel.Codename() + ")"
-		}
-		fmt.Printf("Descargando Node %s%s de nodejs.org…\n", rel.Version, tag)
-		v, err := install.InstallNode(ctx, env.Home, rel, printProgress())
-		fmt.Println()
-		if err != nil {
-			return err
-		}
-		// The fresh download becomes the default unless another downloaded Node already is.
-		cur, curErr := env.GlobalNode()
-		env.Reg.Add(v)
-		if env.Cfg.Node.Version == "" || curErr != nil || cur.Source != "download" {
-			env.Cfg.Node.Version = v.Version
-		}
-		if err := saveAll(env); err != nil {
-			return err
-		}
-		fmt.Println("Instalado:", v.Label(), "con npm y npx, en", v.Path)
-		return refreshShims(env)
-	case "use":
-		if len(args) < 2 {
-			return fmt.Errorf("uso: clon node use <versión>, por ejemplo 24")
-		}
-		v, ok := env.Reg.Find(versions.Node, args[1])
-		if !ok {
-			return fmt.Errorf("Node %s no está instalado (mira 'clon node list')", args[1])
-		}
-		env.Cfg.Node.Version = v.Version
-		if err := env.SaveConfig(); err != nil {
-			return err
-		}
-		fmt.Println("Node global:", v.Label())
-		return refreshShims(env)
-	}
-	return fmt.Errorf("subcomando de node desconocido: %s", args[0])
 }
 
 func cmdComposer(ctx context.Context, env *app.Env, args []string) error {

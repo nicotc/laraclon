@@ -35,7 +35,7 @@
       <div class="card">
         <h2>Node</h2>
         <p class="big node-version">—</p>
-        <p class="muted">Con npm y npx. Cambia con <code>clon node use</code>.</p>
+        <p class="muted node-note">Con npm y npx. Cambia o actualiza en «PHP y Node».</p>
       </div>
       <div class="card">
         <h2>Procesos</h2>
@@ -74,7 +74,7 @@
       <div class="card">
         <h2>Node</h2>
         <p class="big node-version">—</p>
-        <p class="muted">Con npm y npx. Instala o cambia con <code>clon node install lts</code> y <code>clon node use 24</code>.</p>
+        <p class="muted node-note">Con npm y npx. Instala, cambia o actualiza abajo.</p>
       </div>
     </div>
     <div class="toolbar">
@@ -84,6 +84,12 @@
       <span class="muted">Se aplican al momento: clon reinicia los procesos de esa versión.</span>
     </div>
     <div id="extensions" class="ext-grid"></div>
+    <div class="toolbar">
+      <h2>Node y gestores de paquetes</h2>
+      <span class="spacer"></span>
+      <button class="small secondary" id="node-refresh">Buscar versiones nuevas</button>
+    </div>
+    <div id="node-view" class="grid2"></div>
   </section>
 
   <div id="dialog" class="scrim" hidden>

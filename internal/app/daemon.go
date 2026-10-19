@@ -77,6 +77,7 @@ type Daemon struct {
 	pools           []phpPool      // the global PHP pool first, then one per pinned version
 	poolPorts       *poolStore     // ports of the pinned versions
 	poolPortVersion map[int]string // pool each pinned pool port runs ("php-7-2-0", "php-8-4-16-debug")
+	nodeNews        []install.NodeUpdate
 
 	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
 	cfgMu sync.Mutex
@@ -180,6 +181,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	} else {
 		d.setProblem("sitios", err)
 	}
+	background, stopBackground := context.WithCancel(ctx)
+	defer stopBackground()
+	go d.watchNodeReleases(background)
 
 	select {
 	case <-ctx.Done():

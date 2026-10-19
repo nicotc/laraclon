@@ -5,6 +5,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/nicotc/laraclon/internal/paths"
 	"github.com/nicotc/laraclon/internal/php"
 	"github.com/nicotc/laraclon/internal/postgres"
+	"github.com/nicotc/laraclon/internal/procutil"
 	"github.com/nicotc/laraclon/internal/redis"
 	"github.com/nicotc/laraclon/internal/shims"
 	"github.com/nicotc/laraclon/internal/sites"
@@ -118,6 +120,29 @@ func (e *Env) ChildPATH() string {
 	return "PATH=" + e.Home.Shims() + ";" + e.NPMPrefix() + ";" + os.Getenv("PATH")
 }
 
+// packageCommand is how a command of an npm package runs: a native program directly (pnpm ships
+// pnpm.exe since version 11), a script with the global Node.
+func packageCommand(nodeExe, file string) (exe string, args []string) {
+	if strings.EqualFold(filepath.Ext(file), ".exe") {
+		return file, nil
+	}
+	return nodeExe, []string{file}
+}
+
+// RunNPM runs the global Node's npm in dir, its global packages going to NPMPrefix.
+func (e *Env) RunNPM(ctx context.Context, dir string, out io.Writer, args ...string) error {
+	node, err := e.GlobalNode()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(e.NPMPrefix(), 0o755); err != nil {
+		return err
+	}
+	cli := filepath.Join(node.Path, "node_modules", "npm", "bin", "npm-cli.js")
+	env := []string{e.ChildPATH(), "NPM_CONFIG_PREFIX=" + e.NPMPrefix()}
+	return procutil.RunTree(ctx, dir, env, out, filepath.Join(node.Path, "node.exe"), append([]string{cli}, args...)...)
+}
+
 // RefreshShims regenerates php.ini for every PHP version and rewrites the launchers in shims\.
 func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 	targets := map[string]shims.Target{}
@@ -205,6 +230,17 @@ func (e *Env) RefreshShims() (map[string]shims.Target, error) {
 		}
 		if err := os.MkdirAll(e.NPMPrefix(), 0o755); err != nil {
 			return nil, err
+		}
+		// pnpm and yarn (pnpx, yarnpkg…), from clon's global npm packages.
+		for _, tool := range install.NodeTools {
+			if _, bins, ok := install.NodePackage(e.NPMPrefix(), tool); ok {
+				for cmd, file := range bins {
+					if fileExists(file) {
+						exe, args := packageCommand(nodeExe, file)
+						targets[cmd] = shims.Target{Exe: exe, Args: args, Env: env}
+					}
+				}
+			}
 		}
 	}
 

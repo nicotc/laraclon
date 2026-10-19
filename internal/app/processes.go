@@ -102,7 +102,13 @@ func (d *Daemon) processSpec(s sites.Site, id string) (supervisor.Spec, error) {
 		if addrs, err := net.LookupHost(s.Host); err != nil || len(addrs) == 0 {
 			return spec, fmt.Errorf("Vite escucha en %s, que todavía no está en el archivo hosts: actualízalo desde el panel («Actualizar hosts») o con 'clon hosts sync'", s.Host)
 		}
-		node, err := d.env.GlobalNode()
+		// `npm run dev`, or the same with the project's pnpm or yarn, installed first if needed.
+		pm := projectManager(s.Folder)
+		run, err := d.jsRunner(pm, s.Folder)
+		var missing toolMissing
+		if errors.As(err, &missing) {
+			run, err = d.installForVite(pm, s.Folder)
+		}
 		if err != nil {
 			return spec, err
 		}
@@ -110,12 +116,12 @@ func (d *Daemon) processSpec(s sites.Site, id string) (supervisor.Spec, error) {
 		if err != nil {
 			return spec, err
 		}
-		spec.Exe = filepath.Join(node.Path, "node.exe")
-		spec.Args = []string{filepath.Join(node.Path, "node_modules", "npm", "bin", "npm-cli.js"), "run", "dev"}
+		spec.Exe = run.exe
+		spec.Args = append(append([]string(nil), run.args...), "run", "dev")
 		// The plugin takes the server's name from APP_URL, which must not carry the proxy's port.
 		// Vite then listens on the site's name (its line in hosts, which the browser needs anyway):
 		// a --host option would make the pages load from an address the certificate does not cover.
-		spec.Env = append(env, d.env.ChildPATH(), "NPM_CONFIG_PREFIX="+d.env.NPMPrefix(), "APP_URL=https://"+s.Host)
+		spec.Env = append(append(env, run.env...), d.env.ChildPATH(), "NPM_CONFIG_PREFIX="+d.env.NPMPrefix(), "APP_URL=https://"+s.Host)
 	case "queue", "schedule":
 		v, err := d.sitePHP(s)
 		if err != nil {

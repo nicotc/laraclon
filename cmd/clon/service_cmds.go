@@ -205,10 +205,15 @@ func sourceOf(list []install.Release) string {
 
 // followJob prints the progress of an installation or a new project until it ends.
 func followJob(ops serviceOps, j app.Job) error {
+	tool := j.Kind == "pnpm" || j.Kind == "yarn"
 	if j.Kind == "project" && j.Version == "preparar" {
 		fmt.Printf("Preparando %s…\n", j.Series)
 	} else if j.Kind == "project" {
 		fmt.Printf("Creando %s (%s)…\n", j.Series, j.Version)
+	} else if tool && j.Series == "quitar" {
+		fmt.Printf("Quitando %s…\n", j.Kind)
+	} else if tool {
+		fmt.Printf("Instalando %s (última versión, con npm)…\n", j.Kind)
 	} else {
 		fmt.Printf("Instalando %s %s…\n", versions.Component(j.Kind).Name(), j.Version)
 	}
@@ -237,6 +242,23 @@ func followJob(ops serviceOps, j app.Job) error {
 					return fmt.Errorf("%s", cur.Error)
 				}
 				kind := versions.Component(cur.Kind)
+				if tool && cur.Series == "quitar" {
+					fmt.Printf("Quitado: %s\n", cur.Kind)
+					return nil
+				}
+				if tool {
+					fmt.Printf("Listo: %s %s, para cualquier terminal y para los proyectos que lo usan\n", cur.Kind, cur.Version)
+					return nil
+				}
+				if kind == versions.Node {
+					st, _ := ops.status()
+					if st.Node == cur.Version {
+						fmt.Printf("Instalado: Node %s con npm y npx; ahora es el Node global\n", cur.Version)
+					} else {
+						fmt.Printf("Instalado: Node %s con npm y npx (para usarlo: 'clon node use %s')\n", cur.Version, cur.Version)
+					}
+					return nil
+				}
 				if cur.Kind == "project" {
 					st, _ := ops.status()
 					for _, s := range st.Sites {

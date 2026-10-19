@@ -3,7 +3,7 @@ const token = document.querySelector('meta[name="clon-token"]').content;
 let state = null;
 // Lo que el usuario está haciendo y debe sobrevivir a cada refresco del estado.
 const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {},
-  ext: null, extVersion: '', extBusy: {} };
+  ext: null, extVersion: '', extBusy: {}, node: null };
 
 const INSTALLABLE = ['mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'apache', 'nginx', 'frankenphp', 'adminer'];
 // Databases Adminer opens (its MongoDB support needs a PHP driver clon does not set up for it).
@@ -27,7 +27,10 @@ const SERVERS = {
   frankenphp: { name: 'FrankenPHP', version: s => s.frankenphp, php: s => `con su propio PHP ${s.frankenphp_php || ''}`.trim(),
     desc: 'Servidor con su propio PHP integrado; más adelante, modo worker para Laravel Octane.' },
 };
-const LOGO = { apache: 'A', nginx: 'N', frankenphp: 'F', mysql: 'My', mariadb: 'Ma', postgresql: 'Pg', mongodb: 'Mo', redis: 'R', mailpit: '✉', meilisearch: 'Me', adminer: 'Ad' };
+const LOGO = { apache: 'A', nginx: 'N', frankenphp: 'F', mysql: 'My', mariadb: 'Ma', postgresql: 'Pg', mongodb: 'Mo', redis: 'R', mailpit: '✉', meilisearch: 'Me', adminer: 'Ad',
+  node: 'JS', pm: 'pm' };
+// Jobs that change what the Node section shows.
+const NODE_KINDS = ['node', 'pnpm', 'yarn'];
 
 // A kind is shown as a full card when it can be installed or something of it is installed.
 function isAvailable(g) {
@@ -95,7 +98,7 @@ function showTab(tab) {
   document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab; });
   history.replaceState(null, '', '#' + tab);
   if (tab === 'servicios') loadCatalogs();
-  if (tab === 'php') loadExtensions();
+  if (tab === 'php') { loadExtensions(); loadNode(); }
 }
 
 // ---------- estado ----------
@@ -108,6 +111,16 @@ function render() {
     sel.replaceChildren(...(s.php_versions || []).map(v => el('option', { value: v, selected: v === s.php }, 'PHP ' + v)));
   });
   document.querySelectorAll('.node-version').forEach(n => { n.textContent = s.node ? 'v' + s.node : 'no instalado'; });
+  const news = (s.node_updates || [])[0];
+  document.querySelectorAll('.node-note').forEach(n => {
+    n.dataset.text = n.dataset.text || n.textContent;
+    n.textContent = news ? nodeUpdateText(news, s.node) : n.dataset.text;
+  });
+  // The Node section follows installs and switches made here, in another window or with the CLI.
+  const nodeKey = (s.jobs || []).filter(j => NODE_KINDS.includes(j.kind) && !j.finished).map(j => j.id).join() + '|' + s.node;
+  if (ui.tab === 'php' && ui.nodeKey !== undefined && nodeKey !== ui.nodeKey) loadNode();
+  ui.nodeKey = nodeKey;
+  if (ui.tab === 'php') renderNode();
   const extSel = document.getElementById('ext-version');
   if (document.activeElement !== extSel) {
     extSel.replaceChildren(...(s.php_versions || []).map(v => el('option', { value: v, selected: v === (ui.extVersion || s.php) },
@@ -153,6 +166,14 @@ function renderAlerts(s) {
   } else if (rt.needs) {
     alerts.append(alertBox(`${rt.for} se compiló para el runtime de Visual C++ ${rt.needs} o más nuevo y Windows tiene ${rt.version.split('.').slice(0, 2).join('.')}; Microsoft recomienda actualizarlo.`,
       'Actualizar Visual C++ (pide permiso)', () => act('POST', '/api/vcredist/install')));
+  }
+  // A new LTS line or a security release of the Node in use, until it is installed or put off.
+  for (const u of s.node_updates || []) {
+    const busy = (s.jobs || []).some(j => j.kind === 'node' && j.version === u.version && !j.finished);
+    if (!(u.line || u.security) || busy || nodeNewsDismissed(u.version)) continue;
+    const box = alertBox(nodeUpdateText(u, s.node), u.installed ? `Usar v${u.version}` : u.line ? 'Instalar y usar' : 'Actualizar Node', () => applyNodeUpdate(u));
+    box.append(el('button', { class: 'secondary', onclick: () => dismissNodeNews(u.version) }, 'Ahora no'));
+    alerts.append(box);
   }
   for (const [what, msg] of Object.entries(s.problems || {})) {
     if (what === 'visual-c++') continue; // shown above, with its button
@@ -525,7 +546,7 @@ function installPicker(g) {
 function jobLine(j, name) {
   if (j.finished && j.error) {
     return el('div', { class: 'job error' }, el('span', {}, `No se pudo instalar ${name} ${j.version}: ${j.error}`), el('span', { class: 'spacer' }),
-      el('button', { class: 'small secondary', onclick: () => { ui.dismissed[j.id] = true; renderServices(); if (ui.dialog) renderDialog(); } }, 'Cerrar'));
+      el('button', { class: 'small secondary', onclick: () => { ui.dismissed[j.id] = true; renderServices(); renderNode(); if (ui.dialog) renderDialog(); } }, 'Cerrar'));
   }
   const known = j.phase === 'descargando' && j.total > 0;
   const pct = known ? Math.floor(j.done * 100 / j.total) : 0;
@@ -652,6 +673,146 @@ async function toggleExtension(x, on) {
   }
 }
 
+// ---------- Node y gestores de paquetes ----------
+
+const NODE_SOURCE = { download: 'descargada', laragon: 'de Laragon' };
+const NODE_DISMISSED = 'clon-node-avisos';
+
+function nodeUpdateText(u, global) {
+  if (u.line) return `Salió Node ${u.version.split('.')[0]}, la nueva LTS («${u.lts}»): v${u.version}.`;
+  if (u.security) return `Node v${u.version} corrige fallos de seguridad de tu versión (v${global}).`;
+  return `Hay una versión nueva de tu línea de Node: v${u.version}.`;
+}
+
+const nodeNewsDismissed = v => (localStorage.getItem(NODE_DISMISSED) || '').split(',').includes(v);
+
+function dismissNodeNews(v) {
+  const list = (localStorage.getItem(NODE_DISMISSED) || '').split(',').filter(Boolean);
+  localStorage.setItem(NODE_DISMISSED, [...list, v].join(','));
+  render();
+}
+
+async function loadNode(refreshList) {
+  try {
+    ui.node = await call('GET', '/api/node' + (refreshList ? '?refresh=1' : ''));
+  } catch (e) {
+    ui.node = { error: e.message, installed: [], lines: [], updates: [], tools: [] };
+  }
+  renderNode();
+}
+
+function renderNode() {
+  const view = document.getElementById('node-view');
+  if (!state || (view.contains(document.activeElement) && document.activeElement.tagName === 'SELECT')) return;
+  if (!ui.node) { view.replaceChildren(el('div', { class: 'svc-sub' }, 'Consultando las versiones de Node…')); return; }
+  view.replaceChildren(nodeCard(ui.node), toolsCard(ui.node));
+}
+
+function nodeCard(n) {
+  const jobs = (state.jobs || []).filter(j => j.kind === 'node' && !ui.dismissed[j.id] && (!j.finished || j.error));
+  const busy = new Set((state.jobs || []).filter(j => j.kind === 'node' && !j.finished).map(j => j.version));
+  const cur = n.installed.find(v => v.in_use);
+  const line = cur && n.lines.find(r => r.series === cur.version.split('.')[0]);
+  const news = (n.updates || []).filter(u => !busy.has(u.version)).map(u => el('div', { class: 'news' + (u.line || u.security ? ' warn' : '') },
+    el('span', {}, nodeUpdateText(u, n.global)), el('span', { class: 'spacer' }),
+    el('button', { class: 'small', onclick: () => applyNodeUpdate(u) }, u.installed ? `Usar v${u.version}` : u.line ? 'Instalar y usar' : 'Actualizar')));
+  const rows = n.installed.map(v => el('tr', {},
+    el('td', {}, el('span', { class: 'ver' }, 'v' + v.version), ' ', el('span', { class: 'svc-sub' }, NODE_SOURCE[v.source] || v.source)),
+    el('td', { class: 'right' }, v.in_use ? el('span', { class: 'pill def' }, 'global') : [
+      el('button', { class: 'small secondary', onclick: () => useNode(v.version) }, 'Usar'),
+      el('button', { class: 'ghost', title: v.removable ? 'Borrar esta versión' : 'Quitar de clon (sus archivos no se tocan)', onclick: () => removeNode(v) }, '✕')])));
+  const have = new Set(n.installed.map(v => v.version));
+  const options = n.lines.filter(r => !have.has(r.version) && !busy.has(r.version));
+  let picker;
+  if (n.error) {
+    picker = [el('span', { class: 'svc-sub' }, 'No se pudo leer la lista de nodejs.org: ' + firstLine(n.error))];
+  } else if (!options.length) {
+    picker = [el('span', { class: 'svc-sub' }, 'Tienes la última versión de cada línea con soporte')];
+  } else {
+    const sel = el('select', { 'aria-label': 'Versión de Node' }, ...options.map(r => el('option', { value: r.version }, `v${r.version} · ${r.note}`)));
+    picker = ['Instalar:', sel, el('button', { class: 'small secondary', onclick: () => installNode(sel.value, false) }, 'Instalar')];
+  }
+  return el('div', { class: 'svc' },
+    el('div', { class: 'svc-head' }, logo('node'),
+      el('div', {}, el('div', { class: 'svc-title' }, 'Node'),
+        el('div', { class: 'svc-sub' }, cur ? `v${cur.version}${line ? ' · ' + line.note : ''} · con npm y npx` : 'sin instalar'))),
+    ...news,
+    n.installed.length ? el('table', { class: 'rows' }, el('tbody', {}, ...rows)) : null,
+    ...jobs.map(j => jobLine(j, 'Node')),
+    el('div', { class: 'svc-foot' }, ...picker, el('span', { class: 'spacer' }), 'Descarga de nodejs.org'));
+}
+
+function toolsCard(n) {
+  const rows = (n.tools || []).map(t => {
+    const job = (state.jobs || []).find(j => j.kind === t.name && !j.finished);
+    const failed = (state.jobs || []).find(j => j.kind === t.name && j.finished && j.error && !ui.dismissed[j.id]);
+    return el('tr', {},
+      el('td', {}, el('span', { class: 'ver' }, t.name), ' ', el('span', { class: 'svc-sub' }, t.version ? 'v' + t.version : 'sin instalar'),
+        failed ? el('div', { class: 'row-error' }, firstLine(failed.error), ' ',
+          el('a', { href: '#', onclick: e => { e.preventDefault(); ui.dismissed[failed.id] = true; renderNode(); } }, 'cerrar')) : null),
+      el('td', { class: 'right' }, job ? el('span', { class: 'svc-sub' }, job.phase + '…') : t.version ? [
+        el('button', { class: 'small secondary', title: 'Instala la última versión', onclick: () => nodeTool(t.name, true) }, 'Actualizar'),
+        el('button', { class: 'ghost', title: 'Quitar ' + t.name, onclick: () => nodeTool(t.name, false) }, '✕')]
+        : el('button', { class: 'small', disabled: !n.global, onclick: () => nodeTool(t.name, true) }, 'Instalar')));
+  });
+  return el('div', { class: 'svc' },
+    el('div', { class: 'svc-head' }, logo('pm'),
+      el('div', {}, el('div', { class: 'svc-title' }, 'Gestores de paquetes'),
+        el('div', { class: 'svc-sub' }, 'npm viene con Node. pnpm y yarn se instalan como paquetes globales de npm y sirven con cualquier versión.'))),
+    el('table', { class: 'rows' }, el('tbody', {}, ...rows)),
+    el('div', { class: 'svc-foot' }, 'Cada proyecto usa el suyo, según su lockfile: Vite, «Preparar» y «Nuevo proyecto» lo respetan.'));
+}
+
+async function installNode(version, use) {
+  try {
+    await call('POST', '/api/node/install', { version, use });
+    toast(`Descargando Node v${version} de nodejs.org…`);
+  } catch (e) {
+    alert(e.message);
+  }
+  await refresh();
+}
+
+async function useNode(version) {
+  try {
+    await call('POST', '/api/node/use', { version });
+    toast(`Node v${version} es ahora el global (terminal, proyectos y Vite)`);
+  } catch (e) {
+    alert(e.message);
+  }
+  await refresh();
+  await loadNode();
+}
+
+async function applyNodeUpdate(u) {
+  if (u.installed) return useNode(u.version);
+  await installNode(u.version, true);
+  if (ui.tab !== 'php') showTab('php');
+}
+
+async function removeNode(v) {
+  const msg = v.removable ? `¿Borrar Node v${v.version}? Se borra su carpeta (${v.path}).` : `¿Quitar Node v${v.version} de clon? Sus archivos no se tocan.`;
+  if (!confirm(msg)) return;
+  try {
+    await call('POST', '/api/node/uninstall', { version: v.version });
+    toast(`Node v${v.version} quitado`);
+  } catch (e) {
+    alert(e.message);
+  }
+  await refresh();
+  await loadNode();
+}
+
+async function nodeTool(name, on) {
+  if (!on && !confirm(`¿Quitar ${name}? Si un proyecto lo necesita, «Preparar» lo vuelve a instalar.`)) return;
+  try {
+    await call('POST', '/api/node/tool', { name, on });
+  } catch (e) {
+    alert(e.message);
+  }
+  await refresh();
+}
+
 // ---------- «Nuevo proyecto» ----------
 
 const KITS = [
@@ -661,7 +822,9 @@ const KITS = [
   ['svelte', 'Svelte', 'Inertia, Svelte y Tailwind'],
   ['livewire', 'Livewire', 'Livewire y Tailwind'],
 ];
-ui.project = { source: 'laravel', name: '', kit: '', db: 'sqlite', root: '', git: '', branch: '', job: null, error: null };
+ui.project = { source: 'laravel', name: '', kit: '', db: 'sqlite', pm: 'npm', root: '', git: '', branch: '', job: null, error: null };
+// Package managers a new project can install its frontend with, like 'laravel new --pnpm'.
+const PMS = [['npm', 'npm (viene con Node)'], ['pnpm', 'pnpm'], ['yarn', 'yarn']];
 
 // slug turns a name into the site name the server will use ("Mi Tienda" → "mi-tienda").
 const slug = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -695,7 +858,7 @@ function renderProjectDialog() {
   const p = ui.project;
   const body = document.getElementById('project-body');
   const job = p.job && (state.jobs || []).find(j => j.id === p.job);
-  const again = () => { ui.project = { source: p.source, name: '', kit: p.kit, db: p.db, root: p.root, git: '', branch: '', job: null, error: null }; renderProjectDialog(); };
+  const again = () => { ui.project = { source: p.source, name: '', kit: p.kit, db: p.db, pm: p.pm, root: p.root, git: '', branch: '', job: null, error: null }; renderProjectDialog(); };
   if (job && job.finished && !job.error) {
     const site = (state.sites || []).find(s => s.name === job.series);
     body.replaceChildren(
@@ -761,6 +924,10 @@ function renderProjectDialog() {
   const dbSel = el('select', { 'aria-label': 'Base de datos' }, ...dbOptions.map(([k, label]) => el('option', { value: k, selected: p.db === k }, label)));
   dbSel.addEventListener('change', () => { p.db = dbSel.value; });
   name.addEventListener('input', () => { p.nameTouched = true; });
+  const pmSel = el('select', { 'aria-label': 'Gestor de paquetes' }, ...PMS.map(([k, label]) => el('option', { value: k, selected: (p.pm || 'npm') === k }, label)));
+  pmSel.addEventListener('change', () => { p.pm = pmSel.value; });
+  const pmField = fromGit ? null : el('label', { class: 'field' }, el('span', {}, 'Paquetes de JavaScript'), pmSel,
+    el('div', { class: 'svc-sub' }, 'Instala y compila el frontend. pnpm y yarn se instalan solos si hacen falta.'));
   let rootField = null;
   if (roots.length > 1) {
     const rootSel = el('select', { 'aria-label': 'Carpeta' }, ...roots.map(r => el('option', { value: r, selected: (p.root || roots[0]) === r }, r)));
@@ -774,6 +941,7 @@ function renderProjectDialog() {
     el('label', { class: 'field' }, el('span', {}, 'Nombre'), name, preview),
     fromGit ? null : kits,
     el('label', { class: 'field' }, el('span', {}, 'Base de datos'), dbSel),
+    pmField,
     rootField,
     p.error ? el('div', { class: 'row-error' }, p.error) : null,
     el('div', { class: 'row' }, el('span', { class: 'spacer' }), el('button', { onclick: createProject }, fromGit ? 'Clonar y preparar' : 'Crear proyecto')),
@@ -784,7 +952,7 @@ async function createProject() {
   const p = ui.project;
   p.error = null;
   try {
-    const body = { name: p.name, kit: p.kit, db: p.db, root: p.root };
+    const body = { name: p.name, kit: p.kit, db: p.db, pm: p.pm, root: p.root };
     if (p.source === 'git') Object.assign(body, { kit: '', git: p.git, branch: p.branch });
     const j = await call('POST', '/api/projects', body);
     p.job = j.id;
@@ -839,6 +1007,12 @@ document.getElementById('filter').addEventListener('input', renderSites);
 document.querySelectorAll('#tabs a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); showTab(a.dataset.tab); }));
 document.getElementById('dialog-close').addEventListener('click', closeDialog);
 document.getElementById('ext-version').addEventListener('change', e => { ui.extVersion = e.target.value; loadExtensions(); });
+document.getElementById('node-refresh').addEventListener('click', async e => {
+  e.target.disabled = true;
+  await loadNode(true);
+  e.target.disabled = false;
+  await refresh();
+});
 document.getElementById('new-project').addEventListener('click', openProjectDialog);
 document.getElementById('project-close').addEventListener('click', closeProjectDialog);
 document.getElementById('dialog').addEventListener('click', e => { if (e.target.id === 'dialog') closeDialog(); });

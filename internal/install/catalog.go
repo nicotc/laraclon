@@ -28,9 +28,11 @@ type Release struct {
 	Version string             `json:"version"`
 	URL     string             `json:"url"`
 	SHA256  string             `json:"sha256,omitempty"` // published by MariaDB and GitHub; MySQL is checked by Oracle's signature
-	Size    int64              `json:"size,omitempty"`
-	Note    string             `json:"note,omitempty"` // "LTS", "Innovation", "estable"…
-	Source  string             `json:"source"`
+	// SumsURL is a SHASUMS-style listing the SHA-256 is read from at install time (Node).
+	SumsURL string `json:"sums_url,omitempty"`
+	Size    int64  `json:"size,omitempty"`
+	Note    string `json:"note,omitempty"` // "LTS", "Innovation", "estable"…
+	Source  string `json:"source"`
 	// Extras are installed with the release into a subfolder (MongoDB's shell, for example).
 	Extras []Extra `json:"extras,omitempty"`
 	// Binary is set when the download is the program itself rather than a zip (Meilisearch).
@@ -835,6 +837,15 @@ func InstallRelease(ctx context.Context, home paths.Home, rel Release, phase fun
 		return versions.Version{}, err
 	}
 	say("descargando")
+	if rel.SHA256 == "" && rel.SumsURL != "" {
+		sums, err := download.Text(ctx, rel.SumsURL)
+		if err != nil {
+			return versions.Version{}, err
+		}
+		if rel.SHA256 = checksumFor(sums, path.Base(rel.URL)); rel.SHA256 == "" {
+			return versions.Version{}, fmt.Errorf("%s no incluye %s", path.Base(rel.SumsURL), path.Base(rel.URL))
+		}
+	}
 	if rel.Binary != "" {
 		os.RemoveAll(dest)
 		if err := os.MkdirAll(dest, 0o755); err != nil {

@@ -439,15 +439,17 @@ Step 'Nginx y FrankenPHP desde el catálogo, un sitio en cada uno (clon site ser
     $out
 }
 
-Step 'Proyecto nuevo con clon new: kit de Vue y MySQL' {
-    $out = Invoke-Tool $clon 'new tienda-vue --kit vue --db mysql' 2400
+Step 'Proyecto nuevo con clon new: kit de Vue, MySQL y pnpm' {
+    # pnpm is not installed yet: clon installs it on the way, like Laravel's installer with --pnpm.
+    $out = Invoke-Tool $clon 'new tienda-vue --kit vue --db mysql --pnpm' 2400
     # A new site waits for its line in hosts (one more permission); --resolve stands in for it here.
     $code = Invoke-Curl "--resolve tienda-vue.test:443:127.0.0.1 -o $R\tienda-vue.html -w %{http_code} https://tienda-vue.test/"
     $html = Get-Content "$R\tienda-vue.html" -Raw -Encoding UTF8
     if ($code -ne '200' -or $html -notmatch 'data-page' -or $html -notmatch '/build/assets/') { throw "tienda-vue.test respondió HTTP $code sin la página de Inertia compilada:`n$out" }
     $tables = Invoke-Tool "$shims\mysql.exe" '-N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=''tienda_vue''"' 60
     if ([int]$tables.Trim() -lt 5) { throw "la base tienda_vue tiene $tables tablas" }
-    "$((($out -split "`n") | Select-Object -Last 1).Trim())`nhttps://tienda-vue.test: HTTP $code con Inertia y assets de Vite · MySQL tienda_vue: $($tables.Trim()) tablas"
+    if (-not (Test-Path 'C:\www\tienda-vue\pnpm-lock.yaml') -or (Test-Path 'C:\www\tienda-vue\package-lock.json')) { throw "tienda-vue no quedó con pnpm-lock.yaml en lugar de package-lock.json:`n$out" }
+    "$((($out -split "`n") | Select-Object -Last 1).Trim())`nhttps://tienda-vue.test: HTTP $code con Inertia y assets de Vite · MySQL tienda_vue: $($tables.Trim()) tablas · pnpm-lock.yaml"
 }
 
 Step 'Proyecto clonado de GitHub y preparado (clon new --git): Composer, .env, MySQL y Vite' {
@@ -490,6 +492,22 @@ Step 'Node, npm, npx, Composer y PHP desde shims\' {
         ((Invoke-Tool "$shims\composer.exe" '--version' 120) -split "`n" | Select-Object -First 1),
         ((Invoke-Tool "$shims\php.exe" '-v' 60) -split "`n" | Select-Object -First 1)
     ) -join "`n"
+}
+
+Step 'Node: líneas de nodejs.org, otra versión, yarn y pnpm (clon node)' {
+    $lines = Invoke-Tool $clon 'node remote' 120
+    if ($lines -notmatch 'LTS') { throw "sin líneas LTS:`n$lines" }
+    $global = (Invoke-Tool "$shims\node.exe" '-v' 60).Trim()
+    $inst = Invoke-Tool $clon 'node install 22' 900
+    $v22 = ([regex]'Node (22\.\d+\.\d+)').Match($inst).Groups[1].Value
+    if (-not $v22) { throw "Node 22 no se instaló:`n$inst" }
+    # A second Node does not replace the global one, and clon deletes the folders it downloaded.
+    if ((Invoke-Tool "$shims\node.exe" '-v' 60).Trim() -ne $global) { throw "el Node global cambió al instalar $v22" }
+    Invoke-Tool $clon "node uninstall $v22" 120 | Out-Null
+    if (Test-Path "$H\bin\node\$v22") { throw "quedó la carpeta de Node $v22" }
+    $yarn = Invoke-Tool $clon 'node install yarn' 600
+    $versions = "pnpm $((Invoke-Tool "$shims\pnpm.exe" '--version' 120).Trim()) · yarn $((Invoke-Tool "$shims\yarn.exe" '--version' 120).Trim())"
+    "$(($lines -split "`n" | Where-Object { $_ -match 'LTS|actual' }) -join ' |')`nNode $v22 instalado junto al global ($global) y borrado · $versions"
 }
 
 Step 'Panel en https://localhost' {

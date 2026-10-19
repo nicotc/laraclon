@@ -2,14 +2,14 @@
 
 Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e inspirado en Laragon. Escrito en Go. No está afiliado a Laragon ni a sus autores.
 
-**Estado:** fases 1 (núcleo) y 2 (versiones y servicios) completas. Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
+**Estado:** fases 1 (núcleo) y 2 (versiones y servicios) completas, y buena parte de la 3 (proyectos). Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
 
 ## Qué hace hoy
 
 - **Proyectos Laravel nuevos en un paso:** botón «Nuevo proyecto» en la pestaña «Sitios», o `clon new tienda --kit react --db mysql`.
   - Laravel sin kit o con los kits oficiales: React, Vue, Svelte o Livewire. Se crean como con el instalador de Laravel, incluidos los pasos propios de cada kit.
   - clon escribe el `.env` (nombre, `APP_URL` en https, la base de datos elegida y el correo a Mailpit), crea la base en MySQL, MariaDB o PostgreSQL (o usa SQLite) y migra.
-  - Con un kit, también instala las dependencias de npm y compila el frontend con Vite.
+  - Instala las dependencias del frontend y lo compila con Vite, con npm o, como `laravel new`, con pnpm o yarn (`--pnpm`, `--yarn`).
   - El sitio queda en `https://tienda.test`. El panel muestra cada fase y se puede cancelar.
 - **Proyectos existentes y desde Git:**
   - Un proyecto copiado o clonado al que le falta algo muestra «Preparar» en la pestaña «Sitios» (o `clon site setup tienda`).
@@ -66,8 +66,13 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
   - Se instala desde el catálogo (github.com/vrana/adminer, con su SHA-256) y corre con el PHP global.
   - Entra sin contraseña con root o postgres, y solo responde a este equipo, aunque el proxy se abra a la red local.
   - Cada base de datos del panel tiene «Abrir en Adminer» en su menú.
-- **Node incluido:** descarga la LTS oficial, verificada, con `npm` y `npx`. Los paquetes globales de npm sobreviven a los cambios de versión.
-- **Composer** actualizado y atajos de terminal (`php`, `php84`, `php83`…, `composer`, `node`, `npm`, `npx`, `mysql`) en una sola carpeta `shims\`. Los procesos PHP que lanzan Composer o Artisan heredan el mismo `php.ini`.
+- **Node incluido y al día:** versiones oficiales de nodejs.org, con su SHA-256 comprobado, cada una con `npm` y `npx`.
+  - La pestaña «PHP y Node» (o `clon node`) instala, cambia y borra versiones. Al cambiar, los servidores de Vite se reinician con la nueva, y los paquetes globales de npm se conservan.
+  - Avisa cuando sale una LTS nueva o una versión que corrige fallos de seguridad de la tuya, con un botón para actualizar.
+- **pnpm y yarn** se instalan con un botón (o `clon node install pnpm`), como paquetes globales de npm, con sus atajos.
+  - Cada proyecto usa su gestor, según su lockfile o el campo `packageManager`: Vite, «Preparar» y «Nuevo proyecto» lo respetan y lo instalan si falta.
+  - Los proyectos de Yarn 2 o posterior van por Corepack, que clon instala aparte cuando el Node ya no lo trae (desde Node 25).
+- **Composer** actualizado y atajos de terminal (`php`, `php84`, `php83`…, `composer`, `node`, `npm`, `npx`, `pnpm`, `yarn`, `mysql`) en una sola carpeta `shims\`. Los procesos PHP que lanzan Composer o Artisan heredan el mismo `php.ini`.
 - **Importación desde Laragon.** Usa en su sitio, sin copiar ni modificar, sus versiones de PHP, Apache, MySQL, Nginx, Node y Redis, y sus carpetas de proyectos.
 - **Supervisor.** Los servicios corren ocultos dentro de *job objects*: si clon muere, Windows los cierra todos. Si uno se cae, se reinicia, y el apagado normal es ordenado.
 - **Bandeja, panel web y línea de comandos.** El panel se abre en `https://localhost` (o en la dirección local de control mientras la CA no es de confianza) y su API está protegida con token, verificación de `Host` y de `Origin`.
@@ -131,14 +136,15 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | Comando | Qué hace |
 |---|---|
 | `clon run [--foreground]` | Inicia clon (bandeja), o en la consola actual con `--foreground` |
-| `clon new tienda [--kit react\|vue\|svelte\|livewire] [--db sqlite\|mysql\|mariadb\|postgresql]` | Proyecto Laravel nuevo en `https://tienda.test` |
+| `clon new tienda [--kit react\|vue\|svelte\|livewire] [--db sqlite\|mysql\|mariadb\|postgresql] [--pnpm\|--yarn]` | Proyecto Laravel nuevo en `https://tienda.test` |
 | `clon new tienda --git <url> [--rama <rama>]` · `clon site setup tienda` | Clona y prepara un proyecto · prepara uno que ya está en la carpeta |
 | `clon start` · `stop` · `restart` · `quit` | Servicios on/off; `quit` cierra clon |
 | `clon status` · `sites` · `versions` | Estado, sitios y versiones instaladas |
 | `clon php list` · `remote` · `install 8.4` · `use 8.3` | Versiones de PHP |
 | `clon php ext [8.4]` · `ext on xdebug` · `ext off exif [8.3]` | Extensiones de cada versión de PHP |
 | `clon apache list` · `remote` · `install` · `use 2.4.62` | Versiones de Apache (descarga de Apache Lounge) |
-| `clon node list` · `remote` · `install lts` · `use 24` | Versiones de Node (con npm y npx) |
+| `clon node list` · `remote` · `install lts [--use]` · `use 24` · `uninstall 22.11.0` | Versiones de Node (con npm y npx) y sus avisos |
+| `clon node install pnpm\|yarn` · `uninstall pnpm` | pnpm y yarn como paquetes globales, con sus atajos |
 | `clon composer install` | Descarga o actualiza Composer |
 | `clon vcredist status` · `install [instalador.exe]` | Runtime de Visual C++ que necesitan PHP, Apache y MySQL |
 | `clon import laragon [ruta]` | Importa versiones y carpetas de Laragon |
@@ -174,7 +180,8 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - PHP 7.2 fijado en un sitio, en la web y en la terminal, mientras el resto usa el global.
 - Extensiones de PHP: Xdebug descargado y soap, activadas y apagadas.
 - Adminer en `https://db.localhost`, con entrada sin contraseña en MySQL.
-- Proyecto nuevo con `clon new` (kit de Vue y MySQL), otro clonado de GitHub y preparado, y los procesos de un tercero: Vite por HTTPS, cola y tareas.
+- Proyecto nuevo con `clon new` (kit de Vue, MySQL y pnpm), otro clonado de GitHub y preparado, y los procesos de un tercero: Vite por HTTPS, cola y tareas.
+- Node: otra versión instalada y borrada sin tocar la global, y yarn y pnpm desde los atajos.
 - Xdebug solo en un sitio, y `phpx` en la terminal.
 - Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
 - Edge sin avisos, cambio de PHP y cierre.
@@ -217,6 +224,11 @@ En Windows 11, junto a Laragon y en puertos alternativos:
 - **Panel:** sin token responde 403, y con otro `Host` u `Origin` no es alcanzable.
 - **Laragon:** clon se niega a abrir los datos de MySQL de Laragon mientras Laragon los usa.
 - **Node y atajos:** Node 24 LTS descargado y verificado; `npm`, `npx`, `php` y `composer` funcionan desde `shims\`.
+  - Con el Node 24.14.1 de Laragon como global, clon avisa de que la 24.22.0 corrige fallos de seguridad, y «Usar v24.22.0» en el aviso lo cambia.
+  - Node 22 se instala en 11 s sin cambiar el global y se borra con su carpeta; el global no se deja borrar.
+  - pnpm 12 (que ya trae su propio `pnpm.exe`) y yarn 1.22 se instalan con npm y responden desde `shims\` (`pnpm`, `pn`, `pnpx`, `pnx`, `yarn`, `yarnpkg`).
+  - `clon new demo-pnpm --pnpm` deja el proyecto con `pnpm-lock.yaml`, sin `package-lock.json` y con los scripts de Composer apuntando a pnpm, en menos de 3 minutos.
+  - Un proyecto con `"packageManager": "yarn@4.9.2"` se prepara con Yarn 4 por Corepack: con Node 24 usa el Corepack que trae, y con Node 26 clon lo instala aparte (11 s en total).
 - **Bases de datos:**
   - Funcionan a la vez MySQL 8.0 (de Laragon), MySQL 8.4 y MariaDB 11.8 (descargadas), cada una en su puerto.
   - Al cambiar la predeterminada, el atajo `mysql` la sigue.
@@ -258,10 +270,9 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
 - **Fase 2 (versiones y servicios):** completa.
   - Sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch.
   - Apache de Apache Lounge en varias versiones; PHP fijado por sitio para proyectos antiguos (como PHP va por FastCGI, no hace falta un Apache viejo para un PHP viejo); extensiones de PHP con casillas; Adminer en `https://db.localhost`.
-- **Fase 3:**
-  - Instaladores: Laravel con sus starter kits, WordPress, Symfony, desde Git y recetas propias.
-  - `.env` automático y procesos del proyecto (cola, scheduler, Reverb, Vite).
-  - Vite con HTTPS, Xdebug por sitio y compartir con ngrok.
+- **Fase 3 (en marcha):**
+  - Hecho: proyectos Laravel nuevos con sus starter kits y desde Git, «Preparar» para proyectos existentes, `.env` automático, procesos del proyecto (Vite con HTTPS, cola y tareas), Xdebug por sitio, y Node al día con pnpm y yarn.
+  - Falta: Reverb, compartir con ngrok, WordPress, Symfony y recetas propias.
 - **Fase 4:** DNS comodín para `*.sitio.test`, modo worker de FrankenPHP, actualizador y firma de código.
 
 ## Licencia

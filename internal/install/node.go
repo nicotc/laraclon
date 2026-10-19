@@ -4,11 +4,15 @@ package install
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/download"
 	"github.com/nicotc/laraclon/internal/paths"
 	"github.com/nicotc/laraclon/internal/versions"
@@ -22,7 +26,25 @@ type NodeRelease struct {
 	Date     string   `json:"date"`
 	Files    []string `json:"files"`
 	LTS      any      `json:"lts"` // false or the codename
-	Security bool     `json:"security"`
+	Security bool     `json:"security,omitempty"`
+}
+
+// Major is the release line ("v24.22.0" → 24).
+func (r NodeRelease) Major() int {
+	n, _ := strconv.Atoi(strings.SplitN(strings.TrimPrefix(r.Version, "v"), ".", 2)[0])
+	return n
+}
+
+// Release describes its Windows zip for InstallRelease; the SHA-256 comes from the release's
+// SHASUMS256.txt when it is installed.
+func (r NodeRelease) Release() Release {
+	note := "actual"
+	if r.IsLTS() {
+		note = "LTS " + r.Codename()
+	}
+	return Release{Kind: versions.Node, Series: strconv.Itoa(r.Major()), Version: strings.TrimPrefix(r.Version, "v"),
+		URL:     fmt.Sprintf("%s/%s/node-%s-win-x64.zip", nodeDist, r.Version, r.Version),
+		SumsURL: fmt.Sprintf("%s/%s/SHASUMS256.txt", nodeDist, r.Version), Note: note, Source: "nodejs.org"}
 }
 
 func (r NodeRelease) IsLTS() bool {
@@ -61,6 +83,155 @@ func NodeReleases(ctx context.Context) ([]NodeRelease, error) {
 	return rels, nil
 }
 
+// NodeIndex is NodeReleases limited to the Windows builds, kept in state\node-index.json for a few
+// hours like the catalogs (the full list weighs a third of a megabyte); refresh asks nodejs.org again.
+func NodeIndex(ctx context.Context, home paths.Home, refresh bool) ([]NodeRelease, error) {
+	file := home.State("node-index.json")
+	var cached struct {
+		Fetched  time.Time     `json:"fetched"`
+		Releases []NodeRelease `json:"releases"`
+	}
+	if data, err := os.ReadFile(file); err == nil && json.Unmarshal(data, &cached) == nil {
+		if !refresh && time.Since(cached.Fetched) < catalogTTL && len(cached.Releases) > 0 {
+			return cached.Releases, nil
+		}
+	}
+	all, err := NodeReleases(ctx)
+	if err != nil {
+		if len(cached.Releases) > 0 {
+			return cached.Releases, nil // an older list beats none while offline
+		}
+		return nil, err
+	}
+	var rels []NodeRelease
+	for _, r := range all {
+		if r.hasWindowsZip() {
+			r.Files = []string{"win-x64-zip"}
+			rels = append(rels, r)
+		}
+	}
+	cached.Fetched, cached.Releases = time.Now(), rels
+	if data, err := json.Marshal(cached); err == nil {
+		config.WriteFileAtomic(file, data)
+	}
+	return rels, nil
+}
+
+// nodeSupportWindow: an LTS line without a release for this long has reached its end of life (the
+// lines in maintenance still get security releases every few months).
+const nodeSupportWindow = 180 * 24 * time.Hour
+
+// NodeLines is the newest release of each line worth installing, newest line first: the current
+// one when it is ahead of the LTS lines, and the LTS lines that still get releases.
+func NodeLines(rels []NodeRelease, now time.Time) []NodeRelease {
+	newest := map[int]NodeRelease{}
+	var majors []int
+	for _, r := range rels { // nodejs.org lists the newest version first
+		if _, ok := newest[r.Major()]; !ok && r.hasWindowsZip() {
+			newest[r.Major()] = r
+			majors = append(majors, r.Major())
+		}
+	}
+	latestLTS := 0
+	for m, r := range newest {
+		if r.IsLTS() && m > latestLTS {
+			latestLTS = m
+		}
+	}
+	var out []NodeRelease
+	for i, m := range majors {
+		r := newest[m]
+		date, _ := time.Parse("2006-01-02", r.Date)
+		switch {
+		case i == 0 && m > latestLTS: // the current line
+			out = append(out, r)
+		case r.IsLTS() && (m == latestLTS || now.Sub(date) < nodeSupportWindow):
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// NodeUpdate is a newer Node than the one in use.
+type NodeUpdate struct {
+	Version   string `json:"version"`             // "24.22.1"
+	Line      bool   `json:"line,omitempty"`      // a newer LTS line rather than a release of the one in use
+	LTS       string `json:"lts,omitempty"`       // codename of the line
+	Security  bool   `json:"security,omitempty"`  // fixes vulnerabilities of the version in use
+	Installed bool   `json:"installed,omitempty"` // already downloaded, just not in use
+}
+
+// NodeUpdates compares the Node in use with the release list: a newer release of its line, and a
+// newer LTS line nobody installed yet. installed are the versions clon knows.
+func NodeUpdates(rels []NodeRelease, current string, installed []string) []NodeUpdate {
+	cur := NodeRelease{Version: "v" + current}
+	var out []NodeUpdate
+	for _, r := range rels {
+		if r.Major() != cur.Major() || !r.hasWindowsZip() {
+			continue
+		}
+		v := strings.TrimPrefix(r.Version, "v")
+		if versions.Compare(v, current) <= 0 {
+			break
+		}
+		if len(out) == 0 {
+			out = append(out, NodeUpdate{Version: v, LTS: r.Codename()})
+			for _, have := range installed {
+				out[0].Installed = out[0].Installed || have == v
+			}
+		}
+		out[0].Security = out[0].Security || r.Security
+	}
+	var lts NodeRelease // the newest release of the newest LTS line
+	for _, r := range rels {
+		if r.IsLTS() && r.hasWindowsZip() && r.Major() > lts.Major() {
+			lts = r
+		}
+	}
+	if lts.Major() <= cur.Major() {
+		return out
+	}
+	for _, v := range installed {
+		if (NodeRelease{Version: "v" + v}).Major() >= lts.Major() {
+			return out // already has it (or a newer one)
+		}
+	}
+	return append(out, NodeUpdate{Version: strings.TrimPrefix(lts.Version, "v"), Line: true, LTS: lts.Codename()})
+}
+
+// NodeTools are the package managers clon installs next to npm, as global npm packages (Node 25
+// stopped shipping Corepack, which used to provide them).
+var NodeTools = []string{"pnpm", "yarn"}
+
+// NodePackage reads a global npm package: its version and its commands ("pnpm" → bin\pnpm.cjs),
+// with ok false when it is not installed.
+func NodePackage(prefix, name string) (version string, bins map[string]string, ok bool) {
+	dir := filepath.Join(prefix, "node_modules", name)
+	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return "", nil, false
+	}
+	var pkg struct {
+		Version string          `json:"version"`
+		Bin     json.RawMessage `json:"bin"`
+	}
+	if json.Unmarshal(data, &pkg) != nil || pkg.Version == "" {
+		return "", nil, false
+	}
+	bins = map[string]string{}
+	var one string
+	if json.Unmarshal(pkg.Bin, &one) == nil && one != "" {
+		bins[name] = filepath.Join(dir, filepath.FromSlash(one))
+	} else {
+		var many map[string]string
+		json.Unmarshal(pkg.Bin, &many)
+		for cmd, p := range many {
+			bins[cmd] = filepath.Join(dir, filepath.FromSlash(p))
+		}
+	}
+	return pkg.Version, bins, true
+}
+
 // ResolveNode picks a release: "lts" (default), "latest", a major ("24") or an exact version.
 func ResolveNode(rels []NodeRelease, want string) (NodeRelease, error) {
 	want = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(want)), "v")
@@ -86,29 +257,7 @@ func ResolveNode(rels []NodeRelease, want string) (NodeRelease, error) {
 // InstallNode downloads node-vX-win-x64.zip, verifies it against SHASUMS256.txt and unpacks it
 // into bin\node\<version>. npm and npx come inside the official zip.
 func InstallNode(ctx context.Context, home paths.Home, rel NodeRelease, progress download.Progress) (versions.Version, error) {
-	file := fmt.Sprintf("node-%s-win-x64.zip", rel.Version)
-	sums, err := download.Text(ctx, fmt.Sprintf("%s/%s/SHASUMS256.txt", nodeDist, rel.Version))
-	if err != nil {
-		return versions.Version{}, err
-	}
-	want := checksumFor(sums, file)
-	if want == "" {
-		return versions.Version{}, fmt.Errorf("SHASUMS256.txt no incluye %s", file)
-	}
-	zipPath := home.Cache("downloads", file)
-	if _, err := download.File(ctx, fmt.Sprintf("%s/%s/%s", nodeDist, rel.Version, file), zipPath, want, progress); err != nil {
-		return versions.Version{}, err
-	}
-	dest := home.Bin("node", strings.TrimPrefix(rel.Version, "v"))
-	if err := unpackFresh(zipPath, dest); err != nil {
-		return versions.Version{}, err
-	}
-	v, err := versions.DetectNode(dest)
-	if err != nil {
-		return versions.Version{}, err
-	}
-	v.Source = "download"
-	return v, nil
+	return InstallRelease(ctx, home, rel.Release(), nil, progress)
 }
 
 // checksumFor finds "<sha256>  <file>" in a SHASUMS-style listing.

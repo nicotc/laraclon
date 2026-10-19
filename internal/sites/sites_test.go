@@ -42,6 +42,34 @@ func TestHasViteNeedsPackageJSONAndAViteConfig(t *testing.T) {
 	}
 }
 
+func TestPackageManagerFollowsPackageJSONThenTheLockFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, content string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := PackageManager(dir); got != "npm" {
+		t.Fatalf("without anything the project uses npm, got %s", got)
+	}
+	write("package.json", `{"private": true}`)
+	write("package-lock.json", "{}")
+	if got := PackageManager(dir); got != "npm" {
+		t.Fatalf("package-lock.json means npm, got %s", got)
+	}
+	write("yarn.lock", "")
+	if got := PackageManager(dir); got != "yarn" {
+		t.Fatalf("yarn.lock wins over package-lock.json, got %s", got)
+	}
+	write("package.json", `{"packageManager": "pnpm@10.11.0+sha512.abc"}`)
+	if got := PackageManager(dir); got != "pnpm" {
+		t.Fatalf("packageManager in package.json wins over the lock files, got %s", got)
+	}
+	if got := LockFiles("pnpm"); len(got) != 4 || got[0] != "yarn.lock" {
+		t.Fatalf("switching to pnpm drops the other four lock files, got %v", got)
+	}
+}
+
 func TestNormalize(t *testing.T) {
 	cases := map[string]string{
 		"app":            "app",

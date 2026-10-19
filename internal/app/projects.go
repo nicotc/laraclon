@@ -31,6 +31,8 @@ type NewProject struct {
 	Kit  string `json:"kit"`  // "" (none), react, vue, svelte or livewire
 	DB   string `json:"db"`   // sqlite, mysql, mariadb or postgresql ("" with Git: the project's own)
 	Root string `json:"root"` // one of the project roots ("" = the first)
+	// PM installs and builds the frontend: npm (""), pnpm or yarn, like `laravel new --pnpm`.
+	PM string `json:"pm,omitempty"`
 	// Git clones a repository instead (Kit is then ignored), on its default branch or Branch.
 	Git    string `json:"git,omitempty"`
 	Branch string `json:"branch,omitempty"`
@@ -75,6 +77,13 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 		return Job{}, fmt.Errorf("kit desconocido %q: usa react, vue, svelte, livewire o ninguno", p.Kit)
 	}
 	p.Git, p.Branch = strings.TrimSpace(p.Git), strings.TrimSpace(p.Branch)
+	switch p.PM = strings.ToLower(strings.TrimSpace(p.PM)); p.PM {
+	case "", "npm":
+		p.PM = "npm"
+	case "pnpm", "yarn":
+	default:
+		return Job{}, fmt.Errorf("gestor de paquetes desconocido %q: usa npm, pnpm o yarn", p.PM)
+	}
 	p.DB = strings.ToLower(strings.TrimSpace(p.DB))
 	if p.DB == "" && p.Git == "" {
 		p.DB = "sqlite"
@@ -320,23 +329,27 @@ func (d *Daemon) buildProject(ctx context.Context, p NewProject, name, dir strin
 		return fmt.Errorf("php artisan migrate: %w", err)
 	}
 
-	// Like Laravel's installer, with or without a kit: the pages need the compiled frontend.
+	// Like Laravel's installer, with or without a kit: the pages need the compiled frontend. It also
+	// drops the other managers' lock files, points the kit's Composer scripts at the chosen one and
+	// leaves out the packages' install scripts.
 	if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
-		node, err := d.env.GlobalNode()
+		run, err := d.ensureJSRunner(ctx, p.PM, dir, phase, log)
 		if err != nil {
 			return err
 		}
-		npm := func(args ...string) error {
-			cli := filepath.Join(node.Path, "node_modules", "npm", "bin", "npm-cli.js")
-			return procutil.RunTree(ctx, dir, env, log, filepath.Join(node.Path, "node.exe"), append([]string{cli}, args...)...)
+		for _, f := range sites.LockFiles(p.PM) {
+			os.Remove(filepath.Join(dir, f))
 		}
-		phase("instalando las dependencias de npm")
-		if err := npm("install", "--no-audit", "--no-fund"); err != nil {
-			return fmt.Errorf("npm install: %w", err)
+		if err := useComposerScripts(filepath.Join(dir, "composer.json"), p.PM); err != nil {
+			return err
+		}
+		phase("instalando las dependencias con " + p.PM)
+		if err := run.run(ctx, dir, env, log, run.installArgs(true)...); err != nil {
+			return fmt.Errorf("%s install: %w", p.PM, err)
 		}
 		phase("compilando el frontend con Vite")
-		if err := npm("run", "build"); err != nil {
-			return fmt.Errorf("npm run build: %w", err)
+		if err := run.run(ctx, dir, env, log, "run", "build"); err != nil {
+			return fmt.Errorf("%s run build: %w", p.PM, err)
 		}
 	}
 	return nil
@@ -461,24 +474,25 @@ func (d *Daemon) prepareProject(ctx context.Context, dir, name, db string, phase
 			return fmt.Errorf("php artisan storage:link: %w", err)
 		}
 	}
+	// With the project's own package manager (its lock file says which), installed first if needed.
 	if sites.HasVite(dir) && !has("public", "build", "manifest.json") {
-		node, err := d.env.GlobalNode()
+		pm := projectManager(dir)
+		if pm != sites.PackageManager(dir) {
+			fmt.Fprintf(log, "\r\nclon todavía no instala %s: se usa npm\r\n", sites.PackageManager(dir))
+		}
+		run, err := d.ensureJSRunner(ctx, pm, dir, phase, log)
 		if err != nil {
 			return err
 		}
-		npm := func(args ...string) error {
-			cli := filepath.Join(node.Path, "node_modules", "npm", "bin", "npm-cli.js")
-			return procutil.RunTree(ctx, dir, env, log, filepath.Join(node.Path, "node.exe"), append([]string{cli}, args...)...)
-		}
 		if !has("node_modules") {
-			phase("instalando las dependencias de npm")
-			if err := npm("install", "--no-audit", "--no-fund"); err != nil {
-				return fmt.Errorf("npm install: %w", err)
+			phase("instalando las dependencias con " + pm)
+			if err := run.run(ctx, dir, env, log, run.installArgs(false)...); err != nil {
+				return fmt.Errorf("%s install: %w", pm, err)
 			}
 		}
 		phase("compilando el frontend con Vite")
-		if err := npm("run", "build"); err != nil {
-			return fmt.Errorf("npm run build: %w", err)
+		if err := run.run(ctx, dir, env, log, "run", "build"); err != nil {
+			return fmt.Errorf("%s run build: %w", pm, err)
 		}
 	}
 	return nil

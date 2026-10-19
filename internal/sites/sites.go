@@ -135,6 +135,48 @@ func Missing(folder, kind string) []string {
 // HasVite reports whether a project runs a Vite dev server (npm run dev).
 func HasVite(folder string) bool { return hasVite(folder) }
 
+// lockFiles tell which package manager a project uses, as Laravel's installer reads them.
+var lockFiles = []struct{ file, manager string }{
+	{"pnpm-lock.yaml", "pnpm"}, {"yarn.lock", "yarn"}, {"bun.lock", "bun"}, {"bun.lockb", "bun"}, {"package-lock.json", "npm"},
+}
+
+// PackageManager is the JavaScript package manager of a project: the one package.json names in
+// "packageManager" ("pnpm@10.11.0"), or the one whose lock file is there; npm otherwise.
+func PackageManager(folder string) string {
+	if data, err := os.ReadFile(filepath.Join(folder, "package.json")); err == nil {
+		var pkg struct {
+			PackageManager string `json:"packageManager"`
+		}
+		if json.Unmarshal(data, &pkg) == nil {
+			if name, _, _ := strings.Cut(pkg.PackageManager, "@"); name != "" {
+				for _, l := range lockFiles {
+					if l.manager == name {
+						return name
+					}
+				}
+			}
+		}
+	}
+	for _, l := range lockFiles {
+		if exists(filepath.Join(folder, l.file)) {
+			return l.manager
+		}
+	}
+	return "npm"
+}
+
+// LockFiles are the lock files of the package managers other than manager, which a project switched
+// to manager no longer needs.
+func LockFiles(except string) []string {
+	var out []string
+	for _, l := range lockFiles {
+		if l.manager != except {
+			out = append(out, l.file)
+		}
+	}
+	return out
+}
+
 // hasVite reports whether a project runs a Vite dev server (npm run dev).
 func hasVite(folder string) bool {
 	if !exists(filepath.Join(folder, "package.json")) {

@@ -9,7 +9,8 @@ import (
 
 const newUsage = `
   clon new <nombre> [--kit react|vue|svelte|livewire|ninguno] [--db sqlite|mysql|mariadb|postgresql] [--carpeta <raíz>]
-                                          proyecto Laravel nuevo en https://<nombre>.test, con su base de datos y .env
+           [--pnpm | --yarn]              proyecto Laravel nuevo en https://<nombre>.test, con su base de datos y .env
+                                          (el frontend se instala con npm, o con pnpm o yarn, como 'laravel new')
   clon new <nombre> --git <url> [--rama <rama>] [--db …]
                                           clona un repositorio y lo prepara (Composer, .env, base de datos, Vite)
 `
@@ -19,6 +20,10 @@ func cmdNew(env *app.Env, args []string) error {
 	var p app.NewProject
 	for i := 0; i < len(args); i++ {
 		flag, value := args[i], ""
+		if flag == "--npm" || flag == "--pnpm" || flag == "--yarn" { // the same options as 'laravel new'
+			p.PM = strings.TrimPrefix(flag, "--")
+			continue
+		}
 		if k, v, ok := strings.Cut(flag, "="); ok && strings.HasPrefix(flag, "--") {
 			flag, value = k, v
 		} else if strings.HasPrefix(flag, "--") && i+1 < len(args) {

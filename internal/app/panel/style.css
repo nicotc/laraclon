@@ -39,6 +39,7 @@ nav.tabs .count:empty { display: none; }
 
 .alert { border: 1px solid #d4a72c; background: var(--warn-soft); border-radius: 8px; padding: 10px 14px; margin: 8px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .alert.bad { border-color: #ff8182; background: var(--bad-soft); }
+.alert > span:first-child { flex: 1; }
 
 .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .toolbar h2 { margin: 0; font-size: 20px; }
@@ -63,7 +64,7 @@ td.folder { font-family: ui-monospace, Consolas, monospace; font-size: 12px; col
 .lg-apache { background: #b5304a; } .lg-nginx { background: #009639; } .lg-frankenphp { background: #7c3aed; }
 .lg-mysql { background: #00758f; } .lg-mariadb { background: #8a5a44; } .lg-postgresql { background: #336791; }
 .lg-mongodb { background: #3f8f3a; } .lg-redis { background: #d82c20; } .lg-mailpit { background: #2563eb; } .lg-meilisearch { background: #e3459a; }
-.lg-adminer { background: #34567c; }
+.lg-adminer { background: #34567c; } .lg-node { background: #417e38; } .lg-pm { background: #6e7781; }
 
 .svc { border: 1px solid var(--line); border-radius: 8px; background: #fff; margin-bottom: 12px; }
 .grid3 .svc { margin-bottom: 0; display: flex; flex-direction: column; }
@@ -158,3 +159,10 @@ footer { margin-top: 24px; }
 .proc.on.running::before { content: "● "; color: var(--ok); }
 .proc.warn { color: var(--warn); border-color: #d4a72c; background: var(--warn-soft); font-weight: 600; }
 .form .chips { margin-bottom: 2px; }
+
+/* Node y gestores de paquetes */
+.grid2 { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; align-items: start; }
+@media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+.grid2 .svc { margin-bottom: 0; }
+.news { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-top: 1px solid #eef1f4; font-size: 14px; }
+.news.warn { background: var(--warn-soft); }

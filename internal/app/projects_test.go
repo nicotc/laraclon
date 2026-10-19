@@ -32,6 +32,77 @@ func TestInstallerHooksComeFromTheKitsComposerJSON(t *testing.T) {
 	}
 }
 
+func TestUseComposerScriptsSwitchesTheKitsScriptsToPnpm(t *testing.T) {
+	// Excerpt of laravel/react-starter-kit's composer.json (October 2026).
+	const cj = `{
+    "name": "laravel/react-starter-kit",
+    "minimum-stability": "dev",
+    "scripts": {
+        "setup": [
+            "composer install",
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
+            "npm install",
+            "npm run build"
+        ],
+        "dev": [
+            "Composer\\Config::disableProcessTimeout",
+            "npx concurrently -c \"#93c5fd,#c4b5fd\" \"php artisan serve\" \"npm run dev\" --names=server,vite"
+        ],
+        "dev:ssr": "npm run build:ssr",
+        "lint": ["pint --parallel"],
+        "ci:check": ["npm run check", "@test"]
+    },
+    "extra": {"laravel": {"installer": {"post-create-project": ["npm run x"]}}}
+}`
+	path := filepath.Join(t.TempDir(), "composer.json")
+	if err := os.WriteFile(path, []byte(cj), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := useComposerScripts(path, "pnpm"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	got := string(data)
+	for _, want := range []string{
+		`"pnpm install",`, `"pnpm run build"`, `"pnpm dlx concurrently -c \"#93c5fd,#c4b5fd\" \"php artisan serve\" \"pnpm run dev\" --names=server,vite"`,
+		`"dev:ssr": "pnpm run build:ssr"`, `"ci:check": ["pnpm run check", "@test"]`, `"lint": ["pint --parallel"]`,
+		`"post-create-project": ["npm run x"]`, `"minimum-stability": "dev"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("falta %s en:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "ppnpm") {
+		t.Errorf("pnpm no se duplica:\n%s", got)
+	}
+	// npm leaves the file as it was.
+	os.WriteFile(path, []byte(cj), 0o644)
+	useComposerScripts(path, "npm")
+	if data, _ := os.ReadFile(path); string(data) != cj {
+		t.Errorf("con npm no cambia nada")
+	}
+	if got := jsonEnd(`["a]", "b\"]"] tail`, 0); got != 14 {
+		t.Errorf("jsonEnd skips brackets inside strings, got %d", got)
+	}
+}
+
+func TestYarnBerryGoesThroughCorepack(t *testing.T) {
+	dir := t.TempDir()
+	cases := map[string]bool{
+		`{"packageManager": "yarn@4.9.2+sha224.953c8233f7a92884eee2de69a1b92d1f2ec1655e66d08071ba9a02fa"}`: true,
+		`{"packageManager": "yarn@10.0.0"}`:  true,
+		`{"packageManager": "yarn@1.22.22"}`: false,
+		`{"packageManager": "pnpm@10.0.0"}`:  false,
+		`{"private": true}`:                  false,
+	}
+	for pkg, want := range cases {
+		os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644)
+		if got := yarnBerry(dir); got != want {
+			t.Errorf("%s: got %v, want %v", pkg, got, want)
+		}
+	}
+}
+
 func TestEnvValueOfReadsOneKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
 	os.WriteFile(path, []byte("APP_NAME=\"Mi App\"\r\nAPP_KEY=\r\n# DB_DATABASE=comentada\r\nDB_CONNECTION=mysql\r\nDB_DATABASE = tienda \r\n"), 0o644)
