@@ -220,14 +220,32 @@ const PROCESS_HELP = {
 
 // processToggles switches a site's processes (Vite, the queue, the scheduler); one that is on also
 // starts with «Iniciar todo».
+const MISSING_LABEL = { vendor: 'paquetes de Composer', '.env': '.env', frontend: 'frontend compilado' };
+
 function processToggles(site) {
-  if (!site.processes || !site.processes.length) return el('span', { class: 'svc-sub' }, '—');
-  return el('div', { class: 'procs' }, ...site.processes.map(p => {
+  const buttons = (site.processes || []).map(p => {
     const key = `proc-${site.name}-${p.id}`;
     const title = `${PROCESS_HELP[p.id]} · ${p.on ? p.state + ' (clic para detenerlo)' : 'clic para arrancarlo'}`;
     return el('button', { class: 'proc' + (p.on ? ' on' : '') + (p.state === 'en marcha' ? ' running' : ''), disabled: !!ui.pending[key], title,
       onclick: () => act('POST', '/api/sites/process', { site: site.name, id: p.id, on: !p.on }, key) }, p.label);
-  }));
+  });
+  // A project that is not ready (cloned or copied) gets what it lacks with one click.
+  if (site.missing && site.missing.length) {
+    const busy = (state.jobs || []).some(j => j.kind === 'project' && j.series === site.name && !j.finished);
+    buttons.unshift(el('button', { class: 'proc warn', disabled: busy, title: 'Le falta: ' + site.missing.map(m => MISSING_LABEL[m] || m).join(', '),
+      onclick: () => setupProject(site) }, busy ? 'Preparando…' : 'Preparar'));
+  }
+  return buttons.length ? el('div', { class: 'procs' }, ...buttons) : el('span', { class: 'svc-sub' }, '—');
+}
+
+async function setupProject(site) {
+  try {
+    await call('POST', '/api/projects/setup', { site: site.name });
+    toast(`Preparando ${site.host}: Composer, .env, base de datos y frontend, lo que falte`);
+  } catch (e) {
+    alert(e.message);
+  }
+  await refresh();
 }
 
 // phpPicker keeps a site on the global PHP or pins another installed version (older projects).
@@ -643,7 +661,7 @@ const KITS = [
   ['svelte', 'Svelte', 'Inertia, Svelte y Tailwind'],
   ['livewire', 'Livewire', 'Livewire y Tailwind'],
 ];
-ui.project = { name: '', kit: '', db: 'sqlite', root: '', job: null, error: null };
+ui.project = { source: 'laravel', name: '', kit: '', db: 'sqlite', root: '', git: '', branch: '', job: null, error: null };
 
 // slug turns a name into the site name the server will use ("Mi Tienda" → "mi-tienda").
 const slug = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -677,7 +695,7 @@ function renderProjectDialog() {
   const p = ui.project;
   const body = document.getElementById('project-body');
   const job = p.job && (state.jobs || []).find(j => j.id === p.job);
-  const again = () => { ui.project = { name: '', kit: p.kit, db: p.db, root: p.root, job: null, error: null }; renderProjectDialog(); };
+  const again = () => { ui.project = { source: p.source, name: '', kit: p.kit, db: p.db, root: p.root, git: '', branch: '', job: null, error: null }; renderProjectDialog(); };
   if (job && job.finished && !job.error) {
     const site = (state.sites || []).find(s => s.name === job.series);
     body.replaceChildren(
@@ -710,13 +728,39 @@ function renderProjectDialog() {
   name.addEventListener('input', () => { p.name = name.value; showPreview(); });
   name.addEventListener('keydown', e => { if (e.key === 'Enter') createProject(); });
   showPreview();
-  const kits = el('div', { class: 'kits' }, ...KITS.map(([k, label, desc]) => {
-    const radio = el('input', { type: 'radio', name: 'kit', value: k, checked: p.kit === k });
-    radio.addEventListener('change', () => { p.kit = k; });
-    return el('label', { class: 'kit' }, radio, el('span', {}, el('b', {}, label), el('span', { class: 'svc-sub' }, desc)));
-  }));
-  const dbSel = el('select', { 'aria-label': 'Base de datos' }, ...projectDBOptions().map(([k, label]) => el('option', { value: k, selected: p.db === k }, label)));
+  const fromGit = p.source === 'git';
+  const sources = el('div', { class: 'chips' }, ...[['laravel', 'Laravel nuevo'], ['git', 'Desde Git']].map(([k, label]) =>
+    el('span', { class: 'chip' + (p.source === k ? ' on' : ''), onclick: () => {
+      p.source = k;
+      if (k === 'git' && p.db === 'sqlite') p.db = '';
+      if (k === 'laravel' && p.db === '') p.db = 'sqlite';
+      renderProjectDialog();
+    } }, label)));
+  let kits;
+  if (fromGit) {
+    const url = el('input', { type: 'text', value: p.git, placeholder: 'https://github.com/empresa/proyecto.git', autocomplete: 'off', spellcheck: 'false' });
+    url.addEventListener('input', () => {
+      p.git = url.value;
+      // The repository's name is a good site name until the user writes another.
+      const repo = (url.value.split(/[\\/]/).pop() || '').replace(/\.git$/i, '');
+      if (!p.nameTouched && repo) { p.name = repo; name.value = repo; showPreview(); }
+    });
+    const branch = el('input', { type: 'text', value: p.branch, placeholder: 'la principal', autocomplete: 'off', spellcheck: 'false' });
+    branch.addEventListener('input', () => { p.branch = branch.value; });
+    kits = el('div', { class: 'field' }, el('span', {}, 'Repositorio'), url,
+      el('div', { class: 'row' }, el('span', { class: 'svc-sub' }, 'Rama'), branch));
+  } else {
+    kits = el('div', { class: 'field' }, el('span', {}, 'Kit de inicio'), el('div', { class: 'kits' }, ...KITS.map(([k, label, desc]) => {
+      const radio = el('input', { type: 'radio', name: 'kit', value: k, checked: p.kit === k });
+      radio.addEventListener('change', () => { p.kit = k; });
+      return el('label', { class: 'kit' }, radio, el('span', {}, el('b', {}, label), el('span', { class: 'svc-sub' }, desc)));
+    })));
+  }
+  const dbOptions = projectDBOptions();
+  if (fromGit) dbOptions.unshift(['', 'La que diga el proyecto (.env.example)']);
+  const dbSel = el('select', { 'aria-label': 'Base de datos' }, ...dbOptions.map(([k, label]) => el('option', { value: k, selected: p.db === k }, label)));
   dbSel.addEventListener('change', () => { p.db = dbSel.value; });
+  name.addEventListener('input', () => { p.nameTouched = true; });
   let rootField = null;
   if (roots.length > 1) {
     const rootSel = el('select', { 'aria-label': 'Carpeta' }, ...roots.map(r => el('option', { value: r, selected: (p.root || roots[0]) === r }, r)));
@@ -725,12 +769,14 @@ function renderProjectDialog() {
   }
   // replaceChildren, unlike el, would show a null as the text "null".
   body.replaceChildren(...[
+    sources,
+    fromGit ? kits : null,
     el('label', { class: 'field' }, el('span', {}, 'Nombre'), name, preview),
-    el('div', { class: 'field' }, el('span', {}, 'Kit de inicio'), kits),
+    fromGit ? null : kits,
     el('label', { class: 'field' }, el('span', {}, 'Base de datos'), dbSel),
     rootField,
     p.error ? el('div', { class: 'row-error' }, p.error) : null,
-    el('div', { class: 'row' }, el('span', { class: 'spacer' }), el('button', { onclick: createProject }, 'Crear proyecto')),
+    el('div', { class: 'row' }, el('span', { class: 'spacer' }), el('button', { onclick: createProject }, fromGit ? 'Clonar y preparar' : 'Crear proyecto')),
   ].filter(Boolean));
 }
 
@@ -738,7 +784,9 @@ async function createProject() {
   const p = ui.project;
   p.error = null;
   try {
-    const j = await call('POST', '/api/projects', { name: p.name, kit: p.kit, db: p.db, root: p.root });
+    const body = { name: p.name, kit: p.kit, db: p.db, root: p.root };
+    if (p.source === 'git') Object.assign(body, { kit: '', git: p.git, branch: p.branch });
+    const j = await call('POST', '/api/projects', body);
     p.job = j.id;
     await refresh();
   } catch (e) {

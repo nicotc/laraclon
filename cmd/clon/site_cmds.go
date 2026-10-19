@@ -16,11 +16,29 @@ const siteUsage = `
   clon site php <sitio> <versión>|global             PHP propio para un proyecto antiguo, o vuelta al global
   clon site proc <sitio> vite|queue|schedule on|off  npm run dev (con HTTPS), queue:work o schedule:work del proyecto
   clon site debug <sitio> on|off                     Xdebug solo para ese sitio (el editor escucha en el 9003)
+  clon site setup <sitio> [--db mysql|…]             prepara un proyecto existente: Composer, .env, base de datos, Vite
 `
 
 func cmdSite(env *app.Env, args []string) error {
 	if len(args) == 4 && args[0] == "proc" {
 		return cmdSiteProc(env, args[1], strings.ToLower(args[2]), args[3])
+	}
+	if len(args) >= 2 && args[0] == "setup" {
+		db := ""
+		if len(args) == 4 && args[2] == "--db" {
+			db = args[3]
+		} else if len(args) != 2 {
+			return fmt.Errorf("uso:%s", siteUsage)
+		}
+		c, err := app.Connect(env.Home.Root)
+		if err != nil {
+			return fmt.Errorf("clon no está corriendo: inícialo con 'clon run' (prepara la base de datos del proyecto)")
+		}
+		var j app.Job
+		if err := c.Call("POST", "/api/projects/setup", map[string]string{"site": args[1], "db": db}, &j); err != nil {
+			return err
+		}
+		return followJob(remoteOps{c}, j)
 	}
 	if len(args) == 3 && args[0] == "debug" {
 		on := args[2] == "on" || args[2] == "si" || args[2] == "sí"

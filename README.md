@@ -11,6 +11,11 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
   - clon escribe el `.env` (nombre, `APP_URL` en https, la base de datos elegida y el correo a Mailpit), crea la base en MySQL, MariaDB o PostgreSQL (o usa SQLite) y migra.
   - Con un kit, también instala las dependencias de npm y compila el frontend con Vite.
   - El sitio queda en `https://tienda.test`. El panel muestra cada fase y se puede cancelar.
+- **Proyectos existentes y desde Git:**
+  - Un proyecto copiado o clonado al que le falta algo muestra «Preparar» en la pestaña «Sitios» (o `clon site setup tienda`).
+  - clon instala los paquetes de Composer con el PHP del sitio y crea el `.env` desde `.env.example`, con la base de datos que pide el proyecto apuntando a las de clon.
+  - También genera `APP_KEY`, crea la base y la migra solo si es nueva (los datos existentes no se tocan), enlaza `public/storage` y compila el frontend.
+  - «Nuevo proyecto → Desde Git» (o `clon new tienda --git <url> [--rama <rama>]`) clona el repositorio con el Git del sistema o el de Laragon y lo prepara igual.
 - **Procesos de cada proyecto:** columna «Procesos» de la pestaña «Sitios», o `clon site proc tienda vite on`.
   - Vite (`npm run dev`), la cola (`queue:work`) y las tareas programadas (`schedule:work`) corren supervisados, con su registro en `logs\`. Los que dejas encendidos arrancan con «Iniciar todo».
   - Vite va por HTTPS con el certificado del sitio, en el que Windows ya confía: la página y la recarga en caliente usan `https://tienda.test:5173`, sin tocar `vite.config`.
@@ -127,6 +132,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 |---|---|
 | `clon run [--foreground]` | Inicia clon (bandeja), o en la consola actual con `--foreground` |
 | `clon new tienda [--kit react\|vue\|svelte\|livewire] [--db sqlite\|mysql\|mariadb\|postgresql]` | Proyecto Laravel nuevo en `https://tienda.test` |
+| `clon new tienda --git <url> [--rama <rama>]` · `clon site setup tienda` | Clona y prepara un proyecto · prepara uno que ya está en la carpeta |
 | `clon start` · `stop` · `restart` · `quit` | Servicios on/off; `quit` cierra clon |
 | `clon status` · `sites` · `versions` | Estado, sitios y versiones instaladas |
 | `clon php list` · `remote` · `install 8.4` · `use 8.3` | Versiones de PHP |
@@ -168,12 +174,12 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - PHP 7.2 fijado en un sitio, en la web y en la terminal, mientras el resto usa el global.
 - Extensiones de PHP: Xdebug descargado y soap, activadas y apagadas.
 - Adminer en `https://db.localhost`, con entrada sin contraseña en MySQL.
-- Proyecto nuevo con `clon new` (kit de Vue y MySQL) y los procesos de otro: Vite por HTTPS, cola y tareas.
+- Proyecto nuevo con `clon new` (kit de Vue y MySQL), otro clonado de GitHub y preparado, y los procesos de un tercero: Vite por HTTPS, cola y tareas.
 - Xdebug solo en un sitio, y `phpx` en la terminal.
 - Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
 - Edge sin avisos, cambio de PHP y cierre.
 
-Tarda unos 20 minutos. No cierres la ventana del sandbox hasta que diga «Prueba terminada»: al cerrarla se descarta todo lo de dentro. Al terminar, clon queda arrancado con el proyecto Laravel y el panel abiertos en Edge, para probarlo a mano. El informe queda en `dist\sandbox\<fecha>\resultados\report.md`. Los instaladores de Visual C++ se descargan en el equipo anfitrión (`dist\cache`) y se comparten con el sandbox, porque dentro su descarga resultó poco fiable. Primero se instala a propósito el de Visual Studio 2022 (14.44) y después el más reciente.
+Tarda unos 45 minutos. No cierres la ventana del sandbox hasta que diga «Prueba terminada»: al cerrarla se descarta todo lo de dentro. Al terminar, clon queda arrancado con el proyecto Laravel y el panel abiertos en Edge, para probarlo a mano. El informe queda en `dist\sandbox\<fecha>\resultados\report.md`. Los instaladores de Visual C++ se descargan en el equipo anfitrión (`dist\cache`) y se comparten con el sandbox, porque dentro su descarga resultó poco fiable. Primero se instala a propósito el de Visual Studio 2022 (14.44) y después el más reciente.
 
 ## Estructura
 
@@ -225,6 +231,8 @@ En Windows 11, junto a Laragon y en puertos alternativos:
 - **Proyectos nuevos:**
   - `clon new "Prueba MySQL" --db mysql` deja en 3 minutos `https://prueba-mysql.test` respondiendo, con su `.env` completo y la base migrada (9 tablas).
   - `clon new prueba-react --kit react --db postgresql` tarda 5 minutos (Composer, los pasos del kit, migraciones en PostgreSQL, npm y Vite) y sirve la página de Inertia con el frontend compilado.
+  - `clon new demo-git --git https://github.com/laravel/laravel.git --db mysql` clona, instala Composer, crea el `.env` hacia MySQL, la clave y la base (9 tablas), enlaza `storage` y compila el frontend, en algo más de 3 minutos.
+  - «Preparar» sobre un proyecto al que solo le faltaba el frontend lo deja listo en 48 s.
   - Cancelar una creación corta todo el árbol de procesos (Composer, Artisan, npm).
 - **Procesos del proyecto:**
   - La cola de un proyecto con PostgreSQL procesa un job en 30 ms, y el programador corre cada minuto. Ambos se detienen y vuelven con «Detener todo» e «Iniciar todo».

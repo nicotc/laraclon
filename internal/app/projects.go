@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/nicotc/laraclon/internal/install"
+	"github.com/nicotc/laraclon/internal/laragon"
 	"github.com/nicotc/laraclon/internal/mysql"
 	"github.com/nicotc/laraclon/internal/php"
 	"github.com/nicotc/laraclon/internal/postgres"
@@ -23,12 +25,15 @@ import (
 )
 
 // NewProject is what «Nuevo proyecto» creates: a Laravel application, with one of the official
-// starter kits or none, wired to a database clon runs.
+// starter kits or none, or a project cloned from Git, wired to a database clon runs.
 type NewProject struct {
 	Name string `json:"name"`
 	Kit  string `json:"kit"`  // "" (none), react, vue, svelte or livewire
-	DB   string `json:"db"`   // sqlite, mysql, mariadb or postgresql
+	DB   string `json:"db"`   // sqlite, mysql, mariadb or postgresql ("" with Git: the project's own)
 	Root string `json:"root"` // one of the project roots ("" = the first)
+	// Git clones a repository instead (Kit is then ignored), on its default branch or Branch.
+	Git    string `json:"git,omitempty"`
+	Branch string `json:"branch,omitempty"`
 }
 
 // starterKits are the Composer packages of the official kits; like Laravel's installer, the kits are
@@ -69,21 +74,32 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	if _, ok := starterKits[p.Kit]; !ok {
 		return Job{}, fmt.Errorf("kit desconocido %q: usa react, vue, svelte, livewire o ninguno", p.Kit)
 	}
+	p.Git, p.Branch = strings.TrimSpace(p.Git), strings.TrimSpace(p.Branch)
 	p.DB = strings.ToLower(strings.TrimSpace(p.DB))
-	if p.DB == "" {
+	if p.DB == "" && p.Git == "" {
 		p.DB = "sqlite"
 	}
 	if p.DB == "pgsql" {
 		p.DB = "postgresql"
 	}
-	db, ok := projectDBs[p.DB]
-	if !ok {
-		return Job{}, fmt.Errorf("base de datos desconocida %q: usa sqlite, mysql, mariadb o postgresql", p.DB)
-	}
-	if db.kind != "" {
-		if _, ok := d.env.DefaultInstance(db.kind); !ok {
-			return Job{}, fmt.Errorf("%s no está instalado: instálalo en Servicios o elige otra base de datos", db.kind.Name())
+	if p.DB != "" {
+		db, ok := projectDBs[p.DB]
+		if !ok {
+			return Job{}, fmt.Errorf("base de datos desconocida %q: usa sqlite, mysql, mariadb o postgresql", p.DB)
 		}
+		if db.kind != "" {
+			if _, ok := d.env.DefaultInstance(db.kind); !ok {
+				return Job{}, fmt.Errorf("%s no está instalado: instálalo en Servicios o elige otra base de datos", db.kind.Name())
+			}
+		}
+	}
+	var git string
+	if p.Git != "" {
+		var err error
+		if git, err = findGit(); err != nil {
+			return Job{}, err
+		}
+		p.Kit = ""
 	}
 	root := p.Root
 	if root == "" && len(d.env.Cfg.Roots) > 0 {
@@ -106,12 +122,59 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	if _, err := os.Stat(install.ComposerPhar(d.env.Home)); err != nil {
 		return Job{}, fmt.Errorf("falta Composer: instálalo con 'clon composer install'")
 	}
-	if p.Kit != "" {
+	if p.Git == "" {
 		if _, err := d.env.GlobalNode(); err != nil {
-			return Job{}, fmt.Errorf("los kits necesitan Node: %w", err)
+			return Job{}, fmt.Errorf("hace falta Node para compilar el frontend: %w", err)
 		}
 	}
+	if p.Git != "" {
+		return d.startProjectJob(name, "Git", "nuevo-"+name, "creación cancelada (la carpeta a medio crear queda en "+dir+")",
+			func(ctx context.Context, phase func(string), log *os.File) error {
+				phase("clonando " + p.Git)
+				args := []string{"clone"}
+				if p.Branch != "" {
+					args = append(args, "--branch", p.Branch)
+				}
+				// Without a terminal, Git must fail instead of asking for a user name or password.
+				if err := procutil.RunTree(ctx, root, []string{"GIT_TERMINAL_PROMPT=0"}, log, git, append(args, p.Git, dir)...); err != nil {
+					return fmt.Errorf("git clone: %w", err)
+				}
+				return d.prepareProject(ctx, dir, name, p.DB, phase, log)
+			})
+	}
+	return d.startProjectJob(name, kitLabels[p.Kit], "nuevo-"+name, "creación cancelada (la carpeta a medio crear queda en "+dir+")",
+		func(ctx context.Context, phase func(string), log *os.File) error {
+			return d.buildProject(ctx, p, name, dir, phase, log)
+		})
+}
 
+// SetupProject prepares a project that is already in a project folder, cloned or copied: what it
+// lacks (Composer packages, .env with clon's databases, key, database, compiled frontend, storage
+// link) is done in the background. db chooses the database of a new .env ("" keeps the project's).
+func (d *Daemon) SetupProject(site, db string) (Job, error) {
+	s, err := d.findSite(site)
+	if err != nil {
+		return Job{}, err
+	}
+	db = strings.ToLower(strings.TrimSpace(db))
+	if db == "pgsql" {
+		db = "postgresql"
+	}
+	if _, ok := projectDBs[db]; db != "" && !ok {
+		return Job{}, fmt.Errorf("base de datos desconocida %q: usa sqlite, mysql, mariadb o postgresql", db)
+	}
+	if _, err := os.Stat(install.ComposerPhar(d.env.Home)); err != nil {
+		return Job{}, fmt.Errorf("falta Composer: instálalo con 'clon composer install'")
+	}
+	return d.startProjectJob(s.Name, "preparar", "preparar-"+s.Name, "preparación cancelada",
+		func(ctx context.Context, phase func(string), log *os.File) error {
+			return d.prepareProject(ctx, s.Folder, s.Name, db, phase, log)
+		})
+}
+
+// startProjectJob runs work on a project in the background, as a job the panel and the CLI follow
+// phase by phase; the tools' output goes to logs\<logName>.log.
+func (d *Daemon) startProjectJob(name, label, logName, cancelled string, work func(ctx context.Context, phase func(string), log *os.File) error) (Job, error) {
 	d.jobs.mu.Lock()
 	defer d.jobs.mu.Unlock()
 	for _, j := range d.jobs.jobs {
@@ -122,19 +185,23 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	id := make([]byte, 6)
 	rand.Read(id)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
-	j := &Job{ID: hex.EncodeToString(id), Kind: "project", Series: name, Version: kitLabels[p.Kit],
+	j := &Job{ID: hex.EncodeToString(id), Kind: "project", Series: name, Version: label,
 		Phase: "preparando", Started: time.Now(), cancel: cancel}
 	d.jobs.jobs[j.ID] = j
-	go d.runProject(ctx, j, p, name, dir)
+	go d.runProjectJob(ctx, j, logName, cancelled, work)
 	return *j, nil
 }
 
-func (d *Daemon) runProject(ctx context.Context, j *Job, p NewProject, name, dir string) {
+func (d *Daemon) runProjectJob(ctx context.Context, j *Job, logName, cancelled string, work func(ctx context.Context, phase func(string), log *os.File) error) {
 	defer j.cancel()
-	logPath := d.env.Home.Logs("nuevo-" + name + ".log")
+	logPath := d.env.Home.Logs(logName + ".log")
 	logf, err := os.Create(logPath)
 	if err == nil {
-		err = d.buildProject(ctx, j, p, name, dir, logf)
+		phase := func(s string) {
+			d.jobs.update(j, func(j *Job) { j.Phase = s })
+			fmt.Fprintf(logf, "\r\n==== %s · %s ====\r\n", time.Now().Format("15:04:05"), s)
+		}
+		err = work(ctx, phase, logf)
 		logf.Close()
 	}
 	if err != nil && !errors.Is(err, context.Canceled) {
@@ -153,7 +220,7 @@ func (d *Daemon) runProject(ctx context.Context, j *Job, p NewProject, name, dir
 		j.Finished, j.Ended = true, time.Now()
 		switch {
 		case errors.Is(err, context.Canceled):
-			j.Phase, j.Error = "cancelado", "creación cancelada (la carpeta a medio crear queda en "+dir+")"
+			j.Phase, j.Error = "cancelado", cancelled
 		case err != nil:
 			j.Phase, j.Error = "error", err.Error()
 		default:
@@ -163,12 +230,8 @@ func (d *Daemon) runProject(ctx context.Context, j *Job, p NewProject, name, dir
 	d.changed()
 }
 
-// buildProject runs each step, writing everything the tools print to log.
-func (d *Daemon) buildProject(ctx context.Context, j *Job, p NewProject, name, dir string, log *os.File) error {
-	phase := func(s string) {
-		d.jobs.update(j, func(j *Job) { j.Phase = s })
-		fmt.Fprintf(log, "\r\n==== %s · %s ====\r\n", time.Now().Format("15:04:05"), s)
-	}
+// buildProject creates a Laravel project with Composer, writing everything the tools print to log.
+func (d *Daemon) buildProject(ctx context.Context, p NewProject, name, dir string, phase func(string), log *os.File) error {
 	global, err := d.env.GlobalPHP()
 	if err != nil {
 		return err
@@ -229,7 +292,7 @@ func (d *Daemon) buildProject(ctx context.Context, j *Job, p NewProject, name, d
 		values = append(values, [2]string{"MAIL_MAILER", "smtp"}, [2]string{"MAIL_HOST", "127.0.0.1"}, [2]string{"MAIL_PORT", fmt.Sprint(mail.Instance.Port)})
 	}
 	// `npm run dev` serves HTTPS with the site's certificate (laravel-vite-plugin reads these).
-	if p.Kit != "" {
+	if sites.HasVite(dir) {
 		if vite, err := d.viteEnv(sites.Site{Host: name + "." + d.env.Cfg.TLD}); err == nil {
 			for _, kv := range vite {
 				k, v, _ := strings.Cut(kv, "=")
@@ -257,7 +320,8 @@ func (d *Daemon) buildProject(ctx context.Context, j *Job, p NewProject, name, d
 		return fmt.Errorf("php artisan migrate: %w", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil && p.Kit != "" {
+	// Like Laravel's installer, with or without a kit: the pages need the compiled frontend.
+	if _, err := os.Stat(filepath.Join(dir, "package.json")); err == nil {
 		node, err := d.env.GlobalNode()
 		if err != nil {
 			return err
@@ -276,6 +340,204 @@ func (d *Daemon) buildProject(ctx context.Context, j *Job, p NewProject, name, d
 		}
 	}
 	return nil
+}
+
+// prepareProject gives a project that already exists what it lacks to run here: Composer packages, a
+// .env from .env.example wired to clon's databases (db chooses one; "" keeps the project's), APP_KEY,
+// its database (migrated only when clon created it, so existing data is never touched), the storage
+// link and the compiled frontend.
+func (d *Daemon) prepareProject(ctx context.Context, dir, name, db string, phase func(string), log *os.File) error {
+	v, err := d.env.GlobalPHP()
+	if s, ferr := d.findSite(name); ferr == nil {
+		v, err = d.sitePHP(s) // a project that pinned its PHP installs with it
+	}
+	if err != nil {
+		return err
+	}
+	ini, err := php.WriteIni(d.env.Home, v, d.env.IniOptions())
+	if err != nil {
+		return err
+	}
+	env := []string{"PHPRC=" + filepath.Dir(ini), d.env.ChildPATH(), "COMPOSER_NO_INTERACTION=1", "NPM_CONFIG_PREFIX=" + d.env.NPMPrefix()}
+	runPHP := func(args ...string) error {
+		return procutil.RunTree(ctx, dir, env, log, filepath.Join(v.Path, "php.exe"), append([]string{"-c", ini}, args...)...)
+	}
+	has := func(parts ...string) bool { return fileExists(filepath.Join(append([]string{dir}, parts...)...)) }
+	laravel := has("artisan")
+
+	if has("composer.json") && !has("vendor", "autoload.php") {
+		phase("instalando los paquetes de Composer")
+		if err := runPHP(install.ComposerPhar(d.env.Home), "install", "--no-interaction", "--prefer-dist"); err != nil {
+			return fmt.Errorf("composer install: %w", err)
+		}
+	}
+
+	envFile := filepath.Join(dir, ".env")
+	var ref InstanceRef
+	dbName, createdDB := "", false
+	if laravel && !has(".env") && has(".env.example") {
+		phase("creando el .env con las bases de datos de clon")
+		data, err := os.ReadFile(filepath.Join(dir, ".env.example"))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(envFile, data, 0o644); err != nil {
+			return err
+		}
+		values := [][2]string{{"APP_URL", d.projectURL(name)}}
+		conn := envValueOf(envFile, "DB_CONNECTION")
+		if db != "" {
+			conn = projectDBs[db].connection
+		}
+		switch conn {
+		case "mysql", "mariadb", "pgsql":
+			kinds := map[string][]versions.Component{"mysql": {versions.MySQL, versions.MariaDB}, "mariadb": {versions.MariaDB, versions.MySQL}, "pgsql": {versions.PostgreSQL}}[conn]
+			ok := false
+			for _, k := range kinds {
+				if ref, ok = d.env.DefaultInstance(k); ok {
+					break
+				}
+			}
+			if !ok {
+				return fmt.Errorf("el proyecto usa %s y clon no tiene ninguno instalado: instálalo en Servicios", kinds[0].Name())
+			}
+			dbName = envValueOf(envFile, "DB_DATABASE")
+			if dbName == "" || dbName == "laravel" { // the example's name would be shared by every project
+				dbName = strings.ReplaceAll(name, "-", "_")
+			}
+			user := "root"
+			if conn == "pgsql" {
+				user = "postgres"
+			}
+			values = append(values, [2]string{"DB_CONNECTION", conn}, [2]string{"DB_HOST", "127.0.0.1"}, [2]string{"DB_PORT", fmt.Sprint(ref.Instance.Port)},
+				[2]string{"DB_DATABASE", dbName}, [2]string{"DB_USERNAME", user}, [2]string{"DB_PASSWORD", ""})
+		default:
+			values = append(values, [2]string{"DB_CONNECTION", "sqlite"})
+			if !has("database", "database.sqlite") && has("database") {
+				os.WriteFile(filepath.Join(dir, "database", "database.sqlite"), nil, 0o644)
+				createdDB = true
+			}
+		}
+		if mail, ok := d.env.DefaultInstance(versions.Mailpit); ok {
+			values = append(values, [2]string{"MAIL_MAILER", "smtp"}, [2]string{"MAIL_HOST", "127.0.0.1"}, [2]string{"MAIL_PORT", fmt.Sprint(mail.Instance.Port)})
+		}
+		if err := editEnvFile(envFile, values); err != nil {
+			return err
+		}
+	}
+	if laravel && has(".env") && envValueOf(envFile, "APP_KEY") == "" {
+		phase("generando APP_KEY")
+		if err := runPHP("artisan", "key:generate", "--force", "--no-interaction"); err != nil {
+			return fmt.Errorf("php artisan key:generate: %w", err)
+		}
+	}
+	if dbName != "" {
+		phase(fmt.Sprintf("creando la base de datos %s en %s %s", dbName, ref.Kind.Name(), ref.Version.Version))
+		if d.sup.PID(ref.Key()) == 0 {
+			if err := d.StartService(ref.Key()); err != nil {
+				return err
+			}
+		}
+		exists, err := d.databaseExists(ref, dbName)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if err := d.createDatabase(ctx, ref, dbName, log); err != nil {
+				return err
+			}
+			createdDB = true
+		}
+	}
+	if laravel && createdDB {
+		phase("migrando la base de datos nueva")
+		if err := runPHP("artisan", "migrate", "--force", "--no-interaction"); err != nil {
+			return fmt.Errorf("php artisan migrate: %w", err)
+		}
+	}
+	if laravel && has("storage", "app", "public") && !has("public", "storage") {
+		phase("enlazando public/storage")
+		if err := runPHP("artisan", "storage:link", "--no-interaction"); err != nil {
+			return fmt.Errorf("php artisan storage:link: %w", err)
+		}
+	}
+	if sites.HasVite(dir) && !has("public", "build", "manifest.json") {
+		node, err := d.env.GlobalNode()
+		if err != nil {
+			return err
+		}
+		npm := func(args ...string) error {
+			cli := filepath.Join(node.Path, "node_modules", "npm", "bin", "npm-cli.js")
+			return procutil.RunTree(ctx, dir, env, log, filepath.Join(node.Path, "node.exe"), append([]string{cli}, args...)...)
+		}
+		if !has("node_modules") {
+			phase("instalando las dependencias de npm")
+			if err := npm("install", "--no-audit", "--no-fund"); err != nil {
+				return fmt.Errorf("npm install: %w", err)
+			}
+		}
+		phase("compilando el frontend con Vite")
+		if err := npm("run", "build"); err != nil {
+			return fmt.Errorf("npm run build: %w", err)
+		}
+	}
+	return nil
+}
+
+// databaseExists reports whether a database exists in a MySQL, MariaDB or PostgreSQL instance.
+func (d *Daemon) databaseExists(ref InstanceRef, name string) (bool, error) {
+	port := fmt.Sprint(ref.Instance.Port)
+	if ref.Kind == versions.PostgreSQL {
+		psql := postgres.Psql(ref.Version)
+		if psql == "" {
+			return false, fmt.Errorf("PostgreSQL %s no trae psql", ref.Version.Version)
+		}
+		out, err := procutil.Output(time.Minute, filepath.Dir(psql), psql, "-h", "127.0.0.1", "-p", port, "-U", "postgres", "-tAc",
+			"SELECT 1 FROM pg_database WHERE datname = '"+name+"'")
+		return strings.TrimSpace(out) == "1", err
+	}
+	client := mysql.ClientExe(ref.Version)
+	if client == "" {
+		return false, fmt.Errorf("%s %s no trae el cliente mysql", ref.Kind.Name(), ref.Version.Version)
+	}
+	out, err := procutil.Output(time.Minute, filepath.Dir(client), client, "--host=127.0.0.1", "--port="+port, "--user=root", "-N",
+		"-e", "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = '"+name+"'")
+	return strings.TrimSpace(lastLine(out)) == "1", err
+}
+
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	return lines[len(lines)-1]
+}
+
+// findGit locates git.exe: on the PATH, or the copy Laragon ships.
+func findGit() (string, error) {
+	if p, err := exec.LookPath("git"); err == nil {
+		return p, nil
+	}
+	for _, c := range []string{
+		filepath.Join(laragon.DefaultRoot, "bin", "git", "cmd", "git.exe"),
+		filepath.Join(laragon.DefaultRoot, "bin", "git", "bin", "git.exe"),
+		filepath.Join(os.Getenv("ProgramFiles"), "Git", "cmd", "git.exe"),
+	} {
+		if fileExists(c) {
+			return c, nil
+		}
+	}
+	return "", fmt.Errorf("para clonar hace falta Git: instálalo desde git-scm.com")
+}
+
+// envValueOf reads one key of a .env file ("" when it is missing, empty or commented out).
+func envValueOf(path, key string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	m := regexp.MustCompile(`(?m)^[ \t]*` + regexp.QuoteMeta(key) + `[ \t]*=[ \t]*(.*?)[ \t]*\r?$`).FindStringSubmatch(string(data))
+	if m == nil {
+		return ""
+	}
+	return strings.Trim(m[1], `"'`)
 }
 
 // projectURL is the address of a site by name.

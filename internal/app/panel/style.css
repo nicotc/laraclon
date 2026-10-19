@@ -156,3 +156,5 @@ footer { margin-top: 24px; }
 .proc { font-size: 12px; padding: 1px 9px; border-radius: 999px; background: #fff; color: var(--muted); border: 1px solid var(--line); }
 .proc.on { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); font-weight: 600; }
 .proc.on.running::before { content: "● "; color: var(--ok); }
+.proc.warn { color: var(--warn); border-color: #d4a72c; background: var(--warn-soft); font-weight: 600; }
+.form .chips { margin-bottom: 2px; }

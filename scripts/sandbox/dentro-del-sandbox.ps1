@@ -450,6 +450,15 @@ Step 'Proyecto nuevo con clon new: kit de Vue y MySQL' {
     "$((($out -split "`n") | Select-Object -Last 1).Trim())`nhttps://tienda-vue.test: HTTP $code con Inertia y assets de Vite · MySQL tienda_vue: $($tables.Trim()) tablas"
 }
 
+Step 'Proyecto clonado de GitHub y preparado (clon new --git): Composer, .env, MySQL y Vite' {
+    $out = Invoke-Tool $clon 'new demo-git --git https://github.com/laravel/laravel.git --db mysql' 2400
+    $code = Invoke-Curl '--resolve demo-git.test:443:127.0.0.1 -o NUL -w %{http_code} https://demo-git.test/'
+    $tables = Invoke-Tool "$shims\mysql.exe" '-N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=''demo_git''"' 60
+    $ready = (Test-Path 'C:\www\demo-git\vendor\autoload.php') -and (Test-Path 'C:\www\demo-git\public\build\manifest.json')
+    if ($code -ne '200' -or [int]$tables.Trim() -lt 5 -or -not $ready) { throw "demo-git.test: HTTP $code, $tables tablas, preparado: $ready`n$out" }
+    "$((($out -split "`n") | Select-Object -Last 1).Trim())`nhttps://demo-git.test: HTTP $code · MySQL demo_git: $($tables.Trim()) tablas · vendor y frontend compilado"
+}
+
 Step 'Procesos del proyecto: Vite con HTTPS, cola y tareas (clon site proc)' {
     $hot = 'C:\www\laravel-demo\public\hot'
     Invoke-Tool $clon 'site proc laravel-demo vite on' 120 | Out-Null

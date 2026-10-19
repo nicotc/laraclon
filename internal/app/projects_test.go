@@ -32,6 +32,17 @@ func TestInstallerHooksComeFromTheKitsComposerJSON(t *testing.T) {
 	}
 }
 
+func TestEnvValueOfReadsOneKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	os.WriteFile(path, []byte("APP_NAME=\"Mi App\"\r\nAPP_KEY=\r\n# DB_DATABASE=comentada\r\nDB_CONNECTION=mysql\r\nDB_DATABASE = tienda \r\n"), 0o644)
+	cases := map[string]string{"APP_NAME": "Mi App", "APP_KEY": "", "DB_CONNECTION": "mysql", "DB_DATABASE": "tienda", "NO_ESTA": ""}
+	for key, want := range cases {
+		if got := envValueOf(path, key); got != want {
+			t.Errorf("%s: got %q, want %q", key, got, want)
+		}
+	}
+}
+
 func TestEditEnvFileFillsLaravelsEnv(t *testing.T) {
 	// Excerpt of a fresh Laravel 13 .env: SQLite by default, the MySQL lines commented out.
 	const fresh = "APP_NAME=Laravel\nAPP_ENV=local\nAPP_URL=http://localhost\n\nDB_CONNECTION=sqlite\n# DB_HOST=127.0.0.1\n# DB_PORT=3306\n" +

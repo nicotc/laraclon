@@ -35,7 +35,10 @@ type Site struct {
 	PHP     string   `json:"php,omitempty"`   // PHP version the site pinned ("" = the global one)
 	Vite    bool     `json:"vite,omitempty"`  // has a Vite config and package.json (npm run dev)
 	Debug   bool     `json:"debug,omitempty"` // runs with Xdebug
-	Port    int      `json:"port"`            // internal port on its web server
+	// Missing lists what the project lacks to run here: "vendor" (Composer packages), ".env" and
+	// "frontend" (the build Laravel's @vite reads). «Preparar» takes care of them.
+	Missing []string `json:"missing,omitempty"`
+	Port    int      `json:"port"` // internal port on its web server
 
 	// Filled in by clon when it plans the PHP pools.
 	PHPVersion string `json:"php_version,omitempty"` // the PHP that serves the site
@@ -113,6 +116,25 @@ func detect(folder, override string) (docRoot, kind string) {
 	return folder, kind
 }
 
+// Missing lists what a project lacks to run here (see Site.Missing).
+func Missing(folder, kind string) []string {
+	var out []string
+	if exists(filepath.Join(folder, "composer.json")) && !exists(filepath.Join(folder, "vendor", "autoload.php")) {
+		out = append(out, "vendor")
+	}
+	if kind == "laravel" && !exists(filepath.Join(folder, ".env")) && exists(filepath.Join(folder, ".env.example")) {
+		out = append(out, ".env")
+	}
+	if kind == "laravel" && hasVite(folder) && !exists(filepath.Join(folder, "public", "build", "manifest.json")) &&
+		!exists(filepath.Join(folder, "public", "hot")) {
+		out = append(out, "frontend")
+	}
+	return out
+}
+
+// HasVite reports whether a project runs a Vite dev server (npm run dev).
+func HasVite(folder string) bool { return hasVite(folder) }
+
 // hasVite reports whether a project runs a Vite dev server (npm run dev).
 func hasVite(folder string) bool {
 	if !exists(filepath.Join(folder, "package.json")) {
@@ -169,6 +191,7 @@ func Scan(cfg config.Config) ([]Site, []Warning) {
 				PHP:     settings.PHP,
 				Vite:    hasVite(folder),
 				Debug:   settings.Debug,
+				Missing: Missing(folder, kind),
 			})
 		}
 	}

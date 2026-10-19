@@ -205,7 +205,9 @@ func sourceOf(list []install.Release) string {
 
 // followJob prints the progress of an installation or a new project until it ends.
 func followJob(ops serviceOps, j app.Job) error {
-	if j.Kind == "project" {
+	if j.Kind == "project" && j.Version == "preparar" {
+		fmt.Printf("Preparando %s…\n", j.Series)
+	} else if j.Kind == "project" {
 		fmt.Printf("Creando %s (%s)…\n", j.Series, j.Version)
 	} else {
 		fmt.Printf("Instalando %s %s…\n", versions.Component(j.Kind).Name(), j.Version)

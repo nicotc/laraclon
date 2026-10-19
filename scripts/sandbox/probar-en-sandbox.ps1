@@ -3,7 +3,7 @@
 # clon\dist\sandbox\<fecha>\resultados. Cerrar la ventana del sandbox descarta todo lo de dentro.
 param(
     [int]$MemoryMB = 6144,
-    [int]$TimeoutMin = 45
+    [int]$TimeoutMin = 100
 )
 $ErrorActionPreference = 'Stop'
 

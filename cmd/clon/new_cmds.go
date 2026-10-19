@@ -10,6 +10,8 @@ import (
 const newUsage = `
   clon new <nombre> [--kit react|vue|svelte|livewire|ninguno] [--db sqlite|mysql|mariadb|postgresql] [--carpeta <raíz>]
                                           proyecto Laravel nuevo en https://<nombre>.test, con su base de datos y .env
+  clon new <nombre> --git <url> [--rama <rama>] [--db …]
+                                          clona un repositorio y lo prepara (Composer, .env, base de datos, Vite)
 `
 
 // cmdNew creates a Laravel project through the running clon, which owns the databases it needs.
@@ -30,6 +32,10 @@ func cmdNew(env *app.Env, args []string) error {
 			p.DB = value
 		case "--carpeta", "--root":
 			p.Root = value
+		case "--git":
+			p.Git = value
+		case "--rama", "--branch":
+			p.Branch = value
 		default:
 			if strings.HasPrefix(flag, "--") || p.Name != "" {
 				return fmt.Errorf("uso:%s", newUsage)

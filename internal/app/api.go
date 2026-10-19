@@ -279,6 +279,13 @@ func (d *Daemon) Handler() http.Handler {
 		err := d.SetSiteProcess(req.Site, req.ID, req.On)
 		return d.Status(), err
 	})
+	api("POST /api/projects/setup", func(r *http.Request) (any, error) {
+		var req struct{ Site, DB string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return d.SetupProject(req.Site, req.DB)
+	})
 	api("POST /api/projects", func(r *http.Request) (any, error) {
 		var req NewProject
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

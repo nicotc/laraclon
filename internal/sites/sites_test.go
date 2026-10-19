@@ -6,6 +6,25 @@ import (
 	"testing"
 )
 
+func TestMissingListsWhatAClonedProjectLacks(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"artisan", "composer.json", ".env.example", "package.json", "vite.config.js"} {
+		os.WriteFile(filepath.Join(dir, f), []byte("{}"), 0o644)
+	}
+	got := Missing(dir, "laravel")
+	if len(got) != 3 || got[0] != "vendor" || got[1] != ".env" || got[2] != "frontend" {
+		t.Fatalf("a fresh clone lacks vendor, .env and frontend, got %v", got)
+	}
+	os.MkdirAll(filepath.Join(dir, "vendor"), 0o755)
+	os.WriteFile(filepath.Join(dir, "vendor", "autoload.php"), nil, 0o644)
+	os.WriteFile(filepath.Join(dir, ".env"), nil, 0o644)
+	os.MkdirAll(filepath.Join(dir, "public", "build"), 0o755)
+	os.WriteFile(filepath.Join(dir, "public", "build", "manifest.json"), nil, 0o644)
+	if got := Missing(dir, "laravel"); len(got) != 0 {
+		t.Fatalf("a prepared project lacks nothing, got %v", got)
+	}
+}
+
 func TestHasViteNeedsPackageJSONAndAViteConfig(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name string) {
