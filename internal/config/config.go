@@ -46,6 +46,45 @@ type PHP struct {
 	Version  string `toml:"version"`
 	PoolSize int    `toml:"pool_size"`
 	BasePort int    `toml:"base_port"`
+	// Extensions changes clon's default extensions per series ("8.4").
+	Extensions map[string]PHPExtensions `toml:"extensions,omitempty"`
+}
+
+// PHPExtensions are the extensions switched on or off in one PHP series, against clon's defaults.
+type PHPExtensions struct {
+	Enable  []string `toml:"enable,omitempty"`
+	Disable []string `toml:"disable,omitempty"`
+}
+
+// SetExtension switches an extension on or off for a PHP series. isDefault says whether clon
+// enables it on its own, so only real changes are written.
+func (p *PHP) SetExtension(series, name string, on, isDefault bool) {
+	if p.Extensions == nil {
+		p.Extensions = map[string]PHPExtensions{}
+	}
+	x := p.Extensions[series]
+	x.Enable, x.Disable = without(x.Enable, name), without(x.Disable, name)
+	switch {
+	case on && !isDefault:
+		x.Enable = append(x.Enable, name)
+	case !on && isDefault:
+		x.Disable = append(x.Disable, name)
+	}
+	if len(x.Enable) == 0 && len(x.Disable) == 0 {
+		delete(p.Extensions, series)
+		return
+	}
+	p.Extensions[series] = x
+}
+
+func without(list []string, s string) []string {
+	var out []string
+	for _, x := range list {
+		if x != s {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 type Node struct {

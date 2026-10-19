@@ -152,6 +152,24 @@ func (d *Daemon) Handler() http.Handler {
 		v, err := d.UsePHP(req.Version)
 		return map[string]string{"php": v.Version}, err
 	})
+	api("GET /api/php/extensions", func(r *http.Request) (any, error) {
+		v, list, err := d.PHPExtensions(r.URL.Query().Get("version"))
+		return map[string]any{"version": v.Version, "extensions": list}, err
+	})
+	api("POST /api/php/extensions", func(r *http.Request) (any, error) {
+		var req struct {
+			Version, Name string
+			Enabled       bool
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		if err := d.SetPHPExtension(req.Version, req.Name, req.Enabled); err != nil {
+			return nil, err
+		}
+		v, list, err := d.PHPExtensions(req.Version)
+		return map[string]any{"version": v.Version, "extensions": list}, err
+	})
 	api("POST /api/apache", func(r *http.Request) (any, error) {
 		var req struct{ Version string }
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

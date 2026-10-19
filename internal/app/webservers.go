@@ -235,7 +235,9 @@ func (d *Daemon) frankenOptions() (frankenphp.Options, error) {
 	if err != nil || len(opt.Sites) == 0 {
 		return opt, err
 	}
-	ini, err := php.WriteIni(d.env.Home, frankenPHPVersion(v), d.env.IniOptions())
+	opts := d.env.IniOptions()
+	opts.Builtin = true // FrankenPHP's PHP is built with its extensions inside
+	ini, err := php.WriteIni(d.env.Home, frankenPHPVersion(v), opts)
 	opt.IniDir = filepath.Dir(ini)
 	return opt, err
 }

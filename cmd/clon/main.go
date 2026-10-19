@@ -30,6 +30,7 @@ Uso:
   clon php list | remote            versiones de PHP instaladas | publicadas en windows.php.net
   clon php install <rama>           descarga PHP (por ejemplo 8.4)
   clon php use <versión>            cambia el PHP global
+  clon php ext [versión]            extensiones de PHP; 'clon php ext on|off xdebug [versión]' las cambia
 
   clon node list | remote           versiones de Node instaladas | publicadas en nodejs.org
   clon node install [lts|latest|24] descarga Node con npm y npx
@@ -265,6 +266,8 @@ func cmdPHP(ctx context.Context, env *app.Env, args []string) error {
 		args = []string{"list"}
 	}
 	switch args[0] {
+	case "ext", "extensions":
+		return cmdPHPExt(ctx, env, args[1:])
 	case "list":
 		active := activeVersion(env, versions.PHP)
 		for _, v := range env.Reg.List(versions.PHP) {

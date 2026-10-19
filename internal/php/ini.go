@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/nicotc/laraclon/internal/config"
@@ -12,11 +13,15 @@ import (
 	"github.com/nicotc/laraclon/internal/versions"
 )
 
-// Extensions enabled by default when the build ships them (order matters: mbstring before exif).
+// Extensions enabled by default when the build ships them.
 var defaultExtensions = []string{
 	"bz2", "curl", "fileinfo", "gd", "gd2", "gettext", "intl", "mbstring", "exif",
 	"mysqli", "openssl", "pdo_mysql", "pdo_pgsql", "pdo_sqlite", "pgsql", "sodium", "sqlite3", "xsl", "zip",
+	"opcache",
 }
+
+// zendExtensions load with zend_extension, OPcache before Xdebug (as Xdebug asks).
+var zendExtensions = []string{"opcache", "xdebug"}
 
 // IniPath is where the generated php.ini of a version lives.
 func IniPath(home paths.Home, v versions.Version) string {
@@ -27,6 +32,93 @@ func IniPath(home paths.Home, v versions.Version) string {
 type IniOptions struct {
 	CABundle string // PEM bundle with the public roots plus the local CA; empty to leave curl defaults
 	SMTPPort int    // mail() goes to 127.0.0.1:SMTPPort (Mailpit); 0 leaves PHP's default
+	// Extensions changes the default extensions per series ("8.4").
+	Extensions map[string]config.PHPExtensions
+	// Builtin marks a PHP that carries its extensions inside (FrankenPHP's): no DLLs are loaded.
+	Builtin bool
+}
+
+// ExtDir is where clon keeps the extensions it downloads for a PHP series and thread safety
+// ("8.4-ts"): never inside the PHP folder, which may be Laragon's.
+func ExtDir(home paths.Home, v versions.Version) string {
+	flavor := "nts"
+	if v.ThreadSafe != nil && *v.ThreadSafe {
+		flavor = "ts"
+	}
+	return home.Bin("php-ext", versions.MajorMinor(v.Version)+"-"+flavor)
+}
+
+// Extension is one extension a PHP version can load.
+type Extension struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Default bool   `json:"default"`        // clon enables it unless it is switched off
+	Zend    bool   `json:"zend,omitempty"` // loaded with zend_extension
+	Source  string `json:"source"`         // "incluida" (in the PHP folder) or "descargada"
+	File    string `json:"-"`
+}
+
+// IsZend reports whether an extension loads with zend_extension.
+func IsZend(name string) bool { return contains(zendExtensions, name) }
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if strings.EqualFold(x, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// Extensions lists what a PHP version can load: the DLLs in its ext folder and the ones clon
+// downloaded for it, each enabled by clon's defaults or by the user's changes.
+func Extensions(home paths.Home, v versions.Version, changes config.PHPExtensions) []Extension {
+	seen := map[string]bool{}
+	var out []Extension
+	for _, dir := range []struct{ path, source string }{{filepath.Join(v.Path, "ext"), "incluida"}, {ExtDir(home, v), "descargada"}} {
+		entries, _ := os.ReadDir(dir.path)
+		for _, e := range entries {
+			n := strings.ToLower(e.Name())
+			if e.IsDir() || !strings.HasPrefix(n, "php_") || !strings.HasSuffix(n, ".dll") {
+				continue
+			}
+			name := strings.TrimSuffix(strings.TrimPrefix(n, "php_"), ".dll")
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			def := contains(defaultExtensions, name)
+			out = append(out, Extension{
+				Name: name, Default: def, Zend: contains(zendExtensions, name), Source: dir.source,
+				Enabled: (def || contains(changes.Enable, name)) && !contains(changes.Disable, name),
+				File:    filepath.Join(dir.path, e.Name()),
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// loadOrder puts mbstring first (exif needs it in old versions), then the other extensions, then
+// the zend ones in their own order.
+func loadOrder(list []Extension) []Extension {
+	rank := func(e Extension) int {
+		switch {
+		case e.Name == "mbstring":
+			return 0
+		case e.Zend:
+			for i, z := range zendExtensions {
+				if z == e.Name {
+					return 2 + i
+				}
+			}
+			return 2 + len(zendExtensions)
+		}
+		return 1
+	}
+	out := append([]Extension(nil), list...)
+	sort.SliceStable(out, func(i, j int) bool { return rank(out[i]) < rank(out[j]) })
+	return out
 }
 
 // WriteIni builds php.ini from the version's php.ini-development, the managed values and the user's
@@ -67,16 +159,22 @@ func WriteIni(home paths.Home, v versions.Version, opt IniOptions) (string, erro
 		set("smtp_port", fmt.Sprint(opt.SMTPPort))
 	}
 
-	enabled := map[string]bool{}
-	for _, ext := range defaultExtensions {
-		if (ext == "gd2" && enabled["gd"]) || !hasExtension(v, ext) {
-			continue
+	if !opt.Builtin {
+		extDir := filepath.Join(v.Path, "ext")
+		for _, e := range loadOrder(Extensions(home, v, opt.Extensions[versions.MajorMinor(v.Version)])) {
+			if !e.Enabled || (e.Name == "gd2" && hasExtension(v, "gd")) {
+				continue
+			}
+			value := filepath.Base(e.File)
+			if !strings.EqualFold(filepath.Dir(e.File), extDir) {
+				value = q(e.File) // downloaded by clon, outside the PHP folder
+			}
+			if e.Zend {
+				set("zend_extension", value)
+			} else {
+				set("extension", value)
+			}
 		}
-		enabled[ext] = true
-		set("extension", "php_"+ext+".dll")
-	}
-	if hasExtension(v, "opcache") {
-		set("zend_extension", "php_opcache.dll")
 	}
 	set("opcache.enable", "1")
 	set("opcache.enable_cli", "0")

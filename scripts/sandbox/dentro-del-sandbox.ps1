@@ -335,6 +335,23 @@ Step 'PHP fijado por sitio: demo.test con PHP 7.2 y el resto con el global (clon
     "con el global en 8.3, demo.test siguió en $while83 · de vuelta al global: $back"
 }
 
+Step 'Extensiones de PHP: Xdebug descargado y soap incluida (clon php ext)' {
+    Invoke-Tool $clon 'php ext on xdebug' 300 | Out-Null
+    Invoke-Tool $clon 'php ext on soap' 120 | Out-Null
+    $page = "<?php echo json_encode(['xdebug' => extension_loaded('xdebug'), 'soap' => extension_loaded('soap')]);"
+    [IO.File]::WriteAllText('C:\www\demo\public\ext.php', $page, $utf8)
+    $web = (Invoke-Curl 'https://demo.test/ext.php') | ConvertFrom-Json
+    $cli = Invoke-Tool "$shims\php.exe" '-m' 60
+    if (-not $web.xdebug -or -not $web.soap) { throw "la web no las carga: $($web | ConvertTo-Json -Compress)" }
+    if ($cli -notmatch '(?m)^Xdebug' -or $cli -notmatch '(?m)^soap') { throw "php -m no las muestra:`n$cli" }
+    Invoke-Tool $clon 'php ext off xdebug' 120 | Out-Null
+    Invoke-Tool $clon 'php ext off soap' 120 | Out-Null
+    $after = (Invoke-Curl 'https://demo.test/ext.php') | ConvertFrom-Json
+    if ($after.xdebug -or $after.soap) { throw "siguen activas tras apagarlas: $($after | ConvertTo-Json -Compress)" }
+    $dll = Get-ChildItem "$H\bin\php-ext" -Recurse -Filter php_xdebug.dll | Select-Object -First 1
+    "web y terminal con Xdebug y soap ($($dll.FullName.Substring($H.Length + 1)), $([math]::Round($dll.Length / 1KB)) KB); apagadas otra vez: $($after | ConvertTo-Json -Compress)"
+}
+
 # The sandbox starts with the runtime of Visual Studio 2022 (14.44). Apache Lounge builds Apache with
 # Visual Studio 2026, for which Microsoft asks a newer runtime; it runs anyway, and clon recommends it.
 Step 'Apache de Apache Lounge desde el catálogo y cambio de versión (clon apache install / use)' {

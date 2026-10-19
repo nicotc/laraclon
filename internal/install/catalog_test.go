@@ -60,6 +60,39 @@ func TestApacheChecksumFile(t *testing.T) {
 	}
 }
 
+func TestPickPHPExtensionBuildForTheSeriesAndFlavour(t *testing.T) {
+	asset := func(name string) ghAsset {
+		return ghAsset{Name: name, URL: "https://github.com/xdebug/xdebug/releases/download/x/" + name, Digest: "sha256:" + strings.Repeat("ab", 32), Size: 800000}
+	}
+	rels := []githubRelease{
+		{Tag: "3.6.0alpha1", Assets: []ghAsset{asset("php_xdebug-3.6.0alpha1-8.4-ts-vs17-x86_64.zip")}},
+		{Tag: "3.5.3", Assets: []ghAsset{
+			asset("php_xdebug-3.5.3-8.4-nts-vs17-x86_64.zip"), asset("php_xdebug-3.5.3-8.4-ts-vs17-x86_64.zip"),
+			asset("php_xdebug-3.5.3-8.3-ts-vs16-x86_64.zip"),
+		}},
+		{Tag: "3.5.1", Assets: []ghAsset{asset("php_xdebug-3.5.1-8.4-ts-vs17-x86_64.zip"), asset("php_xdebug-3.5.1-7.4-ts-vc15-x86_64.zip")}},
+	}
+	cases := []struct {
+		series  string
+		ts      bool
+		version string
+	}{
+		{"8.4", true, "3.5.3"},  // the alpha is skipped
+		{"8.4", false, "3.5.3"}, // NTS has its own build
+		{"8.3", true, "3.5.3"},  // VS16 for 8.3
+		{"7.4", true, "3.5.1"},  // VC15, only in an older release
+	}
+	for _, c := range cases {
+		got, ok := pickPHPExtension(rels, "xdebug", c.series, c.ts)
+		if !ok || got.Version != c.version {
+			t.Errorf("%s ts=%v: got %+v", c.series, c.ts, got)
+		}
+	}
+	if _, ok := pickPHPExtension(rels, "xdebug", "8.5", true); ok {
+		t.Error("there is no build for PHP 8.5 in these releases")
+	}
+}
+
 func TestSupportedMariaDB(t *testing.T) {
 	all := []mariadbMajor{
 		{ID: "13.2", Status: "Preview"}, {ID: "13.0", Status: "Stable", Support: "Rolling"},

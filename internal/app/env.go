@@ -93,7 +93,7 @@ func (e *Env) CABundle() string {
 
 // IniOptions are the managed php.ini values for this installation.
 func (e *Env) IniOptions() php.IniOptions {
-	return php.IniOptions{CABundle: e.CABundle(), SMTPPort: 1025}
+	return php.IniOptions{CABundle: e.CABundle(), SMTPPort: 1025, Extensions: e.Cfg.PHP.Extensions}
 }
 
 // EnsureComposerFor downloads Composer 2.2 LTS when a pinned PHP is too old for the current

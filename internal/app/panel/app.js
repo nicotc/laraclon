@@ -2,7 +2,8 @@
 const token = document.querySelector('meta[name="clon-token"]').content;
 let state = null;
 // Lo que el usuario está haciendo y debe sobrevivir a cada refresco del estado.
-const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {} };
+const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {},
+  ext: null, extVersion: '', extBusy: {} };
 
 const INSTALLABLE = ['mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'apache', 'nginx', 'frankenphp'];
 // Services by section of the Servicios tab, in display order.
@@ -92,6 +93,7 @@ function showTab(tab) {
   document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab; });
   history.replaceState(null, '', '#' + tab);
   if (tab === 'servicios') loadCatalogs();
+  if (tab === 'php') loadExtensions();
 }
 
 // ---------- estado ----------
@@ -104,6 +106,13 @@ function render() {
     sel.replaceChildren(...(s.php_versions || []).map(v => el('option', { value: v, selected: v === s.php }, 'PHP ' + v)));
   });
   document.querySelectorAll('.node-version').forEach(n => { n.textContent = s.node ? 'v' + s.node : 'no instalado'; });
+  const extSel = document.getElementById('ext-version');
+  if (document.activeElement !== extSel) {
+    extSel.replaceChildren(...(s.php_versions || []).map(v => el('option', { value: v, selected: v === (ui.extVersion || s.php) },
+      'PHP ' + v + (v === s.php ? ' (global)' : ''))));
+  }
+  // The list follows the global PHP until another version is chosen.
+  if (ui.tab === 'php' && !ui.extVersion && ui.ext && ui.ext.version && ui.ext.version !== s.php) loadExtensions();
   document.getElementById('processes').replaceChildren(...(s.services || []).map(sv =>
     el('li', { title: sv.last_error || '' }, el('span', {}, sv.name + (sv.port ? ` :${sv.port}` : '')), statePill(sv.state))));
   renderSites();
@@ -500,6 +509,48 @@ async function loadCatalogs(refreshList) {
   }
 }
 
+// ---------- extensiones de PHP ----------
+
+async function loadExtensions() {
+  try {
+    ui.ext = await call('GET', '/api/php/extensions?version=' + encodeURIComponent(ui.extVersion));
+  } catch (e) {
+    ui.ext = { error: e.message, extensions: [] };
+  }
+  renderExtensions();
+}
+
+const EXT_TAG = { descargable: 'se descarga', descargada: 'descargada' };
+
+function renderExtensions() {
+  const box = document.getElementById('extensions');
+  if (!ui.ext) { box.replaceChildren(el('span', { class: 'muted' }, 'Cargando…')); return; }
+  if (ui.ext.error) { box.replaceChildren(el('span', { class: 'muted' }, ui.ext.error)); return; }
+  box.replaceChildren(...ui.ext.extensions.map(x => {
+    const busy = ui.extBusy[x.name];
+    const check = el('input', { type: 'checkbox', checked: x.enabled, disabled: !!busy });
+    check.addEventListener('change', () => toggleExtension(x, check.checked));
+    const tag = EXT_TAG[x.source];
+    return el('label', { class: busy ? 'busy' : '', title: x.default ? 'clon la activa por defecto' : '' }, check,
+      el('span', {}, x.name), tag ? el('span', { class: 'tag' + (x.source === 'descargable' ? ' get' : '') }, tag) : null);
+  }));
+}
+
+async function toggleExtension(x, on) {
+  ui.extBusy[x.name] = true;
+  renderExtensions();
+  try {
+    ui.ext = await call('POST', '/api/php/extensions', { version: ui.ext.version, name: x.name, enabled: on });
+    toast(`${x.name} ${on ? 'activada' : 'desactivada'} en PHP ${ui.ext.version}`);
+  } catch (e) {
+    alert(e.message);
+    await loadExtensions();
+  } finally {
+    delete ui.extBusy[x.name];
+    renderExtensions();
+  }
+}
+
 // ---------- «Añadir servicio» ----------
 
 function openDialog() {
@@ -542,6 +593,7 @@ document.querySelectorAll('.php-select').forEach(sel => sel.addEventListener('ch
 document.getElementById('filter').addEventListener('input', renderSites);
 document.querySelectorAll('#tabs a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); showTab(a.dataset.tab); }));
 document.getElementById('dialog-close').addEventListener('click', closeDialog);
+document.getElementById('ext-version').addEventListener('change', e => { ui.extVersion = e.target.value; loadExtensions(); });
 document.getElementById('dialog').addEventListener('click', e => { if (e.target.id === 'dialog') closeDialog(); });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;

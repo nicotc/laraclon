@@ -2,7 +2,7 @@
 
 Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e inspirado en Laragon. Escrito en Go. No está afiliado a Laragon ni a sus autores.
 
-**Estado:** fase 1 (núcleo) completa y fase 2 casi terminada. Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
+**Estado:** fases 1 (núcleo) y 2 (versiones y servicios) hechas; falta Adminer de la fase 2. Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
 
 ## Qué hace hoy
 
@@ -16,6 +16,12 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
   - Ese sitio corre en un grupo de `php-cgi` propio, con Apache o Nginx, y sigue igual aunque cambies el PHP global.
   - Dentro de su carpeta, `php`, `composer` y `artisan` usan esa versión. Si es anterior a 7.2.5, clon usa Composer 2.2 LTS, el último que la admite.
   - PHP 5.x necesita además el runtime de Visual C++ de su época (2012 para PHP 5.5 y 5.6).
+- **Extensiones de PHP con casillas,** como en el menú de Laragon: pestaña «PHP y Node» o `clon php ext on soap`, por versión de PHP.
+  - Xdebug y MongoDB se descargan de sus repositorios oficiales: las compilaciones para Windows que publican para PIE, con su SHA-256.
+  - Se guardan en una carpeta propia de clon, sin tocar los PHP de Laragon.
+  - Antes de aplicar un cambio, clon comprueba que PHP cargue la extensión; si no carga (por ejemplo, le falta una DLL), no cambia nada y muestra el aviso de PHP.
+  - Los procesos de esa versión se reinician solos.
+  - phpredis y APCu no publican compilaciones para Windows; Laravel funciona igual con `predis` y la caché en archivos.
 - **Apache 2.4** con un puerto interno por sitio y `.htaccess` (`AllowOverride All`). PHP recibe `HTTPS=on` y las URLs correctas.
   - Se descarga de Apache Lounge (la compilación para Windows que usa también Laragon) con su SHA-256 comprobado, o se importa de Laragon. Apache Lounge mantiene esas compilaciones de forma voluntaria y acepta donaciones en apachelounge.com.
   - Puedes tener varias versiones: el panel (o `clon apache use 2.4.62`) cambia en caliente la que atiende los sitios.
@@ -104,6 +110,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon start` · `stop` · `restart` · `quit` | Servicios on/off; `quit` cierra clon |
 | `clon status` · `sites` · `versions` | Estado, sitios y versiones instaladas |
 | `clon php list` · `remote` · `install 8.4` · `use 8.3` | Versiones de PHP |
+| `clon php ext [8.4]` · `ext on xdebug` · `ext off exif [8.3]` | Extensiones de cada versión de PHP |
 | `clon apache list` · `remote` · `install` · `use 2.4.62` | Versiones de Apache (descarga de Apache Lounge) |
 | `clon node list` · `remote` · `install lts` · `use 24` | Versiones de Node (con npm y npx) |
 | `clon composer install` | Descarga o actualiza Composer |
@@ -136,6 +143,7 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - Proyecto Laravel nuevo con MySQL y `npm run build`.
 - MariaDB instalada desde el catálogo y corriendo a la vez que MySQL.
 - PHP 7.2 fijado en un sitio, en la web y en la terminal, mientras el resto usa el global.
+- Extensiones de PHP: Xdebug descargado y soap, activadas y apagadas.
 - Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
 - Edge sin avisos, cambio de PHP y cierre.
 
@@ -168,6 +176,7 @@ En Windows 11, junto a Laragon y en puertos alternativos:
   - El cambio de PHP en caliente tarda entre 0,4 y 1,3 s.
   - Un sitio fijado en PHP 7.2 responde con 7.2 (con MySQL y OPcache) mientras el resto usa 8.4. Sigue en 7.2 al cambiar el PHP global y al pasar a Nginx, y cada cambio rige en cuanto el comando responde, en 1 s aproximadamente.
   - En su carpeta, la terminal usa PHP 7.2 y Composer 2.2 LTS; fuera, el PHP global.
+  - Extensiones: Xdebug 3.5 y MongoDB 2.5 se descargan y activan en 2-3 s, y ldap y soap, que vienen con PHP, también se activan; la web las ve en cuanto responde la orden. Una extensión a la que le falta una DLL (pdo_firebird) se rechaza sin tocar nada.
 - **Apache:**
   - Una carpeta nueva se publica en segundos con recarga elegante (mismo PID), y las redirecciones de Apache conservan `https` y el puerto.
   - Apache 2.4.69 de Apache Lounge (14,5 MB, SHA-256 comprobado) se instala junto al de Laragon y pasa a atender todos los sitios.
@@ -199,9 +208,10 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
 ## Hoja de ruta
 
 - **Fase 1 (núcleo):** completa.
-- **Fase 2, en este orden:**
-  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch; Apache de Apache Lounge en varias versiones; PHP fijado por sitio para proyectos antiguos. Como PHP va por FastCGI, no hace falta un Apache viejo para un PHP viejo.
-  - Extensiones de PHP por versión (PIE): redis, mongodb, xdebug.
+- **Fase 2 (versiones y servicios):**
+  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch.
+  - Hecho: Apache de Apache Lounge en varias versiones; PHP fijado por sitio para proyectos antiguos (como PHP va por FastCGI, no hace falta un Apache viejo para un PHP viejo); extensiones de PHP con casillas.
+  - Falta: Adminer en `https://db.localhost` para ver las bases de datos en el navegador.
 - **Fase 3:**
   - Instaladores: Laravel con sus starter kits, WordPress, Symfony, desde Git y recetas propias.
   - `.env` automático y procesos del proyecto (cola, scheduler, Reverb, Vite).
