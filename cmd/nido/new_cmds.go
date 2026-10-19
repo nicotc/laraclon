@@ -19,6 +19,13 @@ const newUsage = `
                                           clona un repositorio y lo prepara (Composer, .env, base de datos, Vite)
   nido new <nombre> --receta <archivo> [--db …]
                                           desde una plantilla propia de config\recetas ('nido recipe list')
+
+  Entorno y base de datos, para cualquiera de los anteriores:
+           [--servidor apache|nginx|frankenphp] [--php 8.3]
+                                          servidor web y PHP propio del sitio desde el inicio
+           [--instancia mysql-8.0] [--base tienda_db] [--usuario-propio] [--sembrar]
+                                          qué servidor de bases de datos, el nombre de la base, un usuario
+                                          propio con contraseña generada y los datos de ejemplo (seeders)
 `
 
 // cmdNew creates a project through the running Nido, which owns the databases it needs.
@@ -38,6 +45,12 @@ func cmdNew(env *app.Env, args []string) error {
 			continue
 		case "--webapp":
 			p.Webapp = true
+			continue
+		case "--usuario-propio", "--db-user":
+			p.DBUser = true
+			continue
+		case "--sembrar", "--seed":
+			p.Seed = true
 			continue
 		}
 		if k, v, ok := strings.Cut(flag, "="); ok && strings.HasPrefix(flag, "--") {
@@ -61,6 +74,14 @@ func cmdNew(env *app.Env, args []string) error {
 			p.Locale = value
 		case "--receta", "--recipe":
 			p.Recipe = value
+		case "--servidor", "--server":
+			p.Server = value
+		case "--php":
+			p.PHP = value
+		case "--instancia", "--db-key":
+			p.DBKey = value
+		case "--base", "--db-name":
+			p.DBName = value
 		default:
 			if strings.HasPrefix(flag, "--") || p.Name != "" {
 				return fmt.Errorf("uso:%s", newUsage)

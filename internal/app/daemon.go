@@ -67,6 +67,7 @@ type Daemon struct {
 	sites           []sites.Site
 	warnings        []sites.Warning
 	problems        map[string]string // component → last problem, shown in the panel and tray
+	health          *HealthReport     // the last health check (nil before the first one)
 	proxyUp         bool
 	stopWatch       func()
 	phpPorts        []int
@@ -192,6 +193,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	background, stopBackground := context.WithCancel(ctx)
 	defer stopBackground()
 	go d.watchNodeReleases(background)
+	go d.watchHealth(background)
 
 	select {
 	case <-ctx.Done():

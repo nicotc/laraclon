@@ -172,3 +172,46 @@ footer { margin-top: 24px; }
 .news { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-top: 1px solid #eef1f4; font-size: 14px; }
 .news.warn { background: var(--warn-soft); }
 .note { font-size: 13px; background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 6px; padding: 4px 10px; color: var(--fg); }
+
+/* Progreso de trabajos largos: fases con su tiempo, salida en vivo y señal de que sigue trabajando */
+.job-row { margin-bottom: 8px; }
+.job-last { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); margin: -2px 0 0 4px; min-width: 0; }
+.job-last code { background: none; padding: 0; color: #57534e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.job-progress { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #fff; margin: 4px 0 8px; }
+.job-head { display: flex; gap: 8px; align-items: baseline; }
+.job-head .elapsed { font-variant-numeric: tabular-nums; color: var(--muted); }
+.job-steps { list-style: none; padding: 0; margin: 8px 0 6px; }
+.job-steps li { display: flex; gap: 8px; padding: 2px 0; font-size: 13.5px; }
+.job-steps .ico { width: 16px; text-align: center; font-weight: 700; }
+.job-steps .done .ico { color: var(--ok); }
+.job-steps .now { font-weight: 600; color: var(--accent-dark); }
+.job-steps .now .ico { color: var(--accent); }
+.job-steps .t { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; }
+.job-tail { background: #111827; color: #d1d5db; border-radius: 6px; padding: 8px 10px; margin: 6px 0; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all; max-height: 170px; overflow: auto; }
+.job-alive { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.job-alive .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px #dcfce7; animation: heartbeat 1s ease-out; }
+.job-alive.quiet .dot { background: #f59e0b; box-shadow: 0 0 0 3px #fef3c7; }
+@keyframes heartbeat { 0% { transform: scale(1.5); } 100% { transform: scale(1); } }
+/* «Nuevo proyecto»: cajas de entorno y base de datos */
+.box { border: 1px solid var(--accent-line); background: #fffbf5; border-radius: 10px; padding: 10px 12px 2px; margin: 4px 0 12px; }
+.box h4 { margin: 0 0 8px; font-size: 13px; color: var(--accent-dark); }
+.box .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0 12px; }
+.box .field select, .box .field input[type=text] { width: 100%; }
+.box .check { display: flex; gap: 8px; align-items: flex-start; margin: 2px 0 8px; font-size: 13.5px; }
+/* Salud: punto en la pestaña y vista de la última comprobación */
+.health-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #d0d7de; margin-left: 4px; vertical-align: 1px; }
+.health-dot.ok { background: var(--ok); }
+.health-dot.bad { background: var(--bad); }
+.health-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 4px 0 8px; }
+.health-badge { font-weight: 700; padding: 4px 12px; border-radius: 999px; }
+.health-badge.ok { background: var(--ok-soft); color: var(--ok); }
+.health-badge.bad { background: var(--bad-soft); color: var(--bad); }
+.health-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+.health-table th { text-align: left; font-size: 12.5px; color: var(--muted); padding: 7px 10px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.health-table td { padding: 7px 10px; border-bottom: 1px solid #eef1f4; font-size: 13.5px; vertical-align: top; }
+.health-table tr:last-child td { border-bottom: none; }
+.health-state { font-weight: 700; font-size: 12px; padding: 1px 9px; border-radius: 999px; white-space: nowrap; }
+.health-state.ok { background: var(--ok-soft); color: var(--ok); }
+.health-state.fallo { background: var(--bad-soft); color: var(--bad); }
+.health-state.apagado, .health-state.iniciando { background: var(--bg); color: var(--muted); }
+section[data-panel=salud] h3 { font-size: 14px; margin: 16px 0 6px; }

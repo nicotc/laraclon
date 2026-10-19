@@ -363,7 +363,9 @@ Step 'Adminer en https://db.localhost: entra como root sin contraseña y ve lara
     $form = & curl.exe @c $url | Out-String
     # The login form itself: the proxy's error page names Adminer too.
     if ($form -notmatch 'auth\[username\]') { throw "db.localhost no muestra el formulario de Adminer: $($form.Substring(0, [Math]::Min(300, $form.Length)))" }
-    $post = & curl.exe @c -o NUL -w '%{http_code}' --data-urlencode 'auth[driver]=server' --data-urlencode 'auth[server]=127.0.0.1:3306' `
+    # Adminer 6 asks the login for the form's token (CSRF), which a browser sends by itself.
+    $token = ([regex]::Match($form, "name='token' value='([^']+)'")).Groups[1].Value
+    $post = & curl.exe @c -o NUL -w '%{http_code}' --data-urlencode "token=$token" --data-urlencode 'auth[driver]=server' --data-urlencode 'auth[server]=127.0.0.1:3306' `
         --data-urlencode 'auth[username]=root' --data-urlencode 'auth[password]=' --data-urlencode 'auth[db]=' $url
     $page = & curl.exe @c $url | Out-String
     if ($page -notmatch 'laravel_demo') { throw "Adminer no lista laravel_demo tras entrar (POST: HTTP $post)" }

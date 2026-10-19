@@ -2,7 +2,7 @@
 const token = document.querySelector('meta[name="nido-token"]').content;
 let state = null;
 // Lo que el usuario está haciendo y debe sobrevivir a cada refresco del estado.
-const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {},
+const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {}, jobOpen: {},
   ext: null, extVersion: '', extBusy: {}, node: null };
 
 const INSTALLABLE = ['mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'apache', 'nginx', 'frankenphp', 'adminer'];
@@ -99,6 +99,71 @@ function showTab(tab) {
   history.replaceState(null, '', '#' + tab);
   if (tab === 'servicios') loadCatalogs();
   if (tab === 'php') { loadExtensions(); loadNode(); }
+  if (tab === 'salud') renderHealth();
+}
+
+// ---------- salud ----------
+
+const HEALTH_STATE = { ok: 'OK', fallo: 'FALLO', apagado: 'apagado', iniciando: 'iniciando', 'sin-bd': '—' };
+
+// renderHealthDot paints the «Salud» tab: green when everything answers, red when something fails.
+function renderHealthDot(h) {
+  const dot = document.getElementById('health-dot');
+  dot.className = 'health-dot' + (!h ? '' : h.ok ? ' ok' : ' bad');
+  dot.title = !h ? 'Todavía sin comprobar' : h.ok ? `Todo OK (${h.resumen.ok} de ${h.resumen.total})` : 'Algo falla: mira la pestaña Salud';
+}
+
+async function checkHealthNow(button) {
+  button.disabled = true;
+  button.textContent = 'Comprobando…';
+  try {
+    await call('POST', '/api/health/check');
+    await refresh();
+  } catch (e) {
+    toast('No se pudo comprobar: ' + e.message);
+  }
+  renderHealth();
+}
+
+// renderHealth shows the last check: the PHP, every service in use and the database of each site.
+function renderHealth() {
+  const view = document.getElementById('health-view');
+  const h = state && state.health;
+  const check = el('button', { class: 'secondary', onclick: e => checkHealthNow(e.target) }, 'Comprobar ahora');
+  const page = state && state.health_url ? el('a', { href: state.health_url + '?formato=json', target: '_blank', class: 'muted' }, 'JSON para otros programas ↗') : null;
+  if (!h) {
+    view.replaceChildren(el('div', { class: 'card' }, el('p', {}, 'Nido comprueba la salud un momento después de arrancar y luego cada minuto.'),
+      el('div', { class: 'row' }, check)));
+    return;
+  }
+  const bad = h.resumen.total - h.resumen.ok;
+  const head = el('div', { class: 'health-head' },
+    el('span', { class: 'health-badge ' + (h.ok ? 'ok' : 'bad') }, h.error ? 'Sin respuesta' : h.ok ? `Todo OK · ${h.resumen.ok} de ${h.resumen.total}` : `${bad} con problemas · ${h.resumen.ok} de ${h.resumen.total} OK`),
+    el('span', { class: 'muted' }, 'comprobado ' + new Date(h.checked).toLocaleTimeString() + ' · cada minuto, sin abrir el navegador'),
+    el('span', { class: 'spacer' }), page, check);
+  const chip = st => el('span', { class: 'health-state ' + st }, HEALTH_STATE[st] || st);
+  const services = (h.servicios || []).length
+    ? el('table', { class: 'health-table' }, el('tr', {}, el('th', {}, 'Servicio'), el('th', {}, 'Dirección'), el('th', {}, 'Respuesta'), el('th', {}, '')),
+      ...h.servicios.map(s => el('tr', {}, el('td', {}, s.servicio), el('td', {}, el('code', {}, s.direccion)), el('td', { class: 'muted' }, s.detalle), el('td', {}, chip(s.estado)))))
+    : el('p', { class: 'muted' }, 'No hay bases de datos ni servicios instalados.');
+  // The failing sites go first: they are what the user comes to look at.
+  const sites = (h.sitios || []).filter(s => s.estado !== 'sin-bd')
+    .sort((a, b) => (a.estado === 'fallo' ? 0 : 1) - (b.estado === 'fallo' ? 0 : 1));
+  const sitesTable = sites.length
+    ? el('table', { class: 'health-table' }, el('tr', {}, el('th', {}, 'Sitio'), el('th', {}, 'PHP'), el('th', {}, 'Base de datos'), el('th', {}, 'Respuesta'), el('th', {}, '')),
+      ...sites.map(s => el('tr', {}, el('td', {}, s.url ? el('a', { href: s.url, target: '_blank' }, s.sitio) : s.sitio), el('td', {}, s.php),
+        el('td', {}, el('code', {}, s.bd)), el('td', { class: 'muted' }, s.detalle), el('td', {}, chip(s.estado)))))
+    : el('p', { class: 'muted' }, 'Ningún sitio usa todavía una base de datos.');
+  const without = (h.sitios || []).length - sites.length;
+  const php = h.php || {};
+  view.replaceChildren(...[head,
+    h.error ? el('div', { class: 'row-error' }, h.error) : null,
+    el('h3', {}, 'PHP global'),
+    el('p', {}, el('b', {}, 'PHP ' + (php.version || '?')), el('span', { class: 'muted' }, ` · ${php.arquitectura || ''} · memoria ${php.memoria || ''}`),
+      (php.otras || []).length ? el('span', { class: 'muted' }, ' · también en marcha: ' + php.otras.join(', ')) : null),
+    el('h3', {}, 'Bases de datos y servicios'), services,
+    el('h3', {}, 'Sitios y su base de datos'), sitesTable,
+    without ? el('p', { class: 'muted' }, `${without} sitio(s) más no usan base de datos.`) : null].filter(Boolean));
 }
 
 // ---------- estado ----------
@@ -108,7 +173,9 @@ function render() {
   renderAlerts(s);
   const health = document.getElementById('health-link');
   health.hidden = !s.health_url;
-  if (s.health_url) health.href = s.health_url;
+  health.onclick = e => { e.preventDefault(); showTab('salud'); };
+  renderHealthDot(s.health);
+  if (ui.tab === 'salud') renderHealth();
   document.querySelectorAll('.php-select').forEach(sel => {
     if (document.activeElement === sel) return;
     sel.replaceChildren(...(s.php_versions || []).map(v => el('option', { value: v, selected: v === s.php }, 'PHP ' + v)));
@@ -199,10 +266,46 @@ function renderProjectJobs() {
         site ? el('a', { href: site.url, target: '_blank' }, 'Abrir ' + site.url + ' ↗') : null,
         j.note ? el('span', { class: 'note' }, j.note) : null, el('span', { class: 'spacer' }), close);
     }
-    return el('div', { class: 'job' }, el('span', {}, el('b', {}, j.series), ` (${j.version}): ${j.phase}…`),
-      el('div', { class: 'progress indeterminate' }, el('span')),
-      el('button', { class: 'small danger', onclick: () => act('POST', '/api/jobs/cancel', { id: j.id }) }, 'Cancelar'));
+    const open = ui.jobOpen[j.id] !== false; // open unless closed: it shows that the job works
+    const last = (j.tail || []).slice(-1)[0];
+    return el('div', { class: 'job-row' },
+      el('div', { class: 'job' }, el('span', {}, el('b', {}, j.series), ` (${j.version}): ${j.phase}… `, el('span', { class: 'muted' }, elapsed(j.started))),
+        el('div', { class: 'progress indeterminate' }, el('span')),
+        el('button', { class: 'small secondary', onclick: () => { ui.jobOpen[j.id] = !open; renderProjectJobs(); } }, open ? 'Ocultar detalle' : 'Ver detalle'),
+        el('button', { class: 'small danger', onclick: () => act('POST', '/api/jobs/cancel', { id: j.id }) }, 'Cancelar')),
+      open ? jobProgress(j) : el('div', { class: 'job-last' }, aliveDot(j), last ? el('code', {}, last) : null));
   }));
+}
+
+// ---------- progress of long jobs ----------
+
+const isZeroTime = t => !t || t.startsWith('0001-');
+const clock = secs => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+const secondsSince = t => Math.max(0, Math.floor((Date.now() - Date.parse(t)) / 1000));
+const elapsed = t => isZeroTime(t) ? '' : clock(secondsSince(t));
+const span = (a, b) => clock(Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 1000)));
+
+// aliveDot says whether the programs of a job are printing: the sign that it really works.
+function aliveDot(j) {
+  if (isZeroTime(j.output)) return el('span', { class: 'job-alive' }, el('span', { class: 'dot' }), 'esperando la primera salida…');
+  const quiet = secondsSince(j.output);
+  const text = quiet < 5 ? 'trabajando · última salida hace ' + quiet + ' s'
+    : `sin salida desde hace ${clock(quiet)}: una descarga o un paso largo sigue en curso`;
+  return el('span', { class: 'job-alive' + (quiet >= 30 ? ' quiet' : '') }, el('span', { class: 'dot' }), text);
+}
+
+// jobProgress shows a long job: total time, each phase with its own, and what the programs print.
+function jobProgress(j) {
+  const steps = (j.steps || []).map(s => {
+    const now = isZeroTime(s.ended);
+    return el('li', { class: now ? 'now' : 'done' }, el('span', { class: 'ico' }, now ? '›' : '✓'), el('span', {}, s.name),
+      el('span', { class: 't' }, now ? elapsed(s.started) : span(s.started, s.ended)));
+  });
+  return el('div', { class: 'job-progress' },
+    el('div', { class: 'job-head' }, el('b', {}, `${j.series} · ${j.version}`), el('span', { class: 'spacer' }), el('span', { class: 'elapsed' }, elapsed(j.started))),
+    steps.length ? el('ul', { class: 'job-steps' }, ...steps) : null,
+    (j.tail || []).length ? el('pre', { class: 'job-tail' }, j.tail.join('\n')) : null,
+    aliveDot(j));
 }
 
 function renderSites() {
@@ -828,7 +931,8 @@ const KITS = [
   ['svelte', 'Svelte', 'Inertia, Svelte y Tailwind'],
   ['livewire', 'Livewire', 'Livewire y Tailwind'],
 ];
-ui.project = { source: 'laravel', name: '', kit: '', db: 'sqlite', pm: 'npm', locale: 'es_ES', webapp: true, root: '', git: '', branch: '', job: null, error: null };
+ui.project = { source: 'laravel', name: '', kit: '', db: 'sqlite', pm: 'npm', locale: 'es_ES', webapp: true, root: '', git: '', branch: '',
+  server: '', php: '', dbName: '', dbUser: false, seed: false, job: null, error: null };
 // WordPress languages offered first (any WordPress locale works from 'nido new --idioma').
 const WP_LOCALES = [['es_ES', 'Español (España)'], ['es_MX', 'Español (México)'], ['es_AR', 'Español (Argentina)'], ['es_CO', 'Español (Colombia)'],
   ['es_CL', 'Español (Chile)'], ['en_US', 'English (US)'], ['pt_BR', 'Português (Brasil)'], ['fr_FR', 'Français'], ['de_DE', 'Deutsch'], ['it_IT', 'Italiano']];
@@ -839,15 +943,30 @@ const PMS = [['npm', 'npm (viene con Node)'], ['pnpm', 'pnpm'], ['yarn', 'yarn']
 const slug = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63);
 
+// projectDBOptions lists where a new project's data can go: SQLite or any installed database
+// server (its key, "mysql-8.4"), the default of each kind first.
 function projectDBOptions() {
   const opts = [['sqlite', 'SQLite (un archivo dentro del proyecto)']];
   for (const kind of ['mysql', 'mariadb', 'postgresql']) {
     const g = groupOf(kind);
-    const def = g.instances.find(i => i.default);
-    if (def) opts.push([kind, `${g.name} ${def.version} (puerto ${def.port})`]);
+    const list = [...g.instances].sort((a, b) => (b.default ? 1 : 0) - (a.default ? 1 : 0));
+    for (const i of list) opts.push([i.key, `${g.name} ${i.version} · puerto ${i.port}${i.default ? ' (predeterminada)' : ''}`]);
   }
   return opts;
 }
+
+// A database choice is SQLite, an instance key or '' (the project's own).
+const dbKind = choice => choice && choice !== 'sqlite' ? choice.split('-')[0] : choice;
+
+// serverOptions are the web servers a new site can start on: the ones installed.
+function serverOptions() {
+  const opts = [['', `Apache ${state.apache || ''}`.trim()]];
+  opts.push(state.nginx ? ['nginx', `Nginx ${state.nginx}`] : ['nginx', 'Nginx (instálalo en Servicios)', true]);
+  opts.push(state.frankenphp ? ['frankenphp', `FrankenPHP ${state.frankenphp} (con su PHP ${state.frankenphp_php})`] : ['frankenphp', 'FrankenPHP (instálalo en Servicios)', true]);
+  return opts;
+}
+
+const options = (list, current) => list.map(([k, label, disabled]) => el('option', { value: k, selected: current === k, disabled: !!disabled }, label));
 
 function openProjectDialog() {
   ui.projectOpen = true;
@@ -867,7 +986,11 @@ function renderProjectDialog() {
   const p = ui.project;
   const body = document.getElementById('project-body');
   const job = p.job && (state.jobs || []).find(j => j.id === p.job);
-  const again = () => { ui.project = { source: p.source, name: '', kit: p.kit, db: p.db, pm: p.pm, locale: p.locale, webapp: p.webapp, root: p.root, git: '', branch: '', job: null, error: null }; renderProjectDialog(); };
+  const again = () => {
+    ui.project = { source: p.source, name: '', kit: p.kit, db: p.db, pm: p.pm, locale: p.locale, webapp: p.webapp, root: p.root, git: '', branch: '',
+      server: p.server, php: p.php, dbName: '', dbUser: p.dbUser, seed: p.seed, job: null, error: null };
+    renderProjectDialog();
+  };
   if (job && job.finished && !job.error) {
     const site = (state.sites || []).find(s => s.name === job.series);
     body.replaceChildren(
@@ -884,11 +1007,11 @@ function renderProjectDialog() {
     return;
   }
   if (job) {
-    body.replaceChildren(el('div', { class: 'job' },
-      el('span', {}, `${job.series} · ${job.version}: ${job.phase}…`),
-      el('div', { class: 'progress indeterminate' }, el('span')),
-      el('button', { class: 'small danger', onclick: () => act('POST', '/api/jobs/cancel', { id: job.id }) }, 'Cancelar')),
-      el('div', { class: 'svc-sub' }, 'Puedes cerrar esta ventana: la creación sigue y el sitio aparece en la lista al terminar.'));
+    body.replaceChildren(jobProgress(job),
+      el('div', { class: 'row' }, el('span', { class: 'svc-sub' }, 'Puedes cerrar esta ventana: la creación sigue y el sitio aparece en la lista al terminar.'),
+        el('span', { class: 'spacer' }),
+        el('button', { class: 'small danger', onclick: () => act('POST', '/api/jobs/cancel', { id: job.id }) }, 'Cancelar'),
+        el('button', { class: 'small secondary', onclick: closeProjectDialog }, 'Seguir en segundo plano')));
     return;
   }
   const name = el('input', { id: 'project-name', type: 'text', value: p.name, placeholder: 'mi-tienda', autocomplete: 'off', spellcheck: 'false' });
@@ -911,7 +1034,7 @@ function renderProjectDialog() {
       if (k === 'git' && p.db === 'sqlite') p.db = '';
       if (k === 'laravel' && p.db === '') p.db = 'sqlite';
       // WordPress runs on MySQL or MariaDB only.
-      if (k === 'wordpress' && !['mysql', 'mariadb'].includes(p.db)) p.db = (projectDBOptions().find(([d]) => d === 'mysql' || d === 'mariadb') || [''])[0];
+      if (k === 'wordpress' && !['mysql', 'mariadb'].includes(dbKind(p.db))) p.db = (projectDBOptions().find(([d]) => ['mysql', 'mariadb'].includes(dbKind(d))) || [''])[0];
       if (k !== 'wordpress' && p.source !== 'git' && !p.db) p.db = 'sqlite';
       if (k === 'recipe') { p.db = ''; loadRecipes(); }
       renderProjectDialog();
@@ -962,14 +1085,43 @@ function renderProjectDialog() {
   let dbOptions = projectDBOptions();
   if (fromGit) dbOptions.unshift(['', 'La que diga el proyecto (.env.example)']);
   if (recipe) dbOptions.unshift(['', 'La que diga la plantilla']);
-  if (wordpress) dbOptions = dbOptions.filter(([k]) => k === 'mysql' || k === 'mariadb');
-  const dbSel = el('select', { 'aria-label': 'Base de datos' }, ...dbOptions.map(([k, label]) => el('option', { value: k, selected: p.db === k }, label)));
-  dbSel.addEventListener('change', () => { p.db = dbSel.value; });
+  if (wordpress) dbOptions = dbOptions.filter(([k]) => ['mysql', 'mariadb'].includes(dbKind(k)));
+  // An older choice by kind ("mysql") becomes that kind's default instance.
+  if (['mysql', 'mariadb', 'postgresql'].includes(p.db)) p.db = (dbOptions.find(([k]) => dbKind(k) === p.db) || [p.db])[0];
+  const dbSel = el('select', { 'aria-label': 'Base de datos' }, ...options(dbOptions, p.db));
+  dbSel.addEventListener('change', () => { p.db = dbSel.value; renderProjectDialog(); });
+  // The database's name, its own user and sample data, when the project gets a database server.
+  const server = p.db && p.db !== 'sqlite';
+  const dbNameInput = el('input', { type: 'text', value: p.dbName, placeholder: slug(p.name || 'mi-proyecto').replace(/-/g, '_'), autocomplete: 'off', spellcheck: 'false' });
+  dbNameInput.addEventListener('input', () => { p.dbName = dbNameInput.value; });
+  const ownUser = el('input', { type: 'checkbox', checked: p.dbUser });
+  ownUser.addEventListener('change', () => { p.dbUser = ownUser.checked; });
+  const seed = el('input', { type: 'checkbox', checked: p.seed });
+  seed.addEventListener('change', () => { p.seed = seed.checked; });
+  const dbBox = el('div', { class: 'box' }, el('h4', {}, 'Base de datos'),
+    el('div', { class: 'cols' },
+      el('label', { class: 'field' }, el('span', {}, 'Dónde'), dbOptions.length ? dbSel
+        : el('div', { class: 'row-error' }, 'WordPress necesita MySQL o MariaDB: instala uno en Servicios.')),
+      server && !fromGit && !recipe ? el('label', { class: 'field' }, el('span', {}, 'Nombre de la base'), dbNameInput) : null),
+    server && !fromGit && !recipe ? el('label', { class: 'check' }, ownUser, el('span', {}, 'Usuario propio para el proyecto, con una contraseña generada (si no, root sin contraseña)')) : null,
+    !fromGit && !recipe && !wordpress && !symfony ? el('label', { class: 'check' }, seed, el('span', {}, 'Sembrar datos de ejemplo (los seeders de Laravel)')) : null);
+  // The web server and PHP of the new site; FrankenPHP brings its own PHP.
+  const serverSel = el('select', { 'aria-label': 'Servidor web' }, ...options(serverOptions(), p.server));
+  serverSel.addEventListener('change', () => { p.server = serverSel.value; if (p.server === 'frankenphp') p.php = ''; renderProjectDialog(); });
+  const phpSel = el('select', { 'aria-label': 'PHP', disabled: p.server === 'frankenphp' },
+    ...options(p.server === 'frankenphp' ? [['', `el de FrankenPHP (${state.frankenphp_php})`]]
+      : [['', `el global (${state.php})`], ...(state.php_versions || []).filter(v => v !== state.php).map(v => [v, `${v} (solo este sitio)`])], p.php));
+  phpSel.addEventListener('change', () => { p.php = phpSel.value; });
   name.addEventListener('input', () => { p.nameTouched = true; });
   const pmSel = el('select', { 'aria-label': 'Gestor de paquetes' }, ...PMS.map(([k, label]) => el('option', { value: k, selected: (p.pm || 'npm') === k }, label)));
   pmSel.addEventListener('change', () => { p.pm = pmSel.value; });
-  const pmField = fromGit || wordpress || symfony || recipe ? null : el('label', { class: 'field' }, el('span', {}, 'Paquetes de JavaScript'), pmSel,
-    el('div', { class: 'svc-sub' }, 'Instala y compila el frontend. pnpm y yarn se instalan solos si hacen falta.'));
+  const pmField = fromGit || wordpress || symfony || recipe ? null : el('label', { class: 'field' }, el('span', {}, 'Paquetes de JavaScript'), pmSel);
+  const envBox = el('div', { class: 'box' }, el('h4', {}, 'Entorno'),
+    el('div', { class: 'cols' },
+      el('label', { class: 'field' }, el('span', {}, 'Servidor web'), serverSel),
+      el('label', { class: 'field' }, el('span', {}, 'PHP'), phpSel),
+      pmField),
+    el('div', { class: 'svc-sub' }, 'Se pueden cambiar después en la lista de sitios. pnpm y yarn se instalan solos si hacen falta.'));
   let rootField = null;
   if (roots.length > 1) {
     const rootSel = el('select', { 'aria-label': 'Carpeta' }, ...roots.map(r => el('option', { value: r, selected: (p.root || roots[0]) === r }, r)));
@@ -982,9 +1134,8 @@ function renderProjectDialog() {
     fromGit ? kits : null,
     el('label', { class: 'field' }, el('span', {}, 'Nombre'), name, preview),
     fromGit ? null : kits,
-    symfony && !p.webapp ? null : el('label', { class: 'field' }, el('span', {}, 'Base de datos'), dbOptions.length ? dbSel
-      : el('div', { class: 'row-error' }, 'WordPress necesita MySQL o MariaDB: instala uno en Servicios.')),
-    pmField,
+    envBox,
+    symfony && !p.webapp ? null : dbBox,
     rootField,
     p.error ? el('div', { class: 'row-error' }, p.error) : null,
     el('div', { class: 'row' }, el('span', { class: 'spacer' }), el('button', { onclick: createProject }, fromGit ? 'Clonar y preparar' : 'Crear proyecto')),
@@ -995,10 +1146,12 @@ async function createProject() {
   const p = ui.project;
   p.error = null;
   try {
-    const body = { name: p.name, kit: p.kit, db: p.db, pm: p.pm, root: p.root };
+    const body = { name: p.name, kit: p.kit, db: dbKind(p.db), pm: p.pm, root: p.root, server: p.server, php: p.php };
+    if (p.db && p.db !== 'sqlite') Object.assign(body, { db_key: p.db, db_name: p.dbName.trim(), db_user: p.dbUser });
+    if (p.seed && !['git', 'recipe', 'wordpress', 'symfony'].includes(p.source)) body.seed = true;
     if (p.source === 'git') Object.assign(body, { kit: '', git: p.git, branch: p.branch });
     if (p.source === 'wordpress') Object.assign(body, { type: 'wordpress', kit: '', pm: '', locale: p.locale });
-    if (p.source === 'symfony') Object.assign(body, { type: 'symfony', kit: '', pm: '', webapp: p.webapp, db: p.webapp ? p.db : '' });
+    if (p.source === 'symfony') Object.assign(body, { type: 'symfony', kit: '', pm: '', webapp: p.webapp, db: p.webapp ? dbKind(p.db) : '' });
     if (p.source === 'recipe') Object.assign(body, { kit: '', pm: '', recipe: p.recipe });
     const j = await call('POST', '/api/projects', body);
     p.job = j.id;
@@ -1118,5 +1271,6 @@ function schedule() {
 }
 
 const firstTab = location.hash.slice(1);
-showTab(['resumen', 'sitios', 'servicios', 'php'].includes(firstTab) ? firstTab : 'resumen');
-refresh().then(schedule);
+// #nuevo opens «Nuevo proyecto» right away (the tray's «Nuevo proyecto…» links there).
+showTab(firstTab === 'nuevo' ? 'sitios' : ['resumen', 'sitios', 'servicios', 'php', 'salud'].includes(firstTab) ? firstTab : 'resumen');
+refresh().then(() => { if (firstTab === 'nuevo') openProjectDialog(); schedule(); });

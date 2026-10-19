@@ -378,8 +378,20 @@ type Job struct {
 	Finished bool      `json:"finished"`
 	Started  time.Time `json:"started"`
 	Ended    time.Time `json:"ended,omitempty"`
+	// So the panel shows that a long job works: its phases with their times, the last lines of
+	// what the programs print (Composer, npm…) and when the last one arrived.
+	Steps  []JobStep `json:"steps,omitempty"`
+	Tail   []string  `json:"tail,omitempty"`
+	Output time.Time `json:"output,omitzero"`
 
 	cancel context.CancelFunc
+}
+
+// JobStep is one phase of a job.
+type JobStep struct {
+	Name    string    `json:"name"`
+	Started time.Time `json:"started"`
+	Ended   time.Time `json:"ended,omitzero"`
 }
 
 type jobList struct {

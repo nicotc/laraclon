@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/install"
 	"github.com/nicotc/laraclon/internal/mysql"
 	"github.com/nicotc/laraclon/internal/paths"
@@ -46,6 +47,18 @@ type NewProject struct {
 	// Git clones a repository instead (Kit is then ignored), on its default branch or Branch.
 	Git    string `json:"git,omitempty"`
 	Branch string `json:"branch,omitempty"`
+
+	// The site's environment from the start: its web server ("apache" when empty, "nginx" or
+	// "frankenphp") and a PHP version of its own ("" = the global one), which also builds it.
+	Server string `json:"server,omitempty"`
+	PHP    string `json:"php,omitempty"`
+	// DBKey picks an installed database server ("mysql-8.0") instead of its kind's default, DBName
+	// names the database (the project's name with _ when empty), DBUser gives the project a user of
+	// its own with a generated password instead of root, and Seed runs Laravel's seeders.
+	DBKey  string `json:"db_key,omitempty"`
+	DBName string `json:"db_name,omitempty"`
+	DBUser bool   `json:"db_user,omitempty"`
+	Seed   bool   `json:"seed,omitempty"`
 }
 
 // starterKits are the Composer packages of the official kits; like Laravel's installer, the kits are
@@ -88,6 +101,9 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	}
 	cancelled := "creación cancelada (la carpeta a medio crear queda en " + dir + ")"
 	p.DB = strings.ToLower(strings.TrimSpace(p.DB))
+	if err := d.checkSiteEnv(&p); err != nil {
+		return Job{}, err
+	}
 	if p.Recipe != "" {
 		r, err := d.findRecipe(p.Recipe)
 		if err != nil {
@@ -127,14 +143,16 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	if p.DB == "pgsql" {
 		p.DB = "postgresql"
 	}
+	var db projectDB
 	if p.DB != "" {
-		db, ok := projectDBs[p.DB]
+		spec, ok := projectDBs[p.DB]
 		if !ok {
 			return Job{}, fmt.Errorf("base de datos desconocida %q: usa sqlite, mysql, mariadb o postgresql", p.DB)
 		}
-		if db.kind != "" {
-			if _, ok := d.env.DefaultInstance(db.kind); !ok {
-				return Job{}, fmt.Errorf("%s no está instalado: instálalo en Servicios o elige otra base de datos", db.kind.Name())
+		if spec.kind != "" {
+			var err error
+			if db, err = d.planProjectDB(p, []versions.Component{spec.kind}, name); err != nil {
+				return Job{}, err
 			}
 		}
 	}
@@ -176,8 +194,53 @@ func (d *Daemon) CreateProject(p NewProject) (Job, error) {
 	}
 	return d.startCreateJob(p, name, dir, kitLabels[p.Kit], cancelled,
 		func(ctx context.Context, phase func(string), log *os.File) (string, error) {
-			return "", d.buildProject(ctx, p, name, dir, phase, log)
+			return db.note(), d.buildProject(ctx, p, name, dir, db, phase, log)
 		})
+}
+
+// checkSiteEnv checks the environment a request asks for its site: an installed web server and an
+// installed PHP (none with FrankenPHP, which brings its own). An instance key names its kind too.
+func (d *Daemon) checkSiteEnv(p *NewProject) error {
+	switch p.Server = strings.ToLower(strings.TrimSpace(p.Server)); p.Server {
+	case "", config.ServerApache:
+		p.Server = ""
+	case config.ServerNginx:
+		if _, err := d.nginxVersion(); err != nil {
+			return fmt.Errorf("Nginx no está instalado: instálalo en Servicios")
+		}
+	case config.ServerFrankenPHP:
+		if _, err := d.frankenVersion(); err != nil {
+			return fmt.Errorf("FrankenPHP no está instalado: instálalo en Servicios")
+		}
+	default:
+		return fmt.Errorf("servidor desconocido %q: usa apache, nginx o frankenphp", p.Server)
+	}
+	switch p.PHP = strings.TrimSpace(p.PHP); {
+	case p.PHP == "" || strings.EqualFold(p.PHP, "global"):
+		p.PHP = ""
+	case p.Server == config.ServerFrankenPHP:
+		return fmt.Errorf("FrankenPHP trae su propio PHP: no se le puede fijar otro")
+	default:
+		v, ok := d.env.Reg.Find(versions.PHP, p.PHP)
+		if !ok {
+			return fmt.Errorf("PHP %s no está instalado (instálalo con 'nido php install %s')", p.PHP, versions.MajorMinor(p.PHP))
+		}
+		p.PHP = v.Version
+	}
+	if key := strings.ToLower(strings.TrimSpace(p.DBKey)); key != "" && p.DB == "" {
+		p.DB, _, _ = strings.Cut(key, "-") // "mysql-8.0" is a MySQL
+	}
+	return nil
+}
+
+// projectPHP is the PHP a new project is built with: its own when it chose one, or the global one.
+func (d *Daemon) projectPHP(p NewProject) (versions.Version, error) {
+	if p.PHP != "" {
+		if v, ok := d.env.Reg.Find(versions.PHP, p.PHP); ok {
+			return v, nil
+		}
+	}
+	return d.env.GlobalPHP()
 }
 
 // projectDir checks where a new project goes: in one of Nido's project roots ("" = the first), in a
@@ -255,12 +318,26 @@ func (d *Daemon) runProjectJob(ctx context.Context, j *Job, logName, cancelled s
 	note := ""
 	if err == nil {
 		phase := func(s string) {
-			d.jobs.update(j, func(j *Job) { j.Phase = s })
-			fmt.Fprintf(logf, "\r\n==== %s · %s ====\r\n", time.Now().Format("15:04:05"), s)
+			now := time.Now()
+			d.jobs.update(j, func(j *Job) {
+				j.Phase = s
+				if n := len(j.Steps); n > 0 {
+					j.Steps[n-1].Ended = now
+				}
+				j.Steps = append(j.Steps, JobStep{Name: s, Started: now})
+			})
+			fmt.Fprintf(logf, "\r\n==== %s · %s ====\r\n", now.Format("15:04:05"), s)
 		}
+		stopFollowing := d.followLog(j, logPath)
 		note, err = work(ctx, phase, logf)
 		logf.Close()
+		stopFollowing()
 	}
+	d.jobs.update(j, func(j *Job) {
+		if n := len(j.Steps); n > 0 && j.Steps[n-1].Ended.IsZero() {
+			j.Steps[n-1].Ended = time.Now()
+		}
+	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		data, _ := os.ReadFile(logPath)
 		if tail := procutil.LastLines(string(data), 4); tail != "" {
@@ -288,8 +365,8 @@ func (d *Daemon) runProjectJob(ctx context.Context, j *Job, logName, cancelled s
 }
 
 // buildProject creates a Laravel project with Composer, writing everything the tools print to log.
-func (d *Daemon) buildProject(ctx context.Context, p NewProject, name, dir string, phase func(string), log *os.File) error {
-	global, err := d.env.GlobalPHP()
+func (d *Daemon) buildProject(ctx context.Context, p NewProject, name, dir string, db projectDB, phase func(string), log *os.File) error {
+	global, err := d.projectPHP(p)
 	if err != nil {
 		return err
 	}
@@ -336,14 +413,10 @@ func (d *Daemon) buildProject(ctx context.Context, p NewProject, name, dir strin
 	}
 
 	phase("configurando .env")
-	db := projectDBs[p.DB]
-	values := [][2]string{{"APP_NAME", strings.TrimSpace(p.Name)}, {"APP_URL", d.projectURL(name)}, {"DB_CONNECTION", db.connection}}
-	dbName := strings.ReplaceAll(name, "-", "_")
-	var ref InstanceRef
-	if db.kind != "" {
-		ref, _ = d.env.DefaultInstance(db.kind)
-		values = append(values, [2]string{"DB_HOST", "127.0.0.1"}, [2]string{"DB_PORT", fmt.Sprint(ref.Instance.Port)},
-			[2]string{"DB_DATABASE", dbName}, [2]string{"DB_USERNAME", db.user}, [2]string{"DB_PASSWORD", ""})
+	values := [][2]string{{"APP_NAME", strings.TrimSpace(p.Name)}, {"APP_URL", d.projectURL(name)}, {"DB_CONNECTION", projectDBs[p.DB].connection}}
+	if db.ref.Kind != "" {
+		values = append(values, [2]string{"DB_HOST", "127.0.0.1"}, [2]string{"DB_PORT", fmt.Sprint(db.ref.Instance.Port)},
+			[2]string{"DB_DATABASE", db.name}, [2]string{"DB_USERNAME", db.user}, [2]string{"DB_PASSWORD", db.password})
 	}
 	if mail, ok := d.env.DefaultInstance(versions.Mailpit); ok {
 		values = append(values, [2]string{"MAIL_MAILER", "smtp"}, [2]string{"MAIL_HOST", "127.0.0.1"}, [2]string{"MAIL_PORT", fmt.Sprint(mail.Instance.Port)})
@@ -361,19 +434,20 @@ func (d *Daemon) buildProject(ctx context.Context, p NewProject, name, dir strin
 		return err
 	}
 
-	if db.kind != "" {
-		phase(fmt.Sprintf("creando la base de datos %s en %s %s", dbName, db.kind.Name(), ref.Version.Version))
-		if d.sup.PID(ref.Key()) == 0 {
-			if err := d.StartService(ref.Key()); err != nil {
-				return err
-			}
-		}
-		if err := d.createDatabase(ctx, ref, dbName, log); err != nil {
+	if db.ref.Kind != "" {
+		phase(fmt.Sprintf("creando la base de datos %s en %s %s", db.name, db.ref.Kind.Name(), db.ref.Version.Version))
+		if err := db.create(ctx, d, log); err != nil {
 			return err
 		}
 	}
-	phase("migrando la base de datos")
-	if err := runPHP(dir, "artisan", "migrate", "--force"); err != nil {
+	migrate := []string{"artisan", "migrate", "--force"}
+	if p.Seed {
+		phase("migrando la base de datos y sembrando los datos de ejemplo")
+		migrate = append(migrate, "--seed")
+	} else {
+		phase("migrando la base de datos")
+	}
+	if err := runPHP(dir, migrate...); err != nil {
 		return fmt.Errorf("php artisan migrate: %w", err)
 	}
 

@@ -12,12 +12,12 @@ import (
 // trayIcon draws Nido's logo, a nest of curly braces holding three eggs on a rounded square, at the
 // sizes Windows uses in the tray (100% to 300% scaling) inside one ICO. Windows accepts ICO files
 // that wrap PNG images, which keeps this free of image assets.
-func trayIcon(top, bottom color.RGBA) []byte {
+func trayIcon(top, bottom color.RGBA, badge bool) []byte {
 	var images [][]byte
 	sizes := []int{16, 20, 24, 32, 48}
 	for _, size := range sizes {
 		var buf bytes.Buffer
-		png.Encode(&buf, drawLogo(size, top, bottom))
+		png.Encode(&buf, drawLogo(size, top, bottom, badge))
 		images = append(images, buf.Bytes())
 	}
 	var ico bytes.Buffer
@@ -78,8 +78,9 @@ func distance(q point, line []point) float64 {
 	return best
 }
 
-// drawLogo renders the logo at size×size pixels, with 4×4 samples per pixel for smooth edges.
-func drawLogo(size int, top, bottom color.RGBA) *image.RGBA {
+// drawLogo renders the logo at size×size pixels, with 4×4 samples per pixel for smooth edges; badge
+// adds a red dot in the corner (something failed in the health check).
+func drawLogo(size int, top, bottom color.RGBA, badge bool) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
 	scale := float64(size) / 64
 	left := leftBrace()
@@ -115,6 +116,14 @@ func drawLogo(size int, top, bottom color.RGBA) *image.RGBA {
 					if mark {
 						c = cream
 					}
+					if badge {
+						switch dist := math.Hypot(q.x-50, q.y-50); {
+						case dist <= 10:
+							c = [3]float64{220, 38, 38}
+						case dist <= 13.5:
+							c = [3]float64{255, 255, 255}
+						}
+					}
 					r, g, b, a = r+c[0], g+c[1], b+c[2], a+255
 				}
 			}
@@ -126,6 +135,7 @@ func drawLogo(size int, top, bottom color.RGBA) *image.RGBA {
 }
 
 var (
-	iconRunning = trayIcon(color.RGBA{245, 158, 11, 255}, color.RGBA{180, 83, 9, 255})
-	iconStopped = trayIcon(color.RGBA{168, 162, 158, 255}, color.RGBA{87, 83, 78, 255})
+	iconRunning = trayIcon(color.RGBA{245, 158, 11, 255}, color.RGBA{180, 83, 9, 255}, false)
+	iconWarning = trayIcon(color.RGBA{245, 158, 11, 255}, color.RGBA{180, 83, 9, 255}, true)
+	iconStopped = trayIcon(color.RGBA{168, 162, 158, 255}, color.RGBA{87, 83, 78, 255}, false)
 )

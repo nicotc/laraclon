@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/nicotc/laraclon/internal/install"
 	"github.com/nicotc/laraclon/internal/php"
@@ -19,18 +19,19 @@ func (d *Daemon) createSymfony(p NewProject, name, root, dir, cancelled string) 
 	if _, err := os.Stat(install.ComposerPhar(d.env.Home)); err != nil {
 		return Job{}, fmt.Errorf("falta Composer: instálalo con 'nido composer install'")
 	}
-	var ref InstanceRef
+	var db projectDB
 	if p.Webapp {
 		if p.DB == "" {
 			p.DB = "sqlite"
 		}
-		db, ok := projectDBs[p.DB]
+		spec, ok := projectDBs[p.DB]
 		if !ok {
 			return Job{}, fmt.Errorf("base de datos desconocida %q: usa sqlite, mysql, mariadb o postgresql", p.DB)
 		}
-		if db.kind != "" {
-			if ref, ok = d.env.DefaultInstance(db.kind); !ok {
-				return Job{}, fmt.Errorf("%s no está instalado: instálalo en Servicios o elige otra base de datos", db.kind.Name())
+		if spec.kind != "" {
+			var err error
+			if db, err = d.planProjectDB(p, []versions.Component{spec.kind}, name); err != nil {
+				return Job{}, err
 			}
 		}
 	}
@@ -40,7 +41,7 @@ func (d *Daemon) createSymfony(p NewProject, name, root, dir, cancelled string) 
 	}
 	return d.startCreateJob(p, name, dir, label, cancelled,
 		func(ctx context.Context, phase func(string), log *os.File) (string, error) {
-			return "", d.buildSymfony(ctx, p, name, root, dir, ref, phase, log)
+			return db.note(), d.buildSymfony(ctx, p, name, root, dir, db, phase, log)
 		})
 }
 
@@ -48,8 +49,8 @@ func (d *Daemon) createSymfony(p NewProject, name, root, dir, cancelled string) 
 // symfony/apache-pack (a "contrib" recipe, which Flex only runs when the project allows them), and
 // .env.local points the project at https://<name>.test and, with webapp, at Nido's database and
 // Mailpit.
-func (d *Daemon) buildSymfony(ctx context.Context, p NewProject, name, root, dir string, ref InstanceRef, phase func(string), log *os.File) error {
-	global, err := d.env.GlobalPHP()
+func (d *Daemon) buildSymfony(ctx context.Context, p NewProject, name, root, dir string, db projectDB, phase func(string), log *os.File) error {
+	global, err := d.projectPHP(p)
 	if err != nil {
 		return err
 	}
@@ -89,19 +90,13 @@ func (d *Daemon) buildSymfony(ctx context.Context, p NewProject, name, root, dir
 	phase("configurando .env.local")
 	values := [][2]string{{"DEFAULT_URI", d.projectURL(name)}}
 	if p.Webapp {
-		dbName := strings.ReplaceAll(name, "-", "_")
-		values = append(values, [2]string{"DATABASE_URL", symfonyDatabaseURL(ref, dbName)})
+		values = append(values, [2]string{"DATABASE_URL", symfonyDatabaseURL(db)})
 		if mail, ok := d.env.DefaultInstance(versions.Mailpit); ok {
 			values = append(values, [2]string{"MAILER_DSN", fmt.Sprintf("smtp://127.0.0.1:%d", mail.Instance.Port)})
 		}
-		if ref.Kind != "" {
-			phase(fmt.Sprintf("creando la base de datos %s en %s %s", dbName, ref.Kind.Name(), ref.Version.Version))
-			if d.sup.PID(ref.Key()) == 0 {
-				if err := d.StartService(ref.Key()); err != nil {
-					return err
-				}
-			}
-			if err := d.createDatabase(ctx, ref, dbName, log); err != nil {
+		if db.ref.Kind != "" {
+			phase(fmt.Sprintf("creando la base de datos %s en %s %s", db.name, db.ref.Kind.Name(), db.ref.Version.Version))
+			if err := db.create(ctx, d, log); err != nil {
 				return err
 			}
 		}
@@ -115,16 +110,18 @@ func (d *Daemon) buildSymfony(ctx context.Context, p NewProject, name, root, dir
 	return editEnvFile(envLocal, values)
 }
 
-// symfonyDatabaseURL is Doctrine's DATABASE_URL for one of Nido's databases ("" kind: SQLite, the
+// symfonyDatabaseURL is Doctrine's DATABASE_URL for one of Nido's databases (no server: SQLite, the
 // file Symfony's own .env suggests).
-func symfonyDatabaseURL(ref InstanceRef, dbName string) string {
+func symfonyDatabaseURL(db projectDB) string {
+	ref := db.ref
+	user := url.QueryEscape(db.user) + ":" + url.QueryEscape(db.password)
 	switch ref.Kind {
 	case versions.MySQL:
-		return fmt.Sprintf("mysql://root:@127.0.0.1:%d/%s?serverVersion=%s&charset=utf8mb4", ref.Instance.Port, dbName, ref.Version.Version)
+		return fmt.Sprintf("mysql://%s@127.0.0.1:%d/%s?serverVersion=%s&charset=utf8mb4", user, ref.Instance.Port, db.name, ref.Version.Version)
 	case versions.MariaDB:
-		return fmt.Sprintf("mysql://root:@127.0.0.1:%d/%s?serverVersion=%s-MariaDB&charset=utf8mb4", ref.Instance.Port, dbName, ref.Version.Version)
+		return fmt.Sprintf("mysql://%s@127.0.0.1:%d/%s?serverVersion=%s-MariaDB&charset=utf8mb4", user, ref.Instance.Port, db.name, ref.Version.Version)
 	case versions.PostgreSQL:
-		return fmt.Sprintf("postgresql://postgres:@127.0.0.1:%d/%s?serverVersion=%s&charset=utf8", ref.Instance.Port, dbName, versions.Series(versions.PostgreSQL, ref.Version.Version))
+		return fmt.Sprintf("postgresql://%s@127.0.0.1:%d/%s?serverVersion=%s&charset=utf8", user, ref.Instance.Port, db.name, versions.Series(versions.PostgreSQL, ref.Version.Version))
 	}
 	return "sqlite:///%kernel.project_dir%/var/data_%kernel.environment%.db"
 }

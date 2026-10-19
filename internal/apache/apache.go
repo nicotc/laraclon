@@ -242,7 +242,15 @@ func signal(pid int, what string) error {
 	if err != nil {
 		return err
 	}
-	h, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, name)
+	// Right after Apache starts (or another change restarts it), its parent creates these events a
+	// moment later: a signal sent meanwhile waits for them instead of failing.
+	var h windows.Handle
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(200 * time.Millisecond) {
+		h, err = windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, name)
+		if err == nil || err != windows.ERROR_FILE_NOT_FOUND || time.Now().After(deadline) {
+			break
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("Apache (PID %d) no acepta la señal %s: %w", pid, what, err)
 	}

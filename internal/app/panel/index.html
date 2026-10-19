@@ -12,7 +12,7 @@
   <header>
     <div class="brand"><svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="nido-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F59E0B"/><stop offset="1" stop-color="#B45309"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="16" fill="url(#nido-g)"/><path d="M23 14 C17 14 17 18 17 24 L17 28 C17 31 15 32 12 32 C15 32 17 33 17 36 L17 40 C17 46 17 50 23 50" fill="none" stroke="#FFF7ED" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M41 14 C47 14 47 18 47 24 L47 28 C47 31 49 32 52 32 C49 32 47 33 47 36 L47 40 C47 46 47 50 41 50" fill="none" stroke="#FFF7ED" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="25.6" cy="38" rx="3.7" ry="4.6" fill="#FFF7ED"/><ellipse cx="32" cy="34.5" rx="3.7" ry="4.6" fill="#FFF7ED"/><ellipse cx="38.4" cy="38" rx="3.7" ry="4.6" fill="#FFF7ED"/></svg><h1>Nido</h1><span class="tagline">donde viven tus proyectos</span></div>
     <div class="actions">
-      <a id="health-link" class="button secondary" target="_blank" hidden>Salud</a>
+      <a id="health-link" class="button secondary" href="#salud" hidden>Salud</a>
       <button data-action="start">Iniciar todo</button>
       <button data-action="stop" class="secondary">Detener todo</button>
     </div>
@@ -23,6 +23,7 @@
     <a href="#sitios" data-tab="sitios">Sitios <span class="count" id="count-sites"></span></a>
     <a href="#servicios" data-tab="servicios">Servicios <span class="count" id="count-services"></span></a>
     <a href="#php" data-tab="php">PHP y Node</a>
+    <a href="#salud" data-tab="salud">Salud <span class="health-dot" id="health-dot"></span></a>
   </nav>
 
   <section id="alerts"></section>
@@ -63,6 +64,10 @@
 
   <section data-panel="servicios" hidden>
     <div id="services-view"></div>
+  </section>
+
+  <section data-panel="salud" hidden>
+    <div id="health-view"></div>
   </section>
 
   <section data-panel="php" hidden>

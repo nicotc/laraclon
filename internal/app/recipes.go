@@ -214,6 +214,21 @@ func (d *Daemon) createFromSource(p NewProject, name, root, dir, cancelled strin
 
 // startCreateJob starts creating a project in dir; with a recipe, its .env values and steps follow.
 func (d *Daemon) startCreateJob(p NewProject, name, dir, label, cancelled string, work projectWork) (Job, error) {
+	// The site appears already with the web server and PHP chosen for it.
+	if p.Server != "" || p.PHP != "" {
+		d.cfgMu.Lock()
+		if p.Server != "" {
+			d.env.Cfg.SetSiteServer(name, p.Server)
+		}
+		if p.PHP != "" {
+			d.env.Cfg.SetSitePHP(name, p.PHP)
+		}
+		err := d.env.SaveConfig()
+		d.cfgMu.Unlock()
+		if err != nil {
+			return Job{}, err
+		}
+	}
 	if p.recipe != nil {
 		r, base := *p.recipe, work
 		label = r.Name

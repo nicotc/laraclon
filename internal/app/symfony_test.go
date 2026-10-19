@@ -21,8 +21,16 @@ func TestSymfonyDatabaseURLPointsDoctrineAtNidosDatabases(t *testing.T) {
 		{InstanceRef{}, "sqlite:///%kernel.project_dir%/var/data_%kernel.environment%.db"},
 	}
 	for _, c := range cases {
-		if got := symfonyDatabaseURL(c.ref, "tienda"); got != c.want {
+		user := "root"
+		if c.ref.Kind == versions.PostgreSQL {
+			user = "postgres"
+		}
+		if got := symfonyDatabaseURL(projectDB{ref: c.ref, name: "tienda", user: user}); got != c.want {
 			t.Errorf("%s: got %s", c.ref.Kind, got)
 		}
+	}
+	own := projectDB{ref: ref(versions.MySQL, "8.4.11", 3306), name: "tienda_db", user: "tienda_db", password: "aB3x", own: true}
+	if got := symfonyDatabaseURL(own); got != "mysql://tienda_db:aB3x@127.0.0.1:3306/tienda_db?serverVersion=8.4.11&charset=utf8mb4" {
+		t.Errorf("own user: got %s", got)
 	}
 }

@@ -38,19 +38,9 @@ func (d *Daemon) createWordPress(p NewProject, name, dir, cancelled string) (Job
 	default:
 		return Job{}, fmt.Errorf("WordPress funciona con MySQL o MariaDB, no con %s", p.DB)
 	}
-	var ref InstanceRef
-	ok := false
-	for _, k := range kinds {
-		if ref, ok = d.env.DefaultInstance(k); ok {
-			break
-		}
-	}
-	if !ok {
-		need := "MySQL o MariaDB"
-		if len(kinds) == 1 {
-			need = kinds[0].Name()
-		}
-		return Job{}, fmt.Errorf("WordPress necesita %s: instálalo en Servicios", need)
+	db, err := d.planProjectDB(p, kinds, name)
+	if err != nil {
+		return Job{}, fmt.Errorf("WordPress: %w", err)
 	}
 	locale := strings.TrimSpace(p.Locale)
 	if locale == "" {
@@ -61,15 +51,19 @@ func (d *Daemon) createWordPress(p NewProject, name, dir, cancelled string) (Job
 	}
 	return d.startCreateJob(p, name, dir, "WordPress", cancelled,
 		func(ctx context.Context, phase func(string), log *os.File) (string, error) {
-			return d.buildWordPress(ctx, p, name, dir, ref, locale, phase, log)
+			note, err := d.buildWordPress(ctx, p, name, dir, db, locale, phase, log)
+			if extra := db.note(); extra != "" && err == nil {
+				note += ". " + extra
+			}
+			return note, err
 		})
 }
 
 // buildWordPress installs WordPress: its files and translation, the database, wp-config.php, the site
 // in that language with an administrator (the note returned carries the generated password), the
 // translations of its theme and plugins, and pretty permalinks.
-func (d *Daemon) buildWordPress(ctx context.Context, p NewProject, name, dir string, ref InstanceRef, locale string, phase func(string), log *os.File) (string, error) {
-	global, err := d.env.GlobalPHP()
+func (d *Daemon) buildWordPress(ctx context.Context, p NewProject, name, dir string, db projectDB, locale string, phase func(string), log *os.File) (string, error) {
+	global, err := d.projectPHP(p)
 	if err != nil {
 		return "", err
 	}
@@ -113,19 +107,13 @@ func (d *Daemon) buildWordPress(ctx context.Context, p NewProject, name, dir str
 			return "", err
 		}
 	}
-	dbName := strings.ReplaceAll(name, "-", "_")
-	phase(fmt.Sprintf("creando la base de datos %s en %s %s", dbName, ref.Kind.Name(), ref.Version.Version))
-	if d.sup.PID(ref.Key()) == 0 {
-		if err := d.StartService(ref.Key()); err != nil {
-			return "", err
-		}
-	}
-	if err := d.createDatabase(ctx, ref, dbName, log); err != nil {
+	phase(fmt.Sprintf("creando la base de datos %s en %s %s", db.name, db.ref.Kind.Name(), db.ref.Version.Version))
+	if err := db.create(ctx, d, log); err != nil {
 		return "", err
 	}
 	phase("escribiendo wp-config.php")
-	if err := wp("config", "create", "--dbname="+dbName, "--dbuser=root", "--dbpass=",
-		fmt.Sprintf("--dbhost=127.0.0.1:%d", ref.Instance.Port)); err != nil {
+	if err := wp("config", "create", "--dbname="+db.name, "--dbuser="+db.user, "--dbpass="+db.password,
+		fmt.Sprintf("--dbhost=127.0.0.1:%d", db.ref.Instance.Port)); err != nil {
 		return "", fmt.Errorf("wp config create: %w", err)
 	}
 	phase("instalando WordPress")

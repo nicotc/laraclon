@@ -36,11 +36,12 @@ type Status struct {
 	ApacheVersions []string             `json:"apache_versions"`
 	Nginx          string               `json:"nginx"` // version the Nginx sites use ("" when not installed)
 	FrankenPHP     string               `json:"frankenphp"`
-	FrankenPHPPHP  string               `json:"frankenphp_php"` // the PHP built into FrankenPHP
-	Adminer        string               `json:"adminer"`        // installed version ("" when not)
-	AdminerURL     string               `json:"adminer_url"`    // https://db.localhost
-	HealthURL      string               `json:"health_url"`     // https://salud.localhost
-	DB             string               `json:"db"`             // the default database, e.g. "MySQL 8.4.11"
+	FrankenPHPPHP  string               `json:"frankenphp_php"`   // the PHP built into FrankenPHP
+	Adminer        string               `json:"adminer"`          // installed version ("" when not)
+	AdminerURL     string               `json:"adminer_url"`      // https://db.localhost
+	HealthURL      string               `json:"health_url"`       // https://salud.localhost
+	Health         *HealthReport        `json:"health,omitempty"` // the last check, every minute
+	DB             string               `json:"db"`               // the default database, e.g. "MySQL 8.4.11"
 	DBPort         int                  `json:"db_port"`
 	Databases      []DBGroup            `json:"databases"`
 	Jobs           []Job                `json:"jobs"`
@@ -103,6 +104,7 @@ func (d *Daemon) Status() Status {
 	if _, ok := d.saludRoute(); ok {
 		st.HealthURL = d.HealthURL()
 	}
+	st.Health = d.healthReport()
 	if db, ok := d.env.DefaultDB(); ok {
 		st.DB, st.DBPort = db.Kind.Name()+" "+db.Version.Version, db.Instance.Port
 	}
@@ -174,6 +176,7 @@ func (d *Daemon) Handler() http.Handler {
 	api("POST /api/stop", func(*http.Request) (any, error) { d.StopAll(); return d.Status(), nil })
 	api("POST /api/restart", func(*http.Request) (any, error) { d.StopAll(); d.StartAll(); return d.Status(), nil })
 	api("POST /api/rescan", func(*http.Request) (any, error) { return d.Status(), d.Rescan() })
+	api("POST /api/health/check", func(*http.Request) (any, error) { return d.CheckHealth(), nil })
 	api("POST /api/php", func(r *http.Request) (any, error) {
 		var req struct{ Version string }
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

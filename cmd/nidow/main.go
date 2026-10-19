@@ -82,11 +82,11 @@ type tray struct {
 	siteURLs  [siteSlots]string
 	phpValues [phpSlots]string
 
-	sites, php, start, stop, trust, hostsItem *systray.MenuItem
-	siteItems                                 [siteSlots]*systray.MenuItem
-	moreSites                                 *systray.MenuItem
-	phpItems                                  [phpSlots]*systray.MenuItem
-	problems                                  [problemSlots]*systray.MenuItem
+	health, sites, php, start, stop, trust, hostsItem *systray.MenuItem
+	siteItems                                         [siteSlots]*systray.MenuItem
+	moreSites                                         *systray.MenuItem
+	phpItems                                          [phpSlots]*systray.MenuItem
+	problems                                          [problemSlots]*systray.MenuItem
 }
 
 // onClick runs fn for every real click. Closed channels (application exit) end the loop.
@@ -99,9 +99,13 @@ func onClick(item *systray.MenuItem, fn func()) {
 }
 
 func (t *tray) build() {
+	// The health of the last check, every minute: opens the panel's «Salud» tab.
+	t.health = systray.AddMenuItem("Salud: sin comprobar todavía", "PHP, bases de datos y sitios: qué responde y qué no")
+	onClick(t.health, func() { winx.OpenAppWindow(t.d.PanelURL() + "#salud") })
+	systray.AddSeparator()
 	onClick(systray.AddMenuItem("Abrir panel", ""), func() { winx.OpenAppWindow(t.d.PanelURL()) })
-	onClick(systray.AddMenuItem("Salud del entorno", "PHP, bases de datos y sitios: qué responde y qué no"),
-		func() { winx.OpenURL(t.d.HealthURL()) })
+	onClick(systray.AddMenuItem("Nuevo proyecto…", "Laravel, WordPress, Symfony, desde Git o una plantilla"),
+		func() { winx.OpenAppWindow(t.d.PanelURL() + "#nuevo") })
 
 	t.sites = systray.AddMenuItem("Sitios", "")
 	for i := range t.siteItems {
@@ -194,12 +198,30 @@ func (t *tray) refresh() {
 			running++
 		}
 	}
-	if running > 0 && st.ProxyUp {
+	sick := st.Health != nil && !st.Health.OK
+	switch {
+	case running > 0 && st.ProxyUp && sick:
+		systray.SetIcon(iconWarning)
+	case running > 0 && st.ProxyUp:
 		systray.SetIcon(iconRunning)
-	} else {
+	default:
 		systray.SetIcon(iconStopped)
 	}
-	systray.SetTooltip(fmt.Sprintf("Nido · PHP %s · %d sitios", st.PHP, len(st.Sites)))
+	tip := fmt.Sprintf("Nido · PHP %s · %d sitios", st.PHP, len(st.Sites))
+	switch h := st.Health; {
+	case h == nil:
+		t.health.SetTitle("Salud: sin comprobar todavía")
+	case h.Error != "":
+		t.health.SetTitle("⚠ Salud: la comprobación no respondió")
+		tip += " · salud sin respuesta"
+	case h.OK:
+		t.health.SetTitle(fmt.Sprintf("✓ Salud: todo OK (%d de %d)", h.Summary.OK, h.Summary.Total))
+	default:
+		bad := h.Summary.Total - h.Summary.OK
+		t.health.SetTitle(fmt.Sprintf("⚠ Salud: %d con problemas", bad))
+		tip += fmt.Sprintf(" · %d con problemas", bad)
+	}
+	systray.SetTooltip(tip)
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
