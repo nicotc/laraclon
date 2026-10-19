@@ -226,6 +226,7 @@ func (d *Daemon) StartAll() {
 	d.setProblem("frankenphp", d.syncFrankenPHP())
 	d.setProblem("adminer", d.startAdminer(false))
 	d.setProblem("proxy", d.startProxy())
+	d.startSiteProcesses() // each process reports its own problem
 	d.changed()
 }
 
@@ -234,6 +235,7 @@ func (d *Daemon) StopAll() {
 	d.mu.Lock()
 	d.servicesOn = false
 	d.mu.Unlock()
+	d.stopAllProcesses()
 	d.sup.Stop(adminerService)
 	d.sup.Stop(nginx.ServiceName)
 	d.sup.Stop(frankenphp.ServiceName)
@@ -457,6 +459,7 @@ func (d *Daemon) Rescan() error {
 	d.mu.Lock()
 	d.sites, d.warnings, d.pools = list, append(warns, notes...), pools
 	d.mu.Unlock()
+	d.stopOrphanProcesses(list)
 
 	// The pool of a pinned PHP runs before any server sends it requests, and stops after none does.
 	d.setProblem("php-fijado", d.startPinnedPools(pools))
@@ -517,6 +520,7 @@ func (d *Daemon) UsePHP(want string) (versions.Version, error) {
 			d.setProblem("sitios", err)
 		}
 	}
+	d.restartPHPProcesses() // queue workers and schedulers follow the new PHP
 	d.changed()
 	return v, err
 }
@@ -584,6 +588,9 @@ func (d *Daemon) SyncHosts() error {
 		return err
 	}
 	err = hosts.RequestElevated(d.env.Home.Path("clon.exe"), list)
+	if err == nil {
+		d.startSiteProcesses() // Vite servers that were waiting for their site's line in hosts
+	}
 	d.changed()
 	return err
 }

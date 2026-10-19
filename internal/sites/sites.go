@@ -31,9 +31,10 @@ type Site struct {
 	Kind    string   `json:"kind"`     // laravel, wordpress, symfony, php, static
 	Aliases []string `json:"aliases,omitempty"`
 	HTTPS   bool     `json:"https"`
-	Server  string   `json:"server"`        // apache, nginx, frankenphp
-	PHP     string   `json:"php,omitempty"` // PHP version the site pinned ("" = the global one)
-	Port    int      `json:"port"`          // internal port on its web server
+	Server  string   `json:"server"`         // apache, nginx, frankenphp
+	PHP     string   `json:"php,omitempty"`  // PHP version the site pinned ("" = the global one)
+	Vite    bool     `json:"vite,omitempty"` // has a Vite config and package.json (npm run dev)
+	Port    int      `json:"port"`           // internal port on its web server
 
 	// Filled in by clon when it plans the PHP pools.
 	PHPVersion string `json:"php_version,omitempty"` // the PHP that serves the site
@@ -111,6 +112,19 @@ func detect(folder, override string) (docRoot, kind string) {
 	return folder, kind
 }
 
+// hasVite reports whether a project runs a Vite dev server (npm run dev).
+func hasVite(folder string) bool {
+	if !exists(filepath.Join(folder, "package.json")) {
+		return false
+	}
+	for _, name := range []string{"vite.config.js", "vite.config.ts", "vite.config.mjs", "vite.config.mts"} {
+		if exists(filepath.Join(folder, name)) {
+			return true
+		}
+	}
+	return false
+}
+
 // Scan lists the sites of all roots. The first root wins when two folders map to the same name.
 func Scan(cfg config.Config) ([]Site, []Warning) {
 	var out []Site
@@ -152,6 +166,7 @@ func Scan(cfg config.Config) ([]Site, []Warning) {
 				HTTPS:   cfg.HTTPSFor(name),
 				Server:  cfg.ServerFor(name),
 				PHP:     settings.PHP,
+				Vite:    hasVite(folder),
 			})
 		}
 	}

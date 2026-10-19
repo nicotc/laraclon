@@ -14,9 +14,13 @@ import (
 const siteUsage = `
   clon site server <sitio> apache|nginx|frankenphp   servidor web de un sitio (la dirección .test no cambia)
   clon site php <sitio> <versión>|global             PHP propio para un proyecto antiguo, o vuelta al global
+  clon site proc <sitio> vite|queue|schedule on|off  npm run dev (con HTTPS), queue:work o schedule:work del proyecto
 `
 
 func cmdSite(env *app.Env, args []string) error {
+	if len(args) == 4 && args[0] == "proc" {
+		return cmdSiteProc(env, args[1], strings.ToLower(args[2]), args[3])
+	}
 	if len(args) != 3 || (args[0] != "server" && args[0] != "php") {
 		return fmt.Errorf("uso:%s", siteUsage)
 	}
@@ -91,6 +95,36 @@ func cmdSitePHP(env *app.Env, site, want string) error {
 		return nil
 	}
 	fmt.Printf("%s usa PHP %s: en la web y, dentro de su carpeta, con php, composer y artisan\n", site, want)
+	return nil
+}
+
+// cmdSiteProc turns a project process on (it runs now and starts with clon) or off.
+func cmdSiteProc(env *app.Env, site, id, state string) error {
+	on := state == "on" || state == "si" || state == "sí"
+	if !on && state != "off" && state != "no" {
+		return fmt.Errorf("uso:%s", siteUsage)
+	}
+	if c, err := app.Connect(env.Home.Root); err == nil {
+		if err := c.Call("POST", "/api/sites/process", map[string]any{"site": site, "id": id, "on": on}, nil); err != nil {
+			return err
+		}
+		if on {
+			name := strings.TrimSuffix(strings.ToLower(site), "."+env.Cfg.TLD)
+			fmt.Printf("%s: %s en marcha; arranca también con «Iniciar todo» (registro en %s)\n", site, id, env.Home.Logs(name+"-"+id+".log"))
+		} else {
+			fmt.Printf("%s: %s detenido\n", site, id)
+		}
+		return nil
+	}
+	s, err := findSite(env, site)
+	if err != nil {
+		return err
+	}
+	env.Cfg.SetSiteProcess(s.Name, id, on)
+	if err := env.SaveConfig(); err != nil {
+		return err
+	}
+	fmt.Printf("%s: %s %s cuando inicies clon\n", s.Host, id, map[bool]string{true: "arrancará", false: "no arrancará"}[on])
 	return nil
 }
 

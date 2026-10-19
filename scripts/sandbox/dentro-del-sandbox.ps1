@@ -436,6 +436,28 @@ Step 'Proyecto nuevo con clon new: kit de Vue y MySQL' {
     "$((($out -split "`n") | Select-Object -Last 1).Trim())`nhttps://tienda-vue.test: HTTP $code con Inertia y assets de Vite · MySQL tienda_vue: $($tables.Trim()) tablas"
 }
 
+Step 'Procesos del proyecto: Vite con HTTPS, cola y tareas (clon site proc)' {
+    $hot = 'C:\www\laravel-demo\public\hot'
+    Invoke-Tool $clon 'site proc laravel-demo vite on' 120 | Out-Null
+    $deadline = (Get-Date).AddSeconds(90)
+    while (-not (Test-Path $hot) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+    if (-not (Test-Path $hot)) { throw "Vite no arrancó:`n$(Get-Content "$H\logs\laravel-demo-vite.log" -Tail 15 -Encoding UTF8 | Out-String)" }
+    $devUrl = (Get-Content $hot -Raw).Trim()
+    if ($devUrl -ne 'https://laravel-demo.test:5173') { throw "public/hot apunta a $devUrl" }
+    $client = Invoke-Curl '-o NUL -w %{http_code} https://laravel-demo.test:5173/@vite/client'
+    $page = Invoke-Curl 'https://laravel-demo.test/'
+    if ($client -ne '200' -or $page -notmatch 'laravel-demo\.test:5173/@vite/client') { throw "el servidor de Vite (HTTP $client) o la página no van por HTTPS" }
+    Invoke-Tool $clon 'site proc laravel-demo queue on' 120 | Out-Null
+    Invoke-Tool $clon 'site proc laravel-demo schedule on' 120 | Out-Null
+    Start-Sleep -Seconds 5
+    $st = Invoke-Tool $clon 'status' 30
+    $running = @('vite', 'queue', 'schedule' | Where-Object { $st -match "$_-laravel-demo\s+en marcha" })
+    foreach ($p in 'vite', 'queue', 'schedule') { Invoke-Tool $clon "site proc laravel-demo $p off" 120 | Out-Null }
+    if ($running.Count -ne 3) { throw "en marcha solo: $($running -join ', ')`n$st" }
+    if (Test-Path $hot) { throw 'public/hot quedó después de apagar Vite' }
+    "Vite en $devUrl con el certificado de clon (/@vite/client: HTTP $client) y la página cargándolo · en marcha: $($running -join ', ') · apagados y public/hot borrado"
+}
+
 Step 'Node, npm, npx, Composer y PHP desde shims\' {
     # Invoke-Tool, not &: Composer writes to stderr, which Windows PowerShell 5.1 turns into errors.
     @(

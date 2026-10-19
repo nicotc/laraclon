@@ -365,6 +365,7 @@ func (d *Daemon) SetSitePHP(site, want string) error {
 	}
 	d.refreshShims()
 	err = d.Rescan()
+	d.restartPHPProcesses()
 	d.changed()
 	return err
 }

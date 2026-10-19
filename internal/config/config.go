@@ -171,10 +171,22 @@ type SiteSettings struct {
 	// PHP pins the site to a PHP version ("7.2") instead of the global one: the one exception to the
 	// global PHP, meant for older projects. Its requests go to a pool of php-cgi of that version.
 	PHP string `toml:"php,omitempty"`
+	// Processes start with clon's services: "vite" (npm run dev), "queue", "schedule".
+	Processes []string `toml:"processes,omitempty"`
 }
 
 func (s SiteSettings) empty() bool {
-	return len(s.Aliases) == 0 && s.PublicDir == "" && s.HTTPS == nil && !s.Ignore && s.Server == "" && s.PHP == ""
+	return len(s.Aliases) == 0 && s.PublicDir == "" && s.HTTPS == nil && !s.Ignore && s.Server == "" && s.PHP == "" && len(s.Processes) == 0
+}
+
+// SetSiteProcess marks whether a project process starts with clon's services.
+func (c *Config) SetSiteProcess(site, id string, on bool) {
+	c.updateSite(site, func(s *SiteSettings) {
+		s.Processes = without(s.Processes, id)
+		if on {
+			s.Processes = append(s.Processes, id)
+		}
+	})
 }
 
 // ServerFor is the web server of a site: Apache unless the site chose another.

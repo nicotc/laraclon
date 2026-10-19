@@ -1,6 +1,27 @@
 package sites
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestHasViteNeedsPackageJSONAndAViteConfig(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("package.json")
+	if hasVite(dir) {
+		t.Fatal("package.json alone is not a Vite project")
+	}
+	write("vite.config.ts")
+	if !hasVite(dir) {
+		t.Fatal("package.json and vite.config.ts make a Vite project")
+	}
+}
 
 func TestNormalize(t *testing.T) {
 	cases := map[string]string{

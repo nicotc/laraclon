@@ -228,6 +228,15 @@ func (d *Daemon) buildProject(ctx context.Context, j *Job, p NewProject, name, d
 	if mail, ok := d.env.DefaultInstance(versions.Mailpit); ok {
 		values = append(values, [2]string{"MAIL_MAILER", "smtp"}, [2]string{"MAIL_HOST", "127.0.0.1"}, [2]string{"MAIL_PORT", fmt.Sprint(mail.Instance.Port)})
 	}
+	// `npm run dev` serves HTTPS with the site's certificate (laravel-vite-plugin reads these).
+	if p.Kit != "" {
+		if vite, err := d.viteEnv(sites.Site{Host: name + "." + d.env.Cfg.TLD}); err == nil {
+			for _, kv := range vite {
+				k, v, _ := strings.Cut(kv, "=")
+				values = append(values, [2]string{k, v})
+			}
+		}
+	}
 	if err := editEnvFile(filepath.Join(dir, ".env"), values); err != nil {
 		return err
 	}

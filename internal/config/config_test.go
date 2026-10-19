@@ -19,6 +19,21 @@ func TestSetExtensionWritesOnlyRealChanges(t *testing.T) {
 	}
 }
 
+func TestSetSiteProcessKeepsOneEntryPerProcess(t *testing.T) {
+	var c Config
+	c.SetSiteProcess("tienda", "vite", true)
+	c.SetSiteProcess("tienda", "queue", true)
+	c.SetSiteProcess("tienda", "vite", true) // twice: still once
+	if got := c.Sites["tienda"].Processes; !reflect.DeepEqual(got, []string{"queue", "vite"}) {
+		t.Fatalf("got %v", got)
+	}
+	c.SetSiteProcess("tienda", "queue", false)
+	c.SetSiteProcess("tienda", "vite", false)
+	if _, ok := c.Sites["tienda"]; ok {
+		t.Fatal("with no process on, the site leaves no section")
+	}
+}
+
 func TestSiteSettingsAreDroppedWhenEmpty(t *testing.T) {
 	var c Config
 	c.SetSitePHP("tienda", "7.2")

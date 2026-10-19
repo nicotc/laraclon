@@ -192,6 +192,7 @@ function renderSites() {
     el('td', {}, x.kind),
     el('td', {}, serverPicker(x)),
     el('td', {}, phpPicker(x)),
+    el('td', {}, processToggles(x)),
     el('td', { class: 'folder' }, x.doc_root),
     el('td', {}, String(x.port)),
   )));
@@ -209,6 +210,24 @@ function serverPicker(site) {
     ...Object.entries(names).map(([k, label]) => el('option', { value: k, selected: site.server === k }, label)));
   sel.addEventListener('change', () => act('POST', '/api/sites/server', { site: site.name, server: sel.value }));
   return sel;
+}
+
+const PROCESS_HELP = {
+  vite: 'npm run dev con HTTPS (el certificado del sitio)',
+  queue: 'php artisan queue:work',
+  schedule: 'php artisan schedule:work',
+};
+
+// processToggles switches a site's processes (Vite, the queue, the scheduler); one that is on also
+// starts with «Iniciar todo».
+function processToggles(site) {
+  if (!site.processes || !site.processes.length) return el('span', { class: 'svc-sub' }, '—');
+  return el('div', { class: 'procs' }, ...site.processes.map(p => {
+    const key = `proc-${site.name}-${p.id}`;
+    const title = `${PROCESS_HELP[p.id]} · ${p.on ? p.state + ' (clic para detenerlo)' : 'clic para arrancarlo'}`;
+    return el('button', { class: 'proc' + (p.on ? ' on' : '') + (p.state === 'en marcha' ? ' running' : ''), disabled: !!ui.pending[key], title,
+      onclick: () => act('POST', '/api/sites/process', { site: site.name, id: p.id, on: !p.on }, key) }, p.label);
+  }));
 }
 
 // phpPicker keeps a site on the global PHP or pins another installed version (older projects).

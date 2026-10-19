@@ -58,7 +58,8 @@ type Status struct {
 // SiteStatus is one site as shown to the user.
 type SiteStatus struct {
 	sites.Site
-	URL string `json:"url"`
+	URL       string          `json:"url"`
+	Processes []ProcessStatus `json:"processes,omitempty"`
 }
 
 // Status collects the current state.
@@ -101,9 +102,12 @@ func (d *Daemon) Status() Status {
 	}
 	d.mu.Lock()
 	st.ProxyUp = d.proxyUp
-	for _, s := range d.sites {
-		st.Sites = append(st.Sites, SiteStatus{Site: s, URL: d.SiteURL(s)})
+	list := append([]sites.Site(nil), d.sites...)
+	d.mu.Unlock()
+	for _, s := range list {
+		st.Sites = append(st.Sites, SiteStatus{Site: s, URL: d.SiteURL(s), Processes: d.processStatuses(s)})
 	}
+	d.mu.Lock()
 	st.Warnings = append(st.Warnings, d.warnings...)
 	st.Problems = map[string]string{}
 	for k, v := range d.problems {
@@ -251,6 +255,17 @@ func (d *Daemon) Handler() http.Handler {
 			return nil, err
 		}
 		err := d.SetSitePHP(req.Site, req.PHP)
+		return d.Status(), err
+	})
+	api("POST /api/sites/process", func(r *http.Request) (any, error) {
+		var req struct {
+			Site, ID string
+			On       bool
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		err := d.SetSiteProcess(req.Site, req.ID, req.On)
 		return d.Status(), err
 	})
 	api("POST /api/projects", func(r *http.Request) (any, error) {

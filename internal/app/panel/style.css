@@ -150,3 +150,9 @@ footer { margin-top: 24px; }
 .kit > span { display: flex; flex-direction: column; }
 .job.error span { white-space: pre-wrap; }
 #project-jobs .job { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; background: #fff; }
+
+/* Procesos de cada sitio (Vite, cola, tareas) */
+.procs { display: flex; gap: 4px; flex-wrap: wrap; }
+.proc { font-size: 12px; padding: 1px 9px; border-radius: 999px; background: #fff; color: var(--muted); border: 1px solid var(--line); }
+.proc.on { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); font-weight: 600; }
+.proc.on.running::before { content: "● "; color: var(--ok); }
