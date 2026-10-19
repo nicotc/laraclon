@@ -15,7 +15,7 @@ import (
 const serviceUsage = `
   clon service list                       bases de datos: versiones, puertos y estado
   clon service remote [mysql|mariadb]     versiones que se pueden instalar (descargas oficiales)
-  clon service install mysql 8.4          instala una serie (o versión exacta) de MySQL o MariaDB
+  clon service install mysql 8.4          instala una serie o versión de MySQL, MariaDB o Nginx
   clon service start | stop <servicio>    inicia o detiene una instancia, por ejemplo mysql-8.4
   clon service port <servicio> <puerto>   cambia su puerto
   clon service default <servicio>         la hace predeterminada (puerto 3306 y atajo mysql)
@@ -27,7 +27,7 @@ const serviceUsage = `
 // on a local daemon object that only edits settings and files.
 type serviceOps interface {
 	status() (app.Status, error)
-	catalog(kind versions.Component, refresh bool) ([]install.DBRelease, error)
+	catalog(kind versions.Component, refresh bool) ([]install.Release, error)
 	install(kind versions.Component, version string) (app.Job, error)
 	jobs() ([]app.Job, error)
 	action(name, key string) error
@@ -41,8 +41,8 @@ func (r remoteOps) status() (app.Status, error) {
 	return st, r.c.Call("GET", "/api/status", nil, &st)
 }
 
-func (r remoteOps) catalog(kind versions.Component, refresh bool) ([]install.DBRelease, error) {
-	var list []install.DBRelease
+func (r remoteOps) catalog(kind versions.Component, refresh bool) ([]install.Release, error) {
+	var list []install.Release
 	q := "/api/catalog?kind=" + string(kind)
 	if refresh {
 		q += "&refresh=1"
@@ -78,7 +78,7 @@ func (r remoteOps) settings(key string, port *int, autostart *bool) error {
 type localOps struct{ d *app.Daemon }
 
 func (l localOps) status() (app.Status, error) { return l.d.Status(), nil }
-func (l localOps) catalog(kind versions.Component, refresh bool) ([]install.DBRelease, error) {
+func (l localOps) catalog(kind versions.Component, refresh bool) ([]install.Release, error) {
 	return l.d.Catalog(context.Background(), kind, refresh)
 }
 func (l localOps) install(kind versions.Component, version string) (app.Job, error) {
@@ -136,7 +136,7 @@ func cmdServices(env *app.Env, args []string) error {
 		printDatabases(st)
 		return nil
 	case "remote":
-		kinds := app.DBKinds
+		kinds := install.Installable
 		if len(args) > 1 {
 			kinds = []versions.Component{versions.Component(strings.ToLower(args[1]))}
 		}
@@ -196,7 +196,7 @@ func cmdServices(env *app.Env, args []string) error {
 	return fmt.Errorf("uso:%s", serviceUsage)
 }
 
-func sourceOf(list []install.DBRelease) string {
+func sourceOf(list []install.Release) string {
 	if len(list) > 0 {
 		return "descargas de " + list[0].Source
 	}
@@ -230,7 +230,12 @@ func followJob(ops serviceOps, j app.Job) error {
 				if cur.Error != "" {
 					return fmt.Errorf("%s", cur.Error)
 				}
-				fmt.Printf("Instalado: %s %s (servicio %s)\n", versions.Component(cur.Kind).Name(), cur.Version, app.InstanceKey(versions.Component(cur.Kind), cur.Series))
+				kind := versions.Component(cur.Kind)
+				if kind == versions.Nginx {
+					fmt.Printf("Instalado: Nginx %s. Elígelo en un sitio con 'clon site server <sitio> nginx'\n", cur.Version)
+					return nil
+				}
+				fmt.Printf("Instalado: %s %s (servicio %s)\n", kind.Name(), cur.Version, app.InstanceKey(kind, cur.Series))
 				return nil
 			}
 		}

@@ -3,6 +3,7 @@ package install
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,15 +65,45 @@ func TestMariaDBWindowsZipFromTheAPI(t *testing.T) {
 	}
 }
 
-func TestFindDBRelease(t *testing.T) {
-	list := []DBRelease{{Kind: versions.MySQL, Series: "8.4", Version: "8.4.11"}, {Kind: versions.MySQL, Series: "8.0", Version: "8.0.46"}}
-	if r, err := FindDBRelease(list, "8.0"); err != nil || r.Version != "8.0.46" {
+func TestPickNginx(t *testing.T) {
+	rel := func(tag, zip string) githubRelease {
+		r := githubRelease{Tag: tag}
+		r.Assets = append(r.Assets, struct {
+			Name   string `json:"name"`
+			URL    string `json:"browser_download_url"`
+			Digest string `json:"digest"`
+			Size   int64  `json:"size"`
+		}{Name: zip, URL: "https://github.com/nginx/nginx/releases/download/" + tag + "/" + zip, Digest: "sha256:" + strings.Repeat("a", 64), Size: 2800000})
+		return r
+	}
+	got := pickNginx([]githubRelease{
+		rel("release-1.31.7", "nginx-1.31.7.zip"), rel("release-1.31.6", "nginx-1.31.6.zip"),
+		rel("release-1.30.6", "nginx-1.30.6.zip"), rel("release-1.30.5", "nginx-1.30.5.zip"),
+		rel("release-1.29.9", "nginx-1.29.9.zip"), rel("release-1.28.3", "nginx-1.28.3.zip"),
+		rel("release-1.27.2", "nginx-1.27.2.zip"),
+	})
+	var desc []string
+	for _, r := range got {
+		desc = append(desc, r.Version+" "+r.Note)
+	}
+	want := []string{"1.31.7 mainline", "1.30.6 estable", "1.28.3 estable anterior"}
+	if !reflect.DeepEqual(desc, want) {
+		t.Fatalf("got %v, want %v", desc, want)
+	}
+	if got[0].SHA256 != strings.Repeat("a", 64) {
+		t.Fatal("the SHA-256 from GitHub must be kept")
+	}
+}
+
+func TestFindRelease(t *testing.T) {
+	list := []Release{{Kind: versions.MySQL, Series: "8.4", Version: "8.4.11"}, {Kind: versions.MySQL, Series: "8.0", Version: "8.0.46"}}
+	if r, err := FindRelease(list, "8.0"); err != nil || r.Version != "8.0.46" {
 		t.Fatalf("by series: %+v %v", r, err)
 	}
-	if r, err := FindDBRelease(list, "8.4.11"); err != nil || r.Series != "8.4" {
+	if r, err := FindRelease(list, "8.4.11"); err != nil || r.Series != "8.4" {
 		t.Fatalf("by version: %+v %v", r, err)
 	}
-	if _, err := FindDBRelease(list, "5.7"); err == nil {
+	if _, err := FindRelease(list, "5.7"); err == nil {
 		t.Fatal("a missing series must be reported")
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +20,7 @@ import (
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/hosts"
 	"github.com/nicotc/laraclon/internal/install"
+	"github.com/nicotc/laraclon/internal/nginx"
 	"github.com/nicotc/laraclon/internal/php"
 	"github.com/nicotc/laraclon/internal/ports"
 	"github.com/nicotc/laraclon/internal/proxy"
@@ -35,6 +35,11 @@ const (
 	apacheAdminPort = 20000
 	sitePortFrom    = 20001
 	sitePortTo      = 29999
+	// Sites that choose Nginx get a second, separate port, so moving a site between servers never
+	// has to wait for one of them to release a port.
+	nginxAdminPort = 30000
+	nginxPortFrom  = 30001
+	nginxPortTo    = 39999
 )
 
 // Daemon is the long-running part of clon: it owns the services, the front proxy and the API.
@@ -44,7 +49,8 @@ type Daemon struct {
 	ca    *ca.Authority
 	table *proxy.Table
 	front *proxy.Server
-	store *sites.PortStore
+	store *sites.PortStore // Apache port of every site
+	ngx   *sites.PortStore // Nginx port of the sites that use Nginx
 	token string
 
 	mu          sync.Mutex
@@ -58,6 +64,8 @@ type Daemon struct {
 	controlPort int
 	trusted     bool
 	trustedAt   time.Time
+	servicesOn  bool   // between «Iniciar todo» and «Detener todo»
+	nginxPath   string // folder of the nginx that is running
 
 	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
 	cfgMu sync.Mutex
@@ -83,6 +91,10 @@ func NewDaemon(env *Env) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	ngx, err := sites.LoadPorts(env.Home.State("site-ports-nginx.json"))
+	if err != nil {
+		return nil, err
+	}
 	tok := make([]byte, 24)
 	rand.Read(tok)
 	d := &Daemon{
@@ -91,6 +103,7 @@ func NewDaemon(env *Env) (*Daemon, error) {
 		ca:       authority,
 		table:    &proxy.Table{},
 		store:    store,
+		ngx:      ngx,
 		token:    hex.EncodeToString(tok),
 		problems: map[string]string{},
 		quit:     make(chan struct{}),
@@ -172,9 +185,12 @@ func (d *Daemon) Shutdown() {
 	}
 }
 
-// StartAll starts the databases, the PHP pool, Apache and the front proxy, collecting problems
-// instead of stopping at the first one.
+// StartAll starts the databases, the PHP pool, the web servers and the front proxy, collecting
+// problems instead of stopping at the first one.
 func (d *Daemon) StartAll() {
+	d.mu.Lock()
+	d.servicesOn = true
+	d.mu.Unlock()
 	if missing := vcredist.Missing(); len(missing) > 0 {
 		d.setProblem("visual-c++", fmt.Errorf("falta el runtime de Visual C++ 2015-2022 x64 (%s): sin él no arrancan PHP, Apache ni MySQL. Instálalo con 'clon vcredist install' y luego 'clon import laragon'", strings.Join(missing, ", ")))
 	} else {
@@ -188,12 +204,17 @@ func (d *Daemon) StartAll() {
 	d.cfgMu.Unlock()
 	d.setProblem("php", d.startPHP())
 	d.setProblem("apache", d.startApache())
+	d.setProblem("nginx", d.syncNginx())
 	d.setProblem("proxy", d.startProxy())
 	d.changed()
 }
 
 // StopAll stops the services; the front proxy keeps answering with "server stopped" pages.
 func (d *Daemon) StopAll() {
+	d.mu.Lock()
+	d.servicesOn = false
+	d.mu.Unlock()
+	d.sup.Stop(nginx.ServiceName)
 	d.sup.Stop(apache.ServiceName)
 	d.sup.StopMatching(func(n string) bool { return strings.HasPrefix(n, "php-cgi-") })
 	d.sup.StopMatching(func(n string) bool { return strings.HasPrefix(n, "mysql-") || strings.HasPrefix(n, "mariadb-") })
@@ -253,6 +274,9 @@ func (d *Daemon) apacheOptions() (apache.Options, error) {
 		opt.PHPPorts = php.PoolPorts(d.env.Cfg.PHP.BasePort, d.env.Cfg.PHP.PoolSize)
 	}
 	for _, s := range d.sites {
+		if s.Server == config.ServerNginx {
+			continue
+		}
 		opt.Sites = append(opt.Sites, apache.Site{Host: s.Host, Aliases: s.Aliases, DocRoot: s.DocRoot, Port: s.Port, HTTPS: s.HTTPS})
 	}
 	return opt, nil
@@ -313,39 +337,30 @@ func (d *Daemon) startProxy() error {
 	return nil
 }
 
-// Rescan re-reads the project roots, keeps ports stable, updates the proxy and reloads Apache.
+// Rescan re-reads the project roots, keeps ports stable, reconfigures the web servers and updates
+// the proxy.
 func (d *Daemon) Rescan() error {
 	list, warns := sites.Scan(d.env.Cfg)
-	own := map[int]bool{}
+	ownApache, ownNginx := map[int]bool{}, map[int]bool{}
 	d.mu.Lock()
 	for _, s := range d.sites {
-		own[s.Port] = true
+		if s.Server == config.ServerNginx {
+			ownNginx[s.Port] = true
+		} else {
+			ownApache[s.Port] = true
+		}
 	}
 	d.mu.Unlock()
-	if err := d.store.Assign(list, sitePortFrom, sitePortTo, own); err != nil {
-		return err
-	}
-	if err := d.store.Save(); err != nil {
+	if err := assignPorts(list, d.store, d.ngx, ownApache, ownNginx); err != nil {
 		return err
 	}
 	d.mu.Lock()
 	d.sites, d.warnings = list, warns
 	d.mu.Unlock()
 
-	serverLabel := "Apache"
-	if v, err := d.apacheVersion(); err == nil {
-		serverLabel = "Apache " + v.Version
-	}
-	routes := map[string]proxy.Route{}
-	for _, s := range list {
-		backend, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", s.Port))
-		r := proxy.Route{Site: s.Host, Server: serverLabel, Backend: backend, HTTPS: s.HTTPS}
-		routes[s.Host] = r
-		for _, a := range s.Aliases {
-			routes[strings.ToLower(a)] = r
-		}
-	}
-	d.table.Set(routes)
+	// Nginx first: a site moving to Nginx is served there before the proxy points to it.
+	d.setProblem("nginx", d.syncNginx())
+	d.table.Set(d.routes(list))
 
 	// A running Apache picks up the new sites with a graceful restart (no dropped requests).
 	if pid := d.sup.PID(apache.ServiceName); pid != 0 {

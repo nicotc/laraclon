@@ -389,23 +389,32 @@ func (l *jobList) update(j *Job, fn func(*Job)) {
 	l.mu.Unlock()
 }
 
-// Catalog lists the versions of a kind of database that can be installed.
-func (d *Daemon) Catalog(ctx context.Context, kind versions.Component, refresh bool) ([]install.DBRelease, error) {
-	if !isDBKind(kind) {
+// Catalog lists the versions of a component that can be installed.
+func (d *Daemon) Catalog(ctx context.Context, kind versions.Component, refresh bool) ([]install.Release, error) {
+	if !installable(kind) {
 		return nil, fmt.Errorf("%s no se puede instalar desde el catálogo", kind)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	return install.DBCatalog(ctx, d.env.Home, kind, refresh)
+	return install.Catalog(ctx, d.env.Home, kind, refresh)
 }
 
-// InstallService starts installing a series ("8.4") or version of a database from the catalog.
+func installable(kind versions.Component) bool {
+	for _, k := range install.Installable {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// InstallService starts installing a series ("8.4") or version from the catalog.
 func (d *Daemon) InstallService(kind versions.Component, want string) (Job, error) {
 	list, err := d.Catalog(context.Background(), kind, false)
 	if err != nil {
 		return Job{}, err
 	}
-	rel, err := install.FindDBRelease(list, want)
+	rel, err := install.FindRelease(list, want)
 	if err != nil {
 		return Job{}, err
 	}
@@ -429,9 +438,9 @@ func (d *Daemon) InstallService(kind versions.Component, want string) (Job, erro
 	return *j, nil
 }
 
-func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.DBRelease) {
+func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release) {
 	defer j.cancel()
-	v, err := install.InstallDB(ctx, d.env.Home, rel,
+	v, err := install.InstallRelease(ctx, d.env.Home, rel,
 		func(phase string) { d.jobs.update(j, func(j *Job) { j.Phase = phase }) },
 		func(done, total int64) {
 			d.jobs.update(j, func(j *Job) {
@@ -464,9 +473,15 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.DBRelease) 
 			j.Phase = "instalado"
 		}
 	})
-	// The first version of a kind becomes its default, which runs while clon's services do.
-	if err == nil && isDefault {
+	switch {
+	// The first version of a database becomes its default, which runs while clon's services do.
+	case err == nil && isDBKind(rel.Kind) && isDefault:
 		d.StartService(InstanceKey(rel.Kind, rel.Series))
+	// Sites waiting for Nginx start using it.
+	case err == nil && rel.Kind == versions.Nginx:
+		if err := d.Rescan(); err != nil {
+			d.setProblem("sitios", err)
+		}
 	}
 	d.changed()
 }

@@ -29,7 +29,8 @@ type Status struct {
 	PHPVersions  []string            `json:"php_versions"`
 	Node         string              `json:"node"`
 	Apache       string              `json:"apache"`
-	DB           string              `json:"db"` // the default database, e.g. "MySQL 8.4.11"
+	Nginx        string              `json:"nginx"` // version the Nginx sites use ("" when not installed)
+	DB           string              `json:"db"`    // the default database, e.g. "MySQL 8.4.11"
 	DBPort       int                 `json:"db_port"`
 	Databases    []DBGroup           `json:"databases"`
 	Jobs         []Job               `json:"jobs"`
@@ -71,6 +72,9 @@ func (d *Daemon) Status() Status {
 	}
 	if v, err := d.apacheVersion(); err == nil {
 		st.Apache = v.Version
+	}
+	if v, err := d.nginxVersion(); err == nil {
+		st.Nginx = v.Version
 	}
 	if db, ok := d.env.DefaultDB(); ok {
 		st.DB, st.DBPort = db.Kind.Name()+" "+db.Version.Version, db.Instance.Port
@@ -182,6 +186,14 @@ func (d *Daemon) Handler() http.Handler {
 			return nil, err
 		}
 		return map[string]bool{"ok": true}, d.OpenPath(req.Key, req.What)
+	})
+	api("POST /api/sites/server", func(r *http.Request) (any, error) {
+		var req struct{ Site, Server string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		err := d.SetSiteServer(req.Site, req.Server)
+		return d.Status(), err
 	})
 	api("GET /api/jobs", func(*http.Request) (any, error) { return d.Jobs(), nil })
 	api("POST /api/jobs/cancel", func(r *http.Request) (any, error) {

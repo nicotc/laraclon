@@ -59,6 +59,18 @@ function Invoke-Curl([string]$arguments) {
 }
 
 Step 'Entorno del sandbox' {
+    # Windows Sandbox has died twice with 0x80370106 ("the virtual machine or container exited
+    # unexpectedly") right after installs or opening Edge; reports link it to Windows and Edge
+    # updating themselves inside the sandbox. This throwaway machine needs neither.
+    try {
+        $edgeUpdate = 'HKLM:\SOFTWARE\Policies\Microsoft\EdgeUpdate'
+        New-Item -Path $edgeUpdate -Force | Out-Null
+        New-ItemProperty -Path $edgeUpdate -Name UpdateDefault -Value 0 -PropertyType DWord -Force | Out-Null
+        New-ItemProperty -Path $edgeUpdate -Name AutoUpdateCheckPeriodMinutes -Value 0 -PropertyType DWord -Force | Out-Null
+        Get-ScheduledTask -TaskName 'MicrosoftEdgeUpdate*' -ErrorAction SilentlyContinue | Disable-ScheduledTask -ErrorAction SilentlyContinue | Out-Null
+        Stop-Service wuauserv -Force -ErrorAction SilentlyContinue
+        Set-Service wuauserv -StartupType Disabled -ErrorAction SilentlyContinue
+    } catch {}
     $os = Get-CimInstance Win32_OperatingSystem
     $script:admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)

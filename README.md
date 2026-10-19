@@ -13,6 +13,7 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
 - **Proxy frontal propio (80/443).** Presenta un certificado por sitio, firmado por una CA local, y redirige HTTP a HTTPS. Los sitios desconocidos reciben una página de error útil.
 - **PHP global con cambio en caliente.** Funciona con cualquier versión, incluida la 7.2. PHP corre por FastCGI (un pool de `php-cgi`), así que Apache no se reinicia al cambiarlo, y la terminal, Composer y Artisan siguen al mismo PHP.
 - **Apache 2.4** con un puerto interno por sitio y `.htaccess` (`AllowOverride All`). PHP recibe `HTTPS=on` y las URLs correctas.
+- **Nginx por sitio.** Cada sitio elige Apache o Nginx en la pestaña «Sitios» (o con `clon site server tienda nginx`), sin cambiar su dirección `.test`. Nginx se instala desde el catálogo (github.com/nginx/nginx, con su SHA-256 comprobado), usa el mismo PHP global, arranca solo cuando algún sitio lo elige y se recarga en caliente.
 - **MySQL y MariaDB, varias versiones a la vez.** La pestaña «Servicios» del panel (o `clon service`) instala versiones desde un catálogo de descargas oficiales:
   - MySQL de cdn.mysql.com, con la firma de Oracle comprobada.
   - MariaDB de mariadb.org, con su SHA-256 comprobado.
@@ -93,6 +94,8 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon service start` · `stop` · `default` · `uninstall mysql-8.4` | Una instancia: iniciar, detener, hacerla predeterminada o quitarla (los datos se conservan) |
 | `clon service port mysql-8.4 3307` · `autostart mysql-8.4 on` | Su puerto y si arranca con «Iniciar todo» |
 | `clon mysql laragon-data` · `own-data` | Usa las bases de Laragon o la carpeta de datos propia |
+| `clon site server tienda nginx` · `apache` | Servidor web de un sitio |
+| `clon service install nginx 1.30` | Instala Nginx desde el catálogo |
 | `clon ca status` · `trust` · `untrust` | CA local para HTTPS |
 | `clon hosts status` · `sync` | Bloque gestionado del archivo `hosts` |
 | `clon path add` · `remove` | Atajos de clon en el PATH de tu usuario |
@@ -126,6 +129,7 @@ internal/app     servicio principal y API     internal/hosts       bloque del ar
 internal/apache  httpd.conf y control         internal/supervisor  procesos y job objects
 internal/php     php.ini y pool de php-cgi    internal/ports       puertos libres y reservados
 internal/mysql   MySQL y MariaDB: my.ini      internal/install     descargas oficiales verificadas
+internal/nginx   nginx.conf y control
 internal/laragon importación de Laragon       internal/versions    catálogo de versiones
 ```
 
@@ -148,6 +152,7 @@ En Windows 11, junto a Laragon y en puertos alternativos:
   - Al cambiar la predeterminada, el atajo `mysql` la sigue.
   - «Iniciar todo» arranca solo las predeterminadas y las marcadas.
   - Cancelar una descarga no deja restos. Desinstalar borra los programas descargados, conserva los datos y nunca toca los archivos de Laragon.
+- **Nginx:** un sitio pasa de Apache a Nginx (el 1.22 de Laragon y el 1.30 descargado) y vuelve, y PHP ve lo mismo con los dos: `HTTPS=on`, el puerto público y la URI enrutada a `index.php`. Al instalar otra versión, Nginx cambia a ella solo, y se detiene cuando ningún sitio lo usa.
 
 En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 25 pasos de `probar-en-sandbox.ps1`:
 
@@ -161,8 +166,7 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 25 p
 
 - **Fase 1 (núcleo), pendiente:** descarga directa de Apache.
 - **Fase 2, en este orden:**
-  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez.
-  - Nginx por sitio.
+  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx por sitio.
   - FrankenPHP por sitio.
   - MongoDB, PostgreSQL, Redis, Mailpit y Meilisearch.
   - Varias versiones de Apache, incluidos perfiles legacy con su propio PHP.

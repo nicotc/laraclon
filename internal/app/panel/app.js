@@ -4,11 +4,10 @@ let state = null;
 // Lo que el usuario está haciendo y debe sobrevivir a cada refresco del estado.
 const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {} };
 
-const DB_KINDS = ['mysql', 'mariadb'];
+const INSTALLABLE = ['mysql', 'mariadb', 'nginx'];
 const LOGO = { apache: 'A', nginx: 'N', frankenphp: 'F', mysql: 'My', mariadb: 'Ma', postgres: 'Pg', mongodb: 'Mo', redis: 'R', mailpit: '✉', meilisearch: 'Me' };
 const SOON = {
   web: [
-    { kind: 'nginx', name: 'Nginx', desc: 'Servidor web: cada sitio podrá elegir Apache o Nginx.' },
     { kind: 'frankenphp', name: 'FrankenPHP', desc: 'Servidor con su propio PHP; más adelante, modo worker para Laravel Octane.' },
   ],
   db: [
@@ -125,14 +124,27 @@ function renderAlerts(s) {
 
 function renderSites() {
   if (!state) return;
+  const tbody = document.getElementById('sites');
+  if (tbody.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;
   const q = document.getElementById('filter').value.toLowerCase();
   const list = (state.sites || []).filter(x => !q || x.host.includes(q) || x.folder.toLowerCase().includes(q));
-  document.getElementById('sites').replaceChildren(...list.map(x => el('tr', {},
+  tbody.replaceChildren(...list.map(x => el('tr', {},
     el('td', {}, el('a', { href: x.url, target: '_blank' }, x.host)),
     el('td', {}, x.kind),
+    el('td', {}, serverPicker(x)),
     el('td', { class: 'folder' }, x.doc_root),
     el('td', {}, String(x.port)),
   )));
+}
+
+// serverPicker lets a site choose Apache or Nginx (only when Nginx is installed).
+function serverPicker(site) {
+  const names = { apache: 'Apache ' + (state.apache || ''), nginx: 'Nginx ' + (state.nginx || '') };
+  if (!state.nginx && site.server !== 'nginx') return el('span', { class: 'svc-sub' }, names.apache);
+  const sel = el('select', { 'aria-label': 'Servidor de ' + site.host },
+    ...['apache', 'nginx'].map(k => el('option', { value: k, selected: site.server === k }, names[k].trim())));
+  sel.addEventListener('change', () => act('POST', '/api/sites/server', { site: site.name, server: sel.value }));
+  return sel;
 }
 
 // ---------- servicios ----------
@@ -149,7 +161,7 @@ function renderServices() {
       el('button', { onclick: openDialog }, '＋ Añadir servicio')),
     phpBar(s),
     el('div', { class: 'group-title' }, 'Servidores web'),
-    el('div', { class: 'grid3' }, apacheCard(s), ...SOON.web.map(soonCard)),
+    el('div', { class: 'grid3' }, apacheCard(s), nginxCard(s), ...SOON.web.map(soonCard)),
     el('div', { class: 'group-title' }, 'Bases de datos'),
     ...dbs.map(dbCard),
     el('div', { class: 'grid3' }, ...SOON.db.map(soonCard)),
@@ -187,6 +199,35 @@ function apacheCard(s) {
     el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' },
       `Atiende ${(s.sites || []).length} sitios, cada uno en su puerto interno, con PHP por FastCGI.`)),
     el('div', { class: 'svc-foot' }, 'Servidor de todos los sitios'));
+}
+
+// nginxGroup describes Nginx like a database group, so the install picker and job lines work alike.
+function nginxGroup(s) {
+  return { kind: 'nginx', name: 'Nginx', instances: s.nginx ? [{ series: s.nginx.split('.').slice(0, 2).join('.') }] : [] };
+}
+
+function nginxCard(s) {
+  const g = nginxGroup(s);
+  const st = (s.services || []).find(x => x.name === 'nginx');
+  const users = (s.sites || []).filter(x => x.server === 'nginx').length;
+  const jobs = (s.jobs || []).filter(j => j.kind === 'nginx' && !ui.dismissed[j.id] && (!j.finished || j.error));
+  const toSites = el('a', { href: '#sitios', onclick: e => { e.preventDefault(); showTab('sitios'); } }, 'Elegirlo en un sitio →');
+  if (!s.nginx) {
+    return el('div', { class: 'svc dashed' },
+      el('div', { class: 'svc-head' }, logo('nginx'), el('div', {}, el('div', { class: 'svc-title' }, 'Nginx'), el('div', { class: 'svc-sub' }, 'sin instalar'))),
+      el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' }, 'Servidor web: cada sitio puede elegir Apache o Nginx.')),
+      ...jobs.map(j => jobLine(j, 'Nginx')),
+      el('div', { class: 'svc-foot' }, ...installPicker(g)));
+  }
+  return el('div', { class: 'svc' },
+    el('div', { class: 'svc-head' }, logo('nginx'),
+      el('div', {}, el('div', { class: 'svc-title' }, 'Nginx'), el('div', { class: 'svc-sub' }, 'versión ' + s.nginx)),
+      el('span', { class: 'spacer' }), statePill(st ? st.state : (users ? 'detenido' : 'sin sitios'))),
+    el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' }, users
+      ? `Atiende ${users === 1 ? '1 sitio' : users + ' sitios'}, con el mismo PHP global.`
+      : 'Ningún sitio lo usa todavía: arranca solo cuando un sitio lo elige en la pestaña Sitios.')),
+    ...jobs.map(j => jobLine(j, 'Nginx')),
+    el('div', { class: 'svc-foot' }, toSites));
 }
 
 function soonCard(x) {
@@ -346,7 +387,7 @@ async function installSeries(kind, series) {
 }
 
 async function loadCatalogs(refreshList) {
-  for (const kind of DB_KINDS) {
+  for (const kind of INSTALLABLE) {
     if (ui.catalog[kind] && !refreshList) continue;
     try {
       ui.catalog[kind] = await call('GET', `/api/catalog?kind=${kind}${refreshList ? '&refresh=1' : ''}`);
@@ -375,14 +416,15 @@ function closeDialog() {
 
 function renderDialog() {
   if (!state) return;
-  const tiles = (state.databases || []).map(g => {
+  const groups = [nginxGroup(state), ...(state.databases || [])];
+  const tiles = groups.map(g => {
     const job = (state.jobs || []).find(j => j.kind === g.kind && !j.finished);
     const cat = ui.catalog[g.kind];
     const n = g.instances.length;
     return el('div', { class: 'tile' + (job ? ' busy' : '') },
       el('div', { class: 'top' }, logo(g.kind),
         el('div', {}, el('div', { class: 'name' }, g.name, ' ', n ? el('span', { class: 'pill' }, n === 1 ? '1 instalada' : `${n} instaladas`) : null),
-          el('div', { class: 'desc' }, 'Base de datos · compatible con MySQL'))),
+          el('div', { class: 'desc' }, g.kind === 'nginx' ? 'Servidor web · por sitio' : 'Base de datos · compatible con MySQL'))),
       job ? jobLine(job, g.name) : el('div', { class: 'act' }, ...installPicker(g)),
       el('div', { class: 'src' }, cat && cat.length ? `Descarga de ${cat[0].source}` : ''));
   });

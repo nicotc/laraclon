@@ -20,6 +20,7 @@ type Config struct {
 	PHP    PHP    `toml:"php"`
 	Node   Node   `toml:"node"`
 	Apache Apache `toml:"apache"`
+	Nginx  Nginx  `toml:"nginx"`
 	Hosts  Hosts  `toml:"hosts"`
 
 	// Services holds the databases by kind ("mysql", "mariadb").
@@ -53,6 +54,17 @@ type Node struct {
 type Apache struct {
 	Version string `toml:"version"`
 }
+
+// Nginx is the version used by the sites that choose Nginx ("" = newest installed).
+type Nginx struct {
+	Version string `toml:"version"`
+}
+
+// Web servers a site can choose.
+const (
+	ServerApache = "apache"
+	ServerNginx  = "nginx"
+)
 
 // LegacyMySQL is the [mysql] section of earlier versions: one server with one data folder.
 type LegacyMySQL struct {
@@ -109,6 +121,28 @@ type SiteSettings struct {
 	PublicDir string   `toml:"public_dir,omitempty"`
 	HTTPS     *bool    `toml:"https,omitempty"`
 	Ignore    bool     `toml:"ignore,omitempty"`
+	Server    string   `toml:"server,omitempty"` // "nginx"; empty means Apache
+}
+
+// ServerFor is the web server of a site: Apache unless the site chose another.
+func (c Config) ServerFor(site string) string {
+	if s := c.Sites[site].Server; s != "" {
+		return s
+	}
+	return ServerApache
+}
+
+// SetSiteServer stores a site's web server (Apache is the default and is not written).
+func (c *Config) SetSiteServer(site, server string) {
+	if c.Sites == nil {
+		c.Sites = map[string]SiteSettings{}
+	}
+	s := c.Sites[site]
+	s.Server = server
+	if server == ServerApache {
+		s.Server = ""
+	}
+	c.Sites[site] = s
 }
 
 func Defaults() Config {

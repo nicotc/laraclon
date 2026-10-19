@@ -31,7 +31,8 @@ type Site struct {
 	Kind    string   `json:"kind"`     // laravel, wordpress, symfony, php, static
 	Aliases []string `json:"aliases,omitempty"`
 	HTTPS   bool     `json:"https"`
-	Port    int      `json:"port"` // internal port on the web server
+	Server  string   `json:"server"` // apache, nginx
+	Port    int      `json:"port"`   // internal port on its web server
 }
 
 // Warning explains why a folder did not become a site.
@@ -144,6 +145,7 @@ func Scan(cfg config.Config) ([]Site, []Warning) {
 				Kind:    kind,
 				Aliases: settings.Aliases,
 				HTTPS:   cfg.HTTPSFor(name),
+				Server:  cfg.ServerFor(name),
 			})
 		}
 	}

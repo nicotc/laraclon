@@ -194,7 +194,7 @@ func cmdSites(env *app.Env) error {
 		warns = w
 	}
 	for _, s := range list {
-		fmt.Printf("  %-34s %-9s %s\n", s.URL, s.Kind, s.DocRoot)
+		fmt.Printf("  %-34s %-9s %-7s %s\n", s.URL, s.Kind, s.Server, s.DocRoot)
 	}
 	for _, w := range warns {
 		fmt.Printf("  omitida: %s (%s)\n", w.Folder, w.Reason)

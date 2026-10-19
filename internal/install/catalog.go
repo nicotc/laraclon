@@ -20,28 +20,31 @@ import (
 	"github.com/nicotc/laraclon/internal/winx"
 )
 
-// DBRelease is a MySQL or MariaDB version that can be installed (official 64-bit zip for Windows).
-type DBRelease struct {
+// Release is a version that can be installed from the catalog (official 64-bit zip for Windows).
+type Release struct {
 	Kind    versions.Component `json:"kind"`
 	Series  string             `json:"series"`
 	Version string             `json:"version"`
 	URL     string             `json:"url"`
-	SHA256  string             `json:"sha256,omitempty"` // MariaDB publishes it; MySQL is checked by Oracle's signature
+	SHA256  string             `json:"sha256,omitempty"` // published by MariaDB and GitHub; MySQL is checked by Oracle's signature
 	Size    int64              `json:"size,omitempty"`
-	Note    string             `json:"note,omitempty"` // "LTS", "Innovation", "sin soporte"…
+	Note    string             `json:"note,omitempty"` // "LTS", "Innovation", "estable"…
 	Source  string             `json:"source"`
 }
+
+// Installable lists what the catalog can install.
+var Installable = []versions.Component{versions.MySQL, versions.MariaDB, versions.Nginx}
 
 const catalogTTL = 6 * time.Hour
 
 type cachedCatalog struct {
-	Fetched  time.Time   `json:"fetched"`
-	Releases []DBRelease `json:"releases"`
+	Fetched  time.Time `json:"fetched"`
+	Releases []Release `json:"releases"`
 }
 
-// DBCatalog lists the versions of a database that can be installed, newest series first. The list is
+// Catalog lists the versions of a component that can be installed, newest series first. The list is
 // kept in state\catalog-<kind>.json for a few hours; refresh asks the official sources again.
-func DBCatalog(ctx context.Context, home paths.Home, kind versions.Component, refresh bool) ([]DBRelease, error) {
+func Catalog(ctx context.Context, home paths.Home, kind versions.Component, refresh bool) ([]Release, error) {
 	file := home.State("catalog-" + string(kind) + ".json")
 	var cached cachedCatalog
 	if data, err := os.ReadFile(file); err == nil && json.Unmarshal(data, &cached) == nil {
@@ -49,13 +52,15 @@ func DBCatalog(ctx context.Context, home paths.Home, kind versions.Component, re
 			return cached.Releases, nil
 		}
 	}
-	var list []DBRelease
+	var list []Release
 	var err error
 	switch kind {
 	case versions.MySQL:
 		list, err = mysqlCatalog(ctx)
 	case versions.MariaDB:
 		list, err = mariadbCatalog(ctx)
+	case versions.Nginx:
+		list, err = nginxCatalog(ctx)
 	default:
 		return nil, fmt.Errorf("%s no se puede instalar desde el catálogo", kind.Name())
 	}
@@ -71,8 +76,8 @@ func DBCatalog(ctx context.Context, home paths.Home, kind versions.Component, re
 	return list, nil
 }
 
-// FindDBRelease picks the catalog entry of a series ("8.4") or exact version ("8.4.11").
-func FindDBRelease(list []DBRelease, want string) (DBRelease, error) {
+// FindRelease picks the catalog entry of a series ("8.4") or exact version ("8.4.11").
+func FindRelease(list []Release, want string) (Release, error) {
 	want = strings.TrimSpace(want)
 	for _, r := range list {
 		if r.Series == want || r.Version == want {
@@ -84,9 +89,9 @@ func FindDBRelease(list []DBRelease, want string) (DBRelease, error) {
 		names = append(names, r.Series)
 	}
 	if len(list) == 0 {
-		return DBRelease{}, fmt.Errorf("el catálogo está vacío")
+		return Release{}, fmt.Errorf("el catálogo está vacío")
 	}
-	return DBRelease{}, fmt.Errorf("%s %s no está en el catálogo; disponibles: %s (otras versiones se importan desde una carpeta)", list[0].Kind.Name(), want, strings.Join(names, ", "))
+	return Release{}, fmt.Errorf("%s %s no está en el catálogo; disponibles: %s (otras versiones se importan desde una carpeta)", list[0].Kind.Name(), want, strings.Join(names, ", "))
 }
 
 // ---- MySQL ----
@@ -105,7 +110,7 @@ var mysqlKnown = []string{"26.7.0", "9.7.2", "8.4.11", "8.0.46", "5.7.44"}
 // 8.0 reached its end of life in April 2026 and 5.7 in October 2023).
 var mysqlNotes = map[string]string{"9.7": "LTS", "8.4": "LTS", "8.0": "sin soporte", "5.7": "sin soporte"}
 
-func mysqlCatalog(ctx context.Context) ([]DBRelease, error) {
+func mysqlCatalog(ctx context.Context) ([]Release, error) {
 	bySeries := map[string][]string{}
 	var refs []struct {
 		Ref string `json:"ref"`
@@ -125,7 +130,7 @@ func mysqlCatalog(ctx context.Context) ([]DBRelease, error) {
 	}
 	series := pickMySQLSeries(bySeries)
 
-	out := make([]DBRelease, len(series))
+	out := make([]Release, len(series))
 	found := make([]bool, len(series))
 	var wg sync.WaitGroup
 	for i, s := range series {
@@ -140,7 +145,7 @@ func mysqlCatalog(ctx context.Context) ([]DBRelease, error) {
 					break
 				}
 				if url, size, err := mysqlZip(ctx, s, v); err == nil {
-					out[i] = DBRelease{Kind: versions.MySQL, Series: s, Version: v, URL: url, Size: size, Note: mysqlNotes[s], Source: "cdn.mysql.com"}
+					out[i] = Release{Kind: versions.MySQL, Series: s, Version: v, URL: url, Size: size, Note: mysqlNotes[s], Source: "cdn.mysql.com"}
 					found[i] = true
 					return
 				}
@@ -148,7 +153,7 @@ func mysqlCatalog(ctx context.Context) ([]DBRelease, error) {
 		}(i, s)
 	}
 	wg.Wait()
-	var list []DBRelease
+	var list []Release
 	for i := range out {
 		if found[i] {
 			list = append(list, out[i])
@@ -233,7 +238,7 @@ type mariadbReleases struct {
 
 var mariadbZipRe = regexp.MustCompile(`^mariadb-(\d+\.\d+\.\d+)-winx64\.zip$`)
 
-func mariadbCatalog(ctx context.Context) ([]DBRelease, error) {
+func mariadbCatalog(ctx context.Context) ([]Release, error) {
 	var root struct {
 		Major []mariadbMajor `json:"major_releases"`
 	}
@@ -241,7 +246,7 @@ func mariadbCatalog(ctx context.Context) ([]DBRelease, error) {
 		return nil, fmt.Errorf("no se pudo leer la lista de versiones de MariaDB (downloads.mariadb.org): %w", err)
 	}
 	majors := supportedMariaDB(root.Major, time.Now())
-	out := make([]DBRelease, len(majors))
+	out := make([]Release, len(majors))
 	found := make([]bool, len(majors))
 	var wg sync.WaitGroup
 	for i, m := range majors {
@@ -258,7 +263,7 @@ func mariadbCatalog(ctx context.Context) ([]DBRelease, error) {
 		}(i, m)
 	}
 	wg.Wait()
-	var list []DBRelease
+	var list []Release
 	for i := range out {
 		if found[i] {
 			list = append(list, out[i])
@@ -283,7 +288,7 @@ func supportedMariaDB(all []mariadbMajor, now time.Time) []mariadbMajor {
 	return out
 }
 
-func mariadbWindowsZip(m mariadbMajor, rel mariadbReleases) (DBRelease, bool) {
+func mariadbWindowsZip(m mariadbMajor, rel mariadbReleases) (Release, bool) {
 	for _, r := range rel.Releases {
 		for _, f := range r.Files {
 			mm := mariadbZipRe.FindStringSubmatch(f.Name)
@@ -299,18 +304,96 @@ func mariadbWindowsZip(m mariadbMajor, rel mariadbReleases) (DBRelease, bool) {
 			}
 			// The API lists http:// links; the same path is served over HTTPS.
 			url := strings.Replace(f.URL, "http://", "https://", 1)
-			return DBRelease{Kind: versions.MariaDB, Series: m.ID, Version: mm[1], URL: url, SHA256: f.Checksum.SHA256, Note: note, Source: "mariadb.org"}, true
+			return Release{Kind: versions.MariaDB, Series: m.ID, Version: mm[1], URL: url, SHA256: f.Checksum.SHA256, Note: note, Source: "mariadb.org"}, true
 		}
 	}
-	return DBRelease{}, false
+	return Release{}, false
+}
+
+// ---- Nginx ----
+
+// nginx.org signs its Windows zips with PGP; the same files are published in the releases of the
+// official repository on GitHub, whose API also gives each file's SHA-256.
+const nginxReleasesURL = "https://api.github.com/repos/nginx/nginx/releases?per_page=100"
+
+type githubRelease struct {
+	Tag        string `json:"tag_name"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
+		Name   string `json:"name"`
+		URL    string `json:"browser_download_url"`
+		Digest string `json:"digest"` // "sha256:…"
+		Size   int64  `json:"size"`
+	} `json:"assets"`
+}
+
+var nginxZipRe = regexp.MustCompile(`^nginx-(\d+\.\d+\.\d+)\.zip$`)
+
+func nginxCatalog(ctx context.Context) ([]Release, error) {
+	var rels []githubRelease
+	if err := download.JSON(ctx, nginxReleasesURL, &rels); err != nil {
+		return nil, fmt.Errorf("no se pudo leer la lista de versiones de Nginx (github.com/nginx/nginx): %w", err)
+	}
+	list := pickNginx(rels)
+	if len(list) == 0 {
+		return nil, fmt.Errorf("github.com/nginx/nginx no devolvió versiones para Windows")
+	}
+	return list, nil
+}
+
+// pickNginx keeps the newest mainline release (odd minor version), the newest stable one (even)
+// and the previous stable series.
+func pickNginx(rels []githubRelease) []Release {
+	newest := map[string]Release{}
+	for _, r := range rels {
+		if r.Draft || r.Prerelease {
+			continue
+		}
+		for _, a := range r.Assets {
+			m := nginxZipRe.FindStringSubmatch(a.Name)
+			sum, ok := strings.CutPrefix(a.Digest, "sha256:")
+			if m == nil || !ok || len(sum) != 64 {
+				continue
+			}
+			s := versions.MajorMinor(m[1])
+			if cur, seen := newest[s]; !seen || versions.Compare(m[1], cur.Version) > 0 {
+				newest[s] = Release{Kind: versions.Nginx, Series: s, Version: m[1], URL: a.URL, SHA256: sum, Size: a.Size, Source: "github.com/nginx/nginx"}
+			}
+		}
+	}
+	var series []string
+	for s := range newest {
+		series = append(series, s)
+	}
+	sort.Slice(series, func(i, j int) bool { return versions.Compare(series[i], series[j]) > 0 })
+	var out []Release
+	stable := 0
+	for _, s := range series {
+		minor := 0
+		fmt.Sscanf(strings.SplitN(s, ".", 2)[1], "%d", &minor)
+		r := newest[s]
+		switch {
+		case minor%2 == 1 && len(out) == 0:
+			r.Note = "mainline"
+		case minor%2 == 0 && stable == 0:
+			r.Note, stable = "estable", 1
+		case minor%2 == 0 && stable == 1:
+			r.Note, stable = "estable anterior", 2
+		default:
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // ---- Install ----
 
-// InstallDB downloads a release, checks it and unpacks it into bin\<kind>\<version>. MariaDB zips
-// must match the SHA-256 the MariaDB Foundation publishes; MySQL's server must carry Oracle's
-// signature. phase receives a short description of each step.
-func InstallDB(ctx context.Context, home paths.Home, rel DBRelease, phase func(string), progress download.Progress) (versions.Version, error) {
+// InstallRelease downloads a release, checks it and unpacks it into bin\<kind>\<version>. Zips must
+// match the published SHA-256 (MariaDB, GitHub); MySQL's server must carry Oracle's signature.
+// phase receives a short description of each step.
+func InstallRelease(ctx context.Context, home paths.Home, rel Release, phase func(string), progress download.Progress) (versions.Version, error) {
 	say := func(s string) {
 		if phase != nil {
 			phase(s)
@@ -339,7 +422,7 @@ func InstallDB(ctx context.Context, home paths.Home, rel DBRelease, phase func(s
 		}
 	}
 	say("comprobando la instalación")
-	v, err := versions.DetectMySQL(dest)
+	v, err := versions.Detect(rel.Kind, dest)
 	if err != nil {
 		return fail(err)
 	}

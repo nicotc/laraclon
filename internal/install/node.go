@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/nicotc/laraclon/internal/download"
 	"github.com/nicotc/laraclon/internal/paths"
@@ -122,7 +123,9 @@ func checksumFor(listing, file string) string {
 	return ""
 }
 
-// unpackFresh extracts into dest, replacing a previous partial attempt.
+// unpackFresh extracts into dest, replacing a previous partial attempt. The final rename is retried:
+// antivirus scanners briefly hold freshly written executables open, and Windows then refuses to
+// move the folder that contains them.
 func unpackFresh(zipPath, dest string) error {
 	tmp := dest + ".unpack"
 	os.RemoveAll(tmp)
@@ -131,5 +134,13 @@ func unpackFresh(zipPath, dest string) error {
 		return err
 	}
 	os.RemoveAll(dest)
-	return os.Rename(tmp, dest)
+	var err error
+	for attempt := 0; attempt < 30; attempt++ {
+		if err = os.Rename(tmp, dest); err == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(100+attempt*100) * time.Millisecond)
+	}
+	os.RemoveAll(tmp)
+	return err
 }
