@@ -5,7 +5,9 @@ let state = null;
 const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {},
   ext: null, extVersion: '', extBusy: {} };
 
-const INSTALLABLE = ['mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'apache', 'nginx', 'frankenphp'];
+const INSTALLABLE = ['mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'apache', 'nginx', 'frankenphp', 'adminer'];
+// Databases Adminer opens (its MongoDB support needs a PHP driver clon does not set up for it).
+const ADMINER_KINDS = ['mysql', 'mariadb', 'postgresql'];
 // Services by section of the Servicios tab, in display order.
 const DB_KINDS = ['mysql', 'mariadb', 'postgresql', 'mongodb'];
 const OTHER_KINDS = ['redis', 'mailpit', 'meilisearch'];
@@ -25,7 +27,7 @@ const SERVERS = {
   frankenphp: { name: 'FrankenPHP', version: s => s.frankenphp, php: s => `con su propio PHP ${s.frankenphp_php || ''}`.trim(),
     desc: 'Servidor con su propio PHP integrado; más adelante, modo worker para Laravel Octane.' },
 };
-const LOGO = { apache: 'A', nginx: 'N', frankenphp: 'F', mysql: 'My', mariadb: 'Ma', postgresql: 'Pg', mongodb: 'Mo', redis: 'R', mailpit: '✉', meilisearch: 'Me' };
+const LOGO = { apache: 'A', nginx: 'N', frankenphp: 'F', mysql: 'My', mariadb: 'Ma', postgresql: 'Pg', mongodb: 'Mo', redis: 'R', mailpit: '✉', meilisearch: 'Me', adminer: 'Ad' };
 
 // A kind is shown as a full card when it can be installed or something of it is installed.
 function isAvailable(g) {
@@ -222,7 +224,39 @@ function renderServices() {
     el('div', { class: 'grid3' }, apacheCard(s), serverCard(s, 'nginx'), serverCard(s, 'frankenphp')),
     ...section('Bases de datos', DB_KINDS),
     ...section('Caché, búsqueda y correo', OTHER_KINDS),
+    el('div', { class: 'group-title' }, 'Herramientas'),
+    el('div', { class: 'grid3' }, adminerCard(s)),
   );
+}
+
+// adminerGroup describes Adminer like a database group, so the install picker and job lines work alike.
+function adminerGroup(s) {
+  return { kind: 'adminer', name: 'Adminer', instances: s.adminer ? [{ series: s.adminer.split('.').slice(0, 2).join('.') }] : [] };
+}
+
+function adminerCard(s) {
+  const st = (s.services || []).find(x => x.name === 'adminer');
+  const jobs = (s.jobs || []).filter(j => j.kind === 'adminer' && !ui.dismissed[j.id] && (!j.finished || j.error));
+  if (!s.adminer) {
+    return el('div', { class: 'svc dashed' },
+      el('div', { class: 'svc-head' }, logo('adminer'), el('div', {}, el('div', { class: 'svc-title' }, 'Adminer'), el('div', { class: 'svc-sub' }, 'sin instalar'))),
+      el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' }, 'Las bases de datos en el navegador (MySQL, MariaDB, PostgreSQL y SQLite), en db.localhost.')),
+      ...jobs.map(j => jobLine(j, 'Adminer')),
+      el('div', { class: 'svc-foot' }, ...installPicker(adminerGroup(s))));
+  }
+  return el('div', { class: 'svc' },
+    el('div', { class: 'svc-head' }, logo('adminer'),
+      el('div', {}, el('div', { class: 'svc-title' }, 'Adminer'), el('div', { class: 'svc-sub' }, 'versión ' + s.adminer)),
+      el('span', { class: 'spacer' }), statePill(st ? st.state : 'detenido')),
+    el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' }, 'Entra con root (MySQL y MariaDB) o postgres, sin contraseña. Solo responde a este equipo.')),
+    ...jobs.map(j => jobLine(j, 'Adminer')),
+    el('div', { class: 'svc-foot' }, el('a', { href: s.adminer_url, target: '_blank' }, 'Abrir ' + s.adminer_url.replace(/\/$/, '') + ' ↗')));
+}
+
+// adminerLink opens Adminer on one instance, with its server and user already filled in.
+function adminerLink(kind, port) {
+  const q = kind === 'postgresql' ? `pgsql=127.0.0.1:${port}&username=postgres` : `server=127.0.0.1:${port}&username=root`;
+  return state.adminer_url + '?' + q;
 }
 
 function chips() {
@@ -396,6 +430,7 @@ function instanceRow(g, i) {
 function instanceMenu(g, i) {
   const item = (text, fn, cls) => el('div', { class: 'item' + (cls ? ' ' + cls : ''), onclick: e => { e.stopPropagation(); ui.menu = null; renderServices(); fn(); } }, text);
   return el('div', { class: 'menu' },
+    ADMINER_KINDS.includes(g.kind) && state.adminer_url ? item('Abrir en Adminer', () => window.open(adminerLink(g.kind, i.port), '_blank')) : null,
     item('Ver log', () => act('POST', '/api/services/open', { key: i.key, what: 'log' })),
     item('Abrir carpeta de datos', () => act('POST', '/api/services/open', { key: i.key, what: 'data' })),
     item('Copiar datos de conexión (.env)', () => copyEnv(g, i)),
@@ -568,7 +603,7 @@ function closeDialog() {
 function renderDialog() {
   if (!state) return;
   const all = [...DB_KINDS, ...OTHER_KINDS].map(groupOf);
-  const groups = [apacheGroup(state), serverGroup(state, 'nginx'), serverGroup(state, 'frankenphp'), ...all.filter(isAvailable)];
+  const groups = [apacheGroup(state), serverGroup(state, 'nginx'), serverGroup(state, 'frankenphp'), ...all.filter(isAvailable), adminerGroup(state)];
   const tiles = groups.map(g => {
     const job = (state.jobs || []).find(j => j.kind === g.kind && !j.finished);
     const cat = ui.catalog[g.kind];
@@ -576,7 +611,8 @@ function renderDialog() {
     return el('div', { class: 'tile' + (job ? ' busy' : '') },
       el('div', { class: 'top' }, logo(g.kind),
         el('div', {}, el('div', { class: 'name' }, g.name, ' ', n ? el('span', { class: 'pill' }, n === 1 ? '1 instalada' : `${n} instaladas`) : null),
-          el('div', { class: 'desc' }, { apache: 'Servidor web de los sitios', nginx: 'Servidor web · por sitio', frankenphp: 'Servidor web con su propio PHP · por sitio' }[g.kind] || KIND_INFO[g.kind].desc))),
+          el('div', { class: 'desc' }, { apache: 'Servidor web de los sitios', nginx: 'Servidor web · por sitio', frankenphp: 'Servidor web con su propio PHP · por sitio',
+            adminer: 'Bases de datos en el navegador · db.localhost' }[g.kind] || KIND_INFO[g.kind].desc))),
       job ? jobLine(job, g.name) : el('div', { class: 'act' }, ...installPicker(g)),
       el('div', { class: 'src' }, cat && cat.length ? `Descarga de ${cat[0].source}` : ''));
   });

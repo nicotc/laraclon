@@ -224,6 +224,7 @@ func (d *Daemon) StartAll() {
 	d.setProblem("apache", d.startApache())
 	d.setProblem("nginx", d.syncNginx())
 	d.setProblem("frankenphp", d.syncFrankenPHP())
+	d.setProblem("adminer", d.startAdminer(false))
 	d.setProblem("proxy", d.startProxy())
 	d.changed()
 }
@@ -233,6 +234,7 @@ func (d *Daemon) StopAll() {
 	d.mu.Lock()
 	d.servicesOn = false
 	d.mu.Unlock()
+	d.sup.Stop(adminerService)
 	d.sup.Stop(nginx.ServiceName)
 	d.sup.Stop(frankenphp.ServiceName)
 	d.sup.Stop(apache.ServiceName)
@@ -506,6 +508,9 @@ func (d *Daemon) UsePHP(want string) (versions.Version, error) {
 	d.sup.StopMatching(func(n string) bool { return global[n] })
 	err := d.startPHP()
 	d.setProblem("php", err)
+	if d.sup.PID(adminerService) != 0 {
+		d.setProblem("adminer", d.startAdminer(true)) // Adminer runs on the global PHP
+	}
 	// A site that pinned the old or the new global version moves between pools.
 	if d.anyPinned() {
 		if err := d.Rescan(); err != nil {

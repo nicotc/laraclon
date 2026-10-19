@@ -33,6 +33,7 @@ var programs = map[Component][]string{
 	PostgreSQL:  {`bin\postgres.exe`},
 	Mailpit:     {"mailpit.exe"},
 	Meilisearch: {"meilisearch.exe"},
+	Adminer:     {"adminer.php"},
 }
 
 // Program is the main executable of a component inside its folder ("" when it is not there).
@@ -263,6 +264,29 @@ func DetectFrankenPHP(dir string) (Version, error) {
 	return Version{Component: FrankenPHP, Version: m[1], Path: dir, Arch: "x64", PHP: m[2]}, nil
 }
 
+var adminerRe = regexp.MustCompile(`@version (\d+\.\d+\.\d+)`)
+
+// DetectAdminer reads the version from the header of adminer.php ("@version 6.1.2"); it is a PHP
+// script, so nothing is run.
+func DetectAdminer(dir string) (Version, error) {
+	file := Program(Adminer, dir)
+	if file == "" {
+		return Version{}, fmt.Errorf("no hay adminer.php en %s", dir)
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return Version{}, err
+	}
+	defer f.Close()
+	head := make([]byte, 4096)
+	n, _ := f.Read(head)
+	m := adminerRe.FindSubmatch(head[:n])
+	if m == nil {
+		return Version{}, fmt.Errorf("versión de Adminer no reconocida en %s", file)
+	}
+	return Version{Component: Adminer, Version: string(m[1]), Path: dir}, nil
+}
+
 // Detect dispatches on the component kind.
 func Detect(c Component, dir string) (Version, error) {
 	switch c {
@@ -288,6 +312,8 @@ func Detect(c Component, dir string) (Version, error) {
 		return DetectMailpit(dir)
 	case Meilisearch:
 		return DetectMeilisearch(dir)
+	case Adminer:
+		return DetectAdminer(dir)
 	}
 	return Version{}, fmt.Errorf("componente desconocido: %s", c)
 }

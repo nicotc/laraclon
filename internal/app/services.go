@@ -491,6 +491,12 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release) {
 	// A downloaded Apache becomes the one that serves the sites.
 	case err == nil && rel.Kind == versions.Apache:
 		d.UseApache(v.Version)
+	// Adminer opens at https://db.localhost right away.
+	case err == nil && rel.Kind == versions.Adminer:
+		if err := d.Rescan(); err != nil {
+			d.setProblem("sitios", err)
+		}
+		d.setProblem("adminer", d.startAdminer(true))
 	}
 	d.changed()
 }

@@ -323,7 +323,7 @@ func (e *Env) CheckPort(key string, port int) error {
 			}
 		}
 	}
-	own := map[int]string{e.Cfg.Proxy.HTTPPort: "el proxy", e.Cfg.Proxy.HTTPSPort: "el proxy", apacheAdminPort: "Apache", nginxAdminPort: "Nginx", frankenAdminPort: "FrankenPHP"}
+	own := map[int]string{e.Cfg.Proxy.HTTPPort: "el proxy", e.Cfg.Proxy.HTTPSPort: "el proxy", apacheAdminPort: "Apache", nginxAdminPort: "Nginx", frankenAdminPort: "FrankenPHP", adminerPort: "Adminer"}
 	for i := 0; i < e.Cfg.PHP.PoolSize; i++ {
 		own[e.Cfg.PHP.BasePort+i] = "el grupo de PHP"
 	}

@@ -6,6 +6,21 @@ import (
 	"testing"
 )
 
+func TestDetectAdminerReadsTheHeader(t *testing.T) {
+	dir := t.TempDir()
+	head := "<?php\n/** Adminer - Compact database management\n* @link https://www.adminer.org/\n* @version 6.1.2\n*/namespace Adminer;"
+	if err := os.WriteFile(filepath.Join(dir, "adminer.php"), []byte(head), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v, err := DetectAdminer(dir)
+	if err != nil || v.Component != Adminer || v.Version != "6.1.2" {
+		t.Fatalf("got %+v, %v", v, err)
+	}
+	if _, err := DetectAdminer(t.TempDir()); err == nil {
+		t.Fatal("an empty folder has no Adminer")
+	}
+}
+
 func TestProgramFindsTheMainExecutable(t *testing.T) {
 	touch := func(parts ...string) string {
 		p := filepath.Join(parts...)

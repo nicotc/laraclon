@@ -60,6 +60,22 @@ func TestApacheChecksumFile(t *testing.T) {
 	}
 }
 
+func TestAdminerAssetIsTheFullScriptOfTheRelease(t *testing.T) {
+	cases := map[[2]string]string{
+		{"v6.1.2", "adminer-6.1.2.php"}:       "6.1.2",
+		{"v6.1.2", "adminer-6.1.2-mysql.php"}: "", // MySQL only
+		{"v6.1.2", "adminer-6.1.2-en.php"}:    "", // English only
+		{"v6.1.2", "editor-6.1.2.php"}:        "",
+		{"v6.1.2", "adminer-6.1.1.php"}:       "", // another release's file
+	}
+	for in, want := range cases {
+		got, ok := adminerAsset(in[0], in[1])
+		if (want != "") != ok || got != want {
+			t.Errorf("%v: got %q %v", in, got, ok)
+		}
+	}
+}
+
 func TestPickPHPExtensionBuildForTheSeriesAndFlavour(t *testing.T) {
 	asset := func(name string) ghAsset {
 		return ghAsset{Name: name, URL: "https://github.com/xdebug/xdebug/releases/download/x/" + name, Digest: "sha256:" + strings.Repeat("ab", 32), Size: 800000}

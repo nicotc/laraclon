@@ -49,7 +49,8 @@ type Extra struct {
 
 // Installable lists what the catalog can install.
 var Installable = []versions.Component{versions.MySQL, versions.MariaDB, versions.PostgreSQL, versions.MongoDB,
-	versions.Redis, versions.Mailpit, versions.Meilisearch, versions.Apache, versions.Nginx, versions.FrankenPHP}
+	versions.Redis, versions.Mailpit, versions.Meilisearch, versions.Apache, versions.Nginx, versions.FrankenPHP,
+	versions.Adminer}
 
 const catalogTTL = 6 * time.Hour
 
@@ -96,6 +97,11 @@ func Catalog(ctx context.Context, home paths.Home, kind versions.Component, refr
 		list, err = githubCatalog(ctx, meiliReleasesURL, versions.Meilisearch, "github.com/meilisearch/meilisearch", tagAsset("meilisearch-windows-amd64.exe"))
 		for i := range list {
 			list[i].Binary = "meilisearch.exe"
+		}
+	case versions.Adminer:
+		list, err = githubCatalog(ctx, adminerReleasesURL, versions.Adminer, "github.com/vrana/adminer", adminerAsset)
+		for i := range list {
+			list[i].Binary = "adminer.php"
 		}
 	default:
 		return nil, fmt.Errorf("%s no se puede instalar desde el catálogo", kind.Name())
@@ -642,14 +648,25 @@ func pickMongosh(rels []githubRelease) (Extra, bool) {
 	return Extra{}, false
 }
 
-// ---- Releases on GitHub (Redis, Mailpit, Meilisearch) ----
+// ---- Releases on GitHub (Redis, Mailpit, Meilisearch, Adminer) ----
 
 const (
 	// Redis publishes no Windows build; this community project builds every release with MSYS2.
 	redisReleasesURL   = "https://api.github.com/repos/redis-windows/redis-windows/releases?per_page=20"
 	mailpitReleasesURL = "https://api.github.com/repos/axllent/mailpit/releases?per_page=20"
 	meiliReleasesURL   = "https://api.github.com/repos/meilisearch/meilisearch/releases?per_page=30"
+	// Adminer is one PHP file; the release has it with every database driver and language.
+	adminerReleasesURL = "https://api.github.com/repos/vrana/adminer/releases?per_page=10"
 )
+
+// adminerAsset matches "adminer-6.1.2.php" in the release tagged v6.1.2.
+func adminerAsset(tag, asset string) (string, bool) {
+	m := releaseTagRe.FindStringSubmatch(tag)
+	if m == nil || asset != "adminer-"+m[1]+".php" {
+		return "", false
+	}
+	return m[1], true
+}
 
 var redisAssetRe = regexp.MustCompile(`^Redis-(\d+\.\d+\.\d+)-Windows-x64-msys2\.zip$`)
 

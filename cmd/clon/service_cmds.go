@@ -235,6 +235,10 @@ func followJob(ops serviceOps, j app.Job) error {
 					fmt.Printf("Instalado: Apache %s, que ahora atiende los sitios (para volver a otro: 'clon apache use <versión>')\n", cur.Version)
 					return nil
 				}
+				if kind == versions.Adminer {
+					fmt.Printf("Instalado: Adminer %s. Con clon en marcha, ábrelo en https://db.localhost (usuario root o postgres, sin contraseña)\n", cur.Version)
+					return nil
+				}
 				if kind == versions.Nginx || kind == versions.FrankenPHP {
 					fmt.Printf("Instalado: %s %s. Elígelo en un sitio con 'clon site server <sitio> %s'\n", kind.Name(), cur.Version, kind)
 					return nil

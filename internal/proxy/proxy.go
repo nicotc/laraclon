@@ -27,6 +27,9 @@ type Route struct {
 	Server  string // "Apache 2.4.62", for messages
 	Backend *url.URL
 	HTTPS   bool
+	// LocalOnly refuses requests from other computers even when the proxy listens on the LAN
+	// (clon's own tools, such as Adminer, which opens the databases without a password).
+	LocalOnly bool
 }
 
 // Table maps host names to routes. "*.site.test" matches through the parent site.
@@ -199,18 +202,32 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveHTTPS(w http.ResponseWriter, r *http.Request) {
 	host := hostOnly(r.Host)
+	// Sites, and clon's tools under *.localhost (db.localhost), before the panel.
+	if route, ok := s.Table.Lookup(host); ok {
+		if route.LocalOnly && !fromThisComputer(r) {
+			http.Error(w, route.Site+" solo responde a este equipo", http.StatusForbidden)
+			return
+		}
+		s.forward(w, r, route)
+		return
+	}
 	if host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasSuffix(host, ".localhost") {
 		if s.Panel != nil {
 			s.Panel.ServeHTTP(w, r)
 			return
 		}
 	}
-	route, ok := s.Table.Lookup(host)
-	if !ok {
-		s.notFound(w, host)
-		return
+	s.notFound(w, host)
+}
+
+// fromThisComputer reports whether a request comes from a loopback address.
+func fromThisComputer(r *http.Request) bool {
+	h, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		h = r.RemoteAddr
 	}
-	s.forward(w, r, route)
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (s *Server) forward(w http.ResponseWriter, r *http.Request, route Route) {

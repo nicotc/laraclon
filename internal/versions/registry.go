@@ -31,6 +31,7 @@ const (
 	MongoDB     Component = "mongodb"
 	Mailpit     Component = "mailpit"
 	Meilisearch Component = "meilisearch"
+	Adminer     Component = "adminer"
 )
 
 // Version is one installed (or referenced) copy of a component.
@@ -47,7 +48,7 @@ type Version struct {
 var componentNames = map[Component]string{
 	PHP: "PHP", Apache: "Apache", MySQL: "MySQL", MariaDB: "MariaDB", Nginx: "Nginx", Node: "Node", Redis: "Redis",
 	Composer: "Composer", FrankenPHP: "FrankenPHP", PostgreSQL: "PostgreSQL", MongoDB: "MongoDB", Mailpit: "Mailpit",
-	Meilisearch: "Meilisearch",
+	Meilisearch: "Meilisearch", Adminer: "Adminer",
 }
 
 // Name is the product name shown to the user, e.g. "MariaDB".

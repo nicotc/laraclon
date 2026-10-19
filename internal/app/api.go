@@ -34,6 +34,8 @@ type Status struct {
 	Nginx          string              `json:"nginx"` // version the Nginx sites use ("" when not installed)
 	FrankenPHP     string              `json:"frankenphp"`
 	FrankenPHPPHP  string              `json:"frankenphp_php"` // the PHP built into FrankenPHP
+	Adminer        string              `json:"adminer"`        // installed version ("" when not)
+	AdminerURL     string              `json:"adminer_url"`    // https://db.localhost
 	DB             string              `json:"db"`             // the default database, e.g. "MySQL 8.4.11"
 	DBPort         int                 `json:"db_port"`
 	Databases      []DBGroup           `json:"databases"`
@@ -89,6 +91,9 @@ func (d *Daemon) Status() Status {
 	}
 	if v, err := d.frankenVersion(); err == nil {
 		st.FrankenPHP, st.FrankenPHPPHP = v.Version, v.PHP
+	}
+	if v, ok := d.adminerVersion(); ok {
+		st.Adminer, st.AdminerURL = v.Version, d.AdminerURL()
 	}
 	if db, ok := d.env.DefaultDB(); ok {
 		st.DB, st.DBPort = db.Kind.Name()+" "+db.Version.Version, db.Instance.Port

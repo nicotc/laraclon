@@ -2,7 +2,7 @@
 
 Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e inspirado en Laragon. Escrito en Go. No está afiliado a Laragon ni a sus autores.
 
-**Estado:** fases 1 (núcleo) y 2 (versiones y servicios) hechas; falta Adminer de la fase 2. Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
+**Estado:** fases 1 (núcleo) y 2 (versiones y servicios) completas. Probado en Windows 11 junto a una instalación de Laragon y de punta a punta en un Windows limpio (Windows Sandbox).
 
 ## Qué hace hoy
 
@@ -42,6 +42,10 @@ Entorno de desarrollo local para Windows, pensado sobre todo para Laravel e insp
   - **Meilisearch:** para Laravel Scout, en modo desarrollo y con su panel en el navegador.
   - Lo que se importa de Laragon aparece en el panel pero no arranca solo; lo que se instala desde el catálogo pasa a ser el predeterminado de su tipo.
   - «Copiar datos de conexión» da las líneas del `.env` de Laravel para cada tipo.
+- **Adminer en `https://db.localhost`** para ver y editar las bases de datos en el navegador (MySQL, MariaDB, PostgreSQL y SQLite).
+  - Se instala desde el catálogo (github.com/vrana/adminer, con su SHA-256) y corre con el PHP global.
+  - Entra sin contraseña con root o postgres, y solo responde a este equipo, aunque el proxy se abra a la red local.
+  - Cada base de datos del panel tiene «Abrir en Adminer» en su menú.
 - **Node incluido:** descarga la LTS oficial, verificada, con `npm` y `npx`. Los paquetes globales de npm sobreviven a los cambios de versión.
 - **Composer** actualizado y atajos de terminal (`php`, `php84`, `php83`…, `composer`, `node`, `npm`, `npx`, `mysql`) en una sola carpeta `shims\`. Los procesos PHP que lanzan Composer o Artisan heredan el mismo `php.ini`.
 - **Importación desde Laragon.** Usa en su sitio, sin copiar ni modificar, sus versiones de PHP, Apache, MySQL, Nginx, Node y Redis, y sus carpetas de proyectos.
@@ -123,6 +127,7 @@ Para volver a Laragon: `clon quit` y abre Laragon. Los dos usan los mismos datos
 | `clon site server tienda nginx` · `frankenphp` · `apache` | Servidor web de un sitio |
 | `clon site php tienda 7.2` · `global` | PHP propio para un proyecto antiguo, o vuelta al global |
 | `clon service install nginx latest` · `frankenphp 1.13` | Instala un servidor web desde el catálogo |
+| `clon service install adminer latest` | Adminer en `https://db.localhost` |
 | `clon ca status` · `trust` · `untrust` | CA local para HTTPS |
 | `clon hosts status` · `sync` | Bloque gestionado del archivo `hosts` |
 | `clon path add` · `remove` | Atajos de clon en el PATH de tu usuario |
@@ -144,6 +149,7 @@ Compila clon y abre Windows Sandbox. Comparte en solo lectura los ejecutables de
 - MariaDB instalada desde el catálogo y corriendo a la vez que MySQL.
 - PHP 7.2 fijado en un sitio, en la web y en la terminal, mientras el resto usa el global.
 - Extensiones de PHP: Xdebug descargado y soap, activadas y apagadas.
+- Adminer en `https://db.localhost`, con entrada sin contraseña en MySQL.
 - Apache de Apache Lounge, cambio de versión en caliente y actualización de Visual C++ con clon en marcha.
 - Edge sin avisos, cambio de PHP y cierre.
 
@@ -195,6 +201,7 @@ En Windows 11, junto a Laragon y en puertos alternativos:
 - **MongoDB:** la 9.0 se instala con `mongosh`, arranca como predeterminada, responde desde el atajo `mongosh` y se detiene de forma ordenada («shutdown complete», código 0).
 - **PostgreSQL 18:** crea sus datos, arranca sin permisos de administrador, responde a `psql`, se detiene con `pg_ctl` y conserva las bases al reiniciar. Sin pgAdmin ocupa 156 MB.
 - **Redis 8.10** (comunitario) responde a `redis-cli` y guarda sus datos al detenerse; **Mailpit** recibe un correo por SMTP; **Meilisearch 1.55** responde en `/health`. Todo a la vez que MySQL, MariaDB y MongoDB.
+- **Adminer 6.1** entra sin contraseña como root en MySQL 8.0 y como postgres en PostgreSQL 18, y lista sus bases. Una petición a `db.localhost` desde otra dirección recibe 403.
 
 En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 pasos de `probar-en-sandbox.ps1`:
 
@@ -208,10 +215,9 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
 ## Hoja de ruta
 
 - **Fase 1 (núcleo):** completa.
-- **Fase 2 (versiones y servicios):**
-  - Hecho: sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch.
-  - Hecho: Apache de Apache Lounge en varias versiones; PHP fijado por sitio para proyectos antiguos (como PHP va por FastCGI, no hace falta un Apache viejo para un PHP viejo); extensiones de PHP con casillas.
-  - Falta: Adminer en `https://db.localhost` para ver las bases de datos en el navegador.
+- **Fase 2 (versiones y servicios):** completa.
+  - Sección «Servicios» en el panel; MySQL y MariaDB en varias versiones a la vez; Nginx y FrankenPHP por sitio; PostgreSQL, MongoDB, Redis, Mailpit y Meilisearch.
+  - Apache de Apache Lounge en varias versiones; PHP fijado por sitio para proyectos antiguos (como PHP va por FastCGI, no hace falta un Apache viejo para un PHP viejo); extensiones de PHP con casillas; Adminer en `https://db.localhost`.
 - **Fase 3:**
   - Instaladores: Laravel con sus starter kits, WordPress, Symfony, desde Git y recetas propias.
   - `.env` automático y procesos del proyecto (cola, scheduler, Reverb, Vite).

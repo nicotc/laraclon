@@ -92,6 +92,9 @@ func (d *Daemon) routes(list []sites.Site) map[string]proxy.Route {
 			routes[strings.ToLower(a)] = r
 		}
 	}
+	if r, ok := d.adminerRoute(); ok {
+		routes[adminerHost] = r
+	}
 	return routes
 }
 

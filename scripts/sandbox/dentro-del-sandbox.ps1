@@ -352,6 +352,20 @@ Step 'Extensiones de PHP: Xdebug descargado y soap incluida (clon php ext)' {
     "web y terminal con Xdebug y soap ($($dll.FullName.Substring($H.Length + 1)), $([math]::Round($dll.Length / 1KB)) KB); apagadas otra vez: $($after | ConvertTo-Json -Compress)"
 }
 
+Step 'Adminer en https://db.localhost: entra como root sin contraseña y ve laravel_demo' {
+    Invoke-Tool $clon 'service install adminer latest' 300 | Out-Null
+    $jar = Join-Path $env:TEMP 'adminer-cookies.txt'
+    $url = 'https://db.localhost/?server=127.0.0.1:3306&username=root'
+    $c = @('-s', '--ssl-no-revoke', '--max-time', '60', '--resolve', 'db.localhost:443:127.0.0.1', '-c', $jar, '-b', $jar)
+    $form = & curl.exe @c $url | Out-String
+    if ($form -notmatch 'Adminer') { throw "db.localhost no muestra Adminer: $($form.Substring(0, [Math]::Min(300, $form.Length)))" }
+    $post = & curl.exe @c -o NUL -w '%{http_code}' --data-urlencode 'auth[driver]=server' --data-urlencode 'auth[server]=127.0.0.1:3306' `
+        --data-urlencode 'auth[username]=root' --data-urlencode 'auth[password]=' --data-urlencode 'auth[db]=' $url
+    $page = & curl.exe @c $url | Out-String
+    if ($page -notmatch 'laravel_demo') { throw "Adminer no lista laravel_demo tras entrar (POST: HTTP $post)" }
+    "$(([regex]::Match($page, '<title>([^<]*)</title>')).Groups[1].Value) · entrada sin contraseña: HTTP $post · lista laravel_demo"
+}
+
 # The sandbox starts with the runtime of Visual Studio 2022 (14.44). Apache Lounge builds Apache with
 # Visual Studio 2026, for which Microsoft asks a newer runtime; it runs anyway, and clon recommends it.
 Step 'Apache de Apache Lounge desde el catálogo y cambio de versión (clon apache install / use)' {
