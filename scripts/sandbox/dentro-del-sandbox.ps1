@@ -291,6 +291,25 @@ Step 'Cambio de PHP en caliente (8.4 -> 8.3 -> 8.4)' {
     $lines -join "`n"
 }
 
+Step 'Nginx y FrankenPHP desde el catálogo, un sitio en cada uno (clon site server)' {
+    Invoke-Tool $clon 'service install nginx latest' 600 | Out-Null
+    Invoke-Tool $clon 'service install frankenphp latest' 900 | Out-Null
+    Invoke-Tool $clon 'site server laravel-demo nginx' 120 | Out-Null
+    Invoke-Tool $clon 'site server demo frankenphp' 120 | Out-Null
+    Start-Sleep -Seconds 2
+    $code = Invoke-Curl "-o $R\laravel-nginx.html -w %{http_code} https://laravel-demo.test/"
+    $html = Get-Content "$R\laravel-nginx.html" -Raw -Encoding UTF8
+    if ($code -ne '200' -or $html -notmatch 'Laravel') { throw "Laravel con Nginx respondió HTTP $code" }
+    $head = Invoke-Curl '-I https://laravel-demo.test/up'
+    if ($head -notmatch '(?im)^Server:\s*nginx') { throw "laravel-demo.test no lo sirve Nginx: $head" }
+    $j = (Invoke-Curl 'https://demo.test/') | ConvertFrom-Json
+    if ($j.https -ne 'on' -or "$($j.mysql)" -notmatch '^\d' -or "$($j.php)" -notmatch '^\d') { throw "FrankenPHP: $($j | ConvertTo-Json -Compress)" }
+    $out = "laravel-demo.test con Nginx: HTTP $code`ndemo.test con FrankenPHP: PHP $($j.php) propio, HTTPS $($j.https), MySQL $($j.mysql)"
+    Invoke-Tool $clon 'site server laravel-demo apache' 120 | Out-Null
+    Invoke-Tool $clon 'site server demo apache' 120 | Out-Null
+    $out
+}
+
 Step 'Node, npm, npx, Composer y PHP desde shims\' {
     # Invoke-Tool, not &: Composer writes to stderr, which Windows PowerShell 5.1 turns into errors.
     @(

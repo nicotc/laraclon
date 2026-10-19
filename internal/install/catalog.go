@@ -33,7 +33,7 @@ type Release struct {
 }
 
 // Installable lists what the catalog can install.
-var Installable = []versions.Component{versions.MySQL, versions.MariaDB, versions.Nginx}
+var Installable = []versions.Component{versions.MySQL, versions.MariaDB, versions.Nginx, versions.FrankenPHP}
 
 const catalogTTL = 6 * time.Hour
 
@@ -61,6 +61,8 @@ func Catalog(ctx context.Context, home paths.Home, kind versions.Component, refr
 		list, err = mariadbCatalog(ctx)
 	case versions.Nginx:
 		list, err = nginxCatalog(ctx)
+	case versions.FrankenPHP:
+		list, err = frankenphpCatalog(ctx)
 	default:
 		return nil, fmt.Errorf("%s no se puede instalar desde el catálogo", kind.Name())
 	}
@@ -76,9 +78,13 @@ func Catalog(ctx context.Context, home paths.Home, kind versions.Component, refr
 	return list, nil
 }
 
-// FindRelease picks the catalog entry of a series ("8.4") or exact version ("8.4.11").
+// FindRelease picks the catalog entry of a series ("8.4"), an exact version ("8.4.11") or, with
+// "latest", the first one (the newest series).
 func FindRelease(list []Release, want string) (Release, error) {
 	want = strings.TrimSpace(want)
+	if (want == "latest" || want == "") && len(list) > 0 {
+		return list[0], nil
+	}
 	for _, r := range list {
 		if r.Series == want || r.Version == want {
 			return r, nil
@@ -383,6 +389,63 @@ func pickNginx(rels []githubRelease) []Release {
 		default:
 			continue
 		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// ---- FrankenPHP ----
+
+// FrankenPHP publishes a Windows build (with its own PHP) in the releases of its official repository.
+const frankenphpReleasesURL = "https://api.github.com/repos/php/frankenphp/releases?per_page=30"
+
+const frankenphpAsset = "frankenphp-windows-x86_64.zip"
+
+var frankenTagRe = regexp.MustCompile(`^v?(\d+\.\d+\.\d+)$`)
+
+func frankenphpCatalog(ctx context.Context) ([]Release, error) {
+	var rels []githubRelease
+	if err := download.JSON(ctx, frankenphpReleasesURL, &rels); err != nil {
+		return nil, fmt.Errorf("no se pudo leer la lista de versiones de FrankenPHP (github.com/php/frankenphp): %w", err)
+	}
+	list := pickFrankenPHP(rels)
+	if len(list) == 0 {
+		return nil, fmt.Errorf("github.com/php/frankenphp no devolvió versiones para Windows")
+	}
+	return list, nil
+}
+
+// pickFrankenPHP keeps the newest release and the newest one of the previous series.
+func pickFrankenPHP(rels []githubRelease) []Release {
+	newest := map[string]Release{}
+	for _, r := range rels {
+		m := frankenTagRe.FindStringSubmatch(r.Tag)
+		if r.Draft || r.Prerelease || m == nil {
+			continue
+		}
+		for _, a := range r.Assets {
+			sum, ok := strings.CutPrefix(a.Digest, "sha256:")
+			if a.Name != frankenphpAsset || !ok || len(sum) != 64 {
+				continue
+			}
+			s := versions.MajorMinor(m[1])
+			if cur, seen := newest[s]; !seen || versions.Compare(m[1], cur.Version) > 0 {
+				newest[s] = Release{Kind: versions.FrankenPHP, Series: s, Version: m[1], URL: a.URL, SHA256: sum, Size: a.Size, Source: "github.com/php/frankenphp"}
+			}
+		}
+	}
+	var series []string
+	for s := range newest {
+		series = append(series, s)
+	}
+	sort.Slice(series, func(i, j int) bool { return versions.Compare(series[i], series[j]) > 0 })
+	var out []Release
+	for i, s := range series {
+		if i == 2 {
+			break
+		}
+		r := newest[s]
+		r.Note = map[int]string{0: "la más reciente", 1: "serie anterior"}[i]
 		out = append(out, r)
 	}
 	return out

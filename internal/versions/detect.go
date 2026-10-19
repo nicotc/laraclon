@@ -149,6 +149,25 @@ func DetectRedis(dir string) (Version, error) {
 	return Version{Component: Redis, Version: m[1], Path: dir}, nil
 }
 
+var frankenRe = regexp.MustCompile(`FrankenPHP v?(\d+\.\d+\.\d+)\s+PHP (\d+\.\d+\.\d+)`)
+
+// DetectFrankenPHP reads "frankenphp version" ("FrankenPHP 1.13.1 PHP 8.5.11 Caddy v2.11.7 …").
+func DetectFrankenPHP(dir string) (Version, error) {
+	exe := filepath.Join(dir, "frankenphp.exe")
+	if !exists(exe) {
+		return Version{}, fmt.Errorf("no hay frankenphp.exe en %s", dir)
+	}
+	out, err := procutil.Output(probeTimeout, dir, exe, "version")
+	if err != nil {
+		return Version{}, err
+	}
+	m := frankenRe.FindStringSubmatch(out)
+	if m == nil {
+		return Version{}, fmt.Errorf("versión de FrankenPHP no reconocida: %q", out)
+	}
+	return Version{Component: FrankenPHP, Version: m[1], Path: dir, Arch: "x64", PHP: m[2]}, nil
+}
+
 // Detect dispatches on the component kind.
 func Detect(c Component, dir string) (Version, error) {
 	switch c {
@@ -164,6 +183,8 @@ func Detect(c Component, dir string) (Version, error) {
 		return DetectNginx(dir)
 	case Redis:
 		return DetectRedis(dir)
+	case FrankenPHP:
+		return DetectFrankenPHP(dir)
 	}
 	return Version{}, fmt.Errorf("componente desconocido: %s", c)
 }

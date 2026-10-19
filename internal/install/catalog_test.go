@@ -95,6 +95,29 @@ func TestPickNginx(t *testing.T) {
 	}
 }
 
+func TestPickFrankenPHP(t *testing.T) {
+	rel := func(tag string, prerelease bool) githubRelease {
+		r := githubRelease{Tag: tag, Prerelease: prerelease}
+		r.Assets = append(r.Assets, struct {
+			Name   string `json:"name"`
+			URL    string `json:"browser_download_url"`
+			Digest string `json:"digest"`
+			Size   int64  `json:"size"`
+		}{Name: frankenphpAsset, URL: "https://github.com/php/frankenphp/releases/download/" + tag + "/" + frankenphpAsset, Digest: "sha256:" + strings.Repeat("b", 64)})
+		return r
+	}
+	got := pickFrankenPHP([]githubRelease{
+		rel("v1.14.0-rc.1", true), rel("v1.13.1", false), rel("v1.13.0", false), rel("v1.12.7", false), rel("v1.11.3", false),
+	})
+	var desc []string
+	for _, r := range got {
+		desc = append(desc, r.Version+" "+r.Note)
+	}
+	if want := []string{"1.13.1 la más reciente", "1.12.7 serie anterior"}; !reflect.DeepEqual(desc, want) {
+		t.Fatalf("got %v, want %v (no prereleases)", desc, want)
+	}
+}
+
 func TestFindRelease(t *testing.T) {
 	list := []Release{{Kind: versions.MySQL, Series: "8.4", Version: "8.4.11"}, {Kind: versions.MySQL, Series: "8.0", Version: "8.0.46"}}
 	if r, err := FindRelease(list, "8.0"); err != nil || r.Version != "8.0.46" {
@@ -105,5 +128,8 @@ func TestFindRelease(t *testing.T) {
 	}
 	if _, err := FindRelease(list, "5.7"); err == nil {
 		t.Fatal("a missing series must be reported")
+	}
+	if r, err := FindRelease(list, "latest"); err != nil || r.Series != "8.4" {
+		t.Fatalf("latest must be the first (newest) entry: %+v %v", r, err)
 	}
 }

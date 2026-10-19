@@ -11,7 +11,7 @@ import (
 )
 
 const siteUsage = `
-  clon site server <sitio> apache|nginx   servidor web de un sitio (la dirección .test no cambia)
+  clon site server <sitio> apache|nginx|frankenphp   servidor web de un sitio (la dirección .test no cambia)
 `
 
 func cmdSite(env *app.Env, args []string) error {
@@ -27,8 +27,10 @@ func cmdSite(env *app.Env, args []string) error {
 		return nil
 	}
 	// clon is not running: only the setting changes; it applies on the next start.
-	if server != config.ServerApache && server != config.ServerNginx {
-		return fmt.Errorf("servidor desconocido %q: usa apache o nginx", server)
+	needs := map[string]versions.Component{config.ServerApache: "", config.ServerNginx: versions.Nginx, config.ServerFrankenPHP: versions.FrankenPHP}
+	kind, known := needs[server]
+	if !known {
+		return fmt.Errorf("servidor desconocido %q: usa apache, nginx o frankenphp", server)
 	}
 	name := strings.TrimSuffix(strings.ToLower(site), "."+env.Cfg.TLD)
 	list, _ := sites.Scan(env.Cfg)
@@ -39,8 +41,8 @@ func cmdSite(env *app.Env, args []string) error {
 	if !found {
 		return fmt.Errorf("no hay ningún sitio %s.%s", name, env.Cfg.TLD)
 	}
-	if _, ok := env.Reg.Find(versions.Nginx, env.Cfg.Nginx.Version); server == config.ServerNginx && !ok {
-		return fmt.Errorf("Nginx no está instalado: 'clon service install nginx 1.30'")
+	if _, ok := env.Reg.Find(kind, ""); kind != "" && !ok {
+		return fmt.Errorf("%s no está instalado: 'clon service install %s <versión>'", kind.Name(), kind)
 	}
 	env.Cfg.SetSiteServer(name, server)
 	if err := env.SaveConfig(); err != nil {

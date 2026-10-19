@@ -19,6 +19,7 @@ import (
 	"github.com/nicotc/laraclon/internal/ca"
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/hosts"
+	"github.com/nicotc/laraclon/internal/frankenphp"
 	"github.com/nicotc/laraclon/internal/install"
 	"github.com/nicotc/laraclon/internal/nginx"
 	"github.com/nicotc/laraclon/internal/php"
@@ -40,6 +41,9 @@ const (
 	nginxAdminPort = 30000
 	nginxPortFrom  = 30001
 	nginxPortTo    = 39999
+	frankenAdminPort = 40000
+	frankenPortFrom  = 40001
+	frankenPortTo    = 49999
 )
 
 // Daemon is the long-running part of clon: it owns the services, the front proxy and the API.
@@ -51,6 +55,7 @@ type Daemon struct {
 	front *proxy.Server
 	store *sites.PortStore // Apache port of every site
 	ngx   *sites.PortStore // Nginx port of the sites that use Nginx
+	fphp  *sites.PortStore // FrankenPHP port of the sites that use FrankenPHP
 	token string
 
 	mu          sync.Mutex
@@ -66,6 +71,7 @@ type Daemon struct {
 	trustedAt   time.Time
 	servicesOn  bool   // between «Iniciar todo» and «Detener todo»
 	nginxPath   string // folder of the nginx that is running
+	frankenPath string // folder of the FrankenPHP that is running
 
 	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
 	cfgMu sync.Mutex
@@ -95,6 +101,10 @@ func NewDaemon(env *Env) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
+	fphp, err := sites.LoadPorts(env.Home.State("site-ports-frankenphp.json"))
+	if err != nil {
+		return nil, err
+	}
 	tok := make([]byte, 24)
 	rand.Read(tok)
 	d := &Daemon{
@@ -104,6 +114,7 @@ func NewDaemon(env *Env) (*Daemon, error) {
 		table:    &proxy.Table{},
 		store:    store,
 		ngx:      ngx,
+		fphp:     fphp,
 		token:    hex.EncodeToString(tok),
 		problems: map[string]string{},
 		quit:     make(chan struct{}),
@@ -205,6 +216,7 @@ func (d *Daemon) StartAll() {
 	d.setProblem("php", d.startPHP())
 	d.setProblem("apache", d.startApache())
 	d.setProblem("nginx", d.syncNginx())
+	d.setProblem("frankenphp", d.syncFrankenPHP())
 	d.setProblem("proxy", d.startProxy())
 	d.changed()
 }
@@ -215,6 +227,7 @@ func (d *Daemon) StopAll() {
 	d.servicesOn = false
 	d.mu.Unlock()
 	d.sup.Stop(nginx.ServiceName)
+	d.sup.Stop(frankenphp.ServiceName)
 	d.sup.Stop(apache.ServiceName)
 	d.sup.StopMatching(func(n string) bool { return strings.HasPrefix(n, "php-cgi-") })
 	d.sup.StopMatching(func(n string) bool { return strings.HasPrefix(n, "mysql-") || strings.HasPrefix(n, "mariadb-") })
@@ -274,7 +287,7 @@ func (d *Daemon) apacheOptions() (apache.Options, error) {
 		opt.PHPPorts = php.PoolPorts(d.env.Cfg.PHP.BasePort, d.env.Cfg.PHP.PoolSize)
 	}
 	for _, s := range d.sites {
-		if s.Server == config.ServerNginx {
+		if s.Server != config.ServerApache {
 			continue
 		}
 		opt.Sites = append(opt.Sites, apache.Site{Host: s.Host, Aliases: s.Aliases, DocRoot: s.DocRoot, Port: s.Port, HTTPS: s.HTTPS})
@@ -341,25 +354,26 @@ func (d *Daemon) startProxy() error {
 // the proxy.
 func (d *Daemon) Rescan() error {
 	list, warns := sites.Scan(d.env.Cfg)
-	ownApache, ownNginx := map[int]bool{}, map[int]bool{}
+	// Ports clon's own servers hold right now are not conflicts.
+	own := map[string]map[int]bool{}
 	d.mu.Lock()
 	for _, s := range d.sites {
-		if s.Server == config.ServerNginx {
-			ownNginx[s.Port] = true
-		} else {
-			ownApache[s.Port] = true
+		if own[s.Server] == nil {
+			own[s.Server] = map[int]bool{}
 		}
+		own[s.Server][s.Port] = true
 	}
 	d.mu.Unlock()
-	if err := assignPorts(list, d.store, d.ngx, ownApache, ownNginx); err != nil {
+	if err := assignPorts(list, d.store, d.serverPorts(), own); err != nil {
 		return err
 	}
 	d.mu.Lock()
 	d.sites, d.warnings = list, warns
 	d.mu.Unlock()
 
-	// Nginx first: a site moving to Nginx is served there before the proxy points to it.
+	// The optional servers first: a site moving to one is served there before the proxy points to it.
 	d.setProblem("nginx", d.syncNginx())
+	d.setProblem("frankenphp", d.syncFrankenPHP())
 	d.table.Set(d.routes(list))
 
 	// A running Apache picks up the new sites with a graceful restart (no dropped requests).

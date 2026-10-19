@@ -21,7 +21,8 @@ type Config struct {
 	Node   Node   `toml:"node"`
 	Apache Apache `toml:"apache"`
 	Nginx  Nginx  `toml:"nginx"`
-	Hosts  Hosts  `toml:"hosts"`
+	FrankenPHP FrankenPHP `toml:"frankenphp"`
+	Hosts      Hosts      `toml:"hosts"`
 
 	// Services holds the databases by kind ("mysql", "mariadb").
 	Services map[string]Service `toml:"services,omitempty"`
@@ -60,10 +61,16 @@ type Nginx struct {
 	Version string `toml:"version"`
 }
 
+// FrankenPHP is the version used by the sites that choose FrankenPHP ("" = newest installed).
+type FrankenPHP struct {
+	Version string `toml:"version"`
+}
+
 // Web servers a site can choose.
 const (
-	ServerApache = "apache"
-	ServerNginx  = "nginx"
+	ServerApache     = "apache"
+	ServerNginx      = "nginx"
+	ServerFrankenPHP = "frankenphp"
 )
 
 // LegacyMySQL is the [mysql] section of earlier versions: one server with one data folder.
@@ -121,7 +128,7 @@ type SiteSettings struct {
 	PublicDir string   `toml:"public_dir,omitempty"`
 	HTTPS     *bool    `toml:"https,omitempty"`
 	Ignore    bool     `toml:"ignore,omitempty"`
-	Server    string   `toml:"server,omitempty"` // "nginx"; empty means Apache
+	Server    string   `toml:"server,omitempty"` // "nginx" or "frankenphp"; empty means Apache
 }
 
 // ServerFor is the web server of a site: Apache unless the site chose another.

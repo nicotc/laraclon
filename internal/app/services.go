@@ -477,8 +477,8 @@ func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release) {
 	// The first version of a database becomes its default, which runs while clon's services do.
 	case err == nil && isDBKind(rel.Kind) && isDefault:
 		d.StartService(InstanceKey(rel.Kind, rel.Series))
-	// Sites waiting for Nginx start using it.
-	case err == nil && rel.Kind == versions.Nginx:
+	// Sites waiting for a web server start using it.
+	case err == nil && (rel.Kind == versions.Nginx || rel.Kind == versions.FrankenPHP):
 		if err := d.Rescan(); err != nil {
 			d.setProblem("sitios", err)
 		}

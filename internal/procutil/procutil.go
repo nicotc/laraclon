@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -37,10 +38,18 @@ func ExitHint(code int) string {
 
 // Output runs exe with args, waits up to timeout and returns combined stdout and stderr.
 func Output(timeout time.Duration, dir, exe string, args ...string) (string, error) {
+	return OutputEnv(timeout, dir, nil, exe, args...)
+}
+
+// OutputEnv is Output with extra KEY=VALUE environment variables.
+func OutputEnv(timeout time.Duration, dir string, env []string, exe string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Dir = dir
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	var out bytes.Buffer
 	cmd.Stdout = &out

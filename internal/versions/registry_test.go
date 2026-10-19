@@ -26,3 +26,14 @@ func TestCompareAndFind(t *testing.T) {
 		t.Errorf("empty means newest")
 	}
 }
+
+func TestFrankenPHPVersionLine(t *testing.T) {
+	m := frankenRe.FindStringSubmatch("FrankenPHP 1.13.1 PHP 8.5.11 Caddy v2.11.7 h1:yj0Y4fYZGPkSvibBJ1sTWE33xC0fxztVyXEW5iIdUT4=")
+	if m == nil || m[1] != "1.13.1" || m[2] != "8.5.11" {
+		t.Fatalf("got %v", m)
+	}
+	v := Version{Component: FrankenPHP, Version: "1.13.1", PHP: "8.5.11", Arch: "x64"}
+	if v.Label() != "FrankenPHP 1.13.1 (x64 PHP 8.5.11)" {
+		t.Fatalf("label = %q", v.Label())
+	}
+}

@@ -4,12 +4,17 @@ let state = null;
 // Lo que el usuario está haciendo y debe sobrevivir a cada refresco del estado.
 const ui = { tab: 'resumen', menu: null, filter: 'todos', dialog: false, catalog: {}, catalogError: {}, pending: {}, choice: {}, dismissed: {} };
 
-const INSTALLABLE = ['mysql', 'mariadb', 'nginx'];
+const INSTALLABLE = ['mysql', 'mariadb', 'nginx', 'frankenphp'];
+// Web servers a site can choose besides Apache; they only run while some site uses them.
+const SERVERS = {
+  nginx: { name: 'Nginx', version: s => s.nginx, php: () => 'con el mismo PHP global',
+    desc: 'Servidor web: cada sitio puede elegir Apache o Nginx.' },
+  frankenphp: { name: 'FrankenPHP', version: s => s.frankenphp, php: s => `con su propio PHP ${s.frankenphp_php || ''}`.trim(),
+    desc: 'Servidor con su propio PHP integrado; más adelante, modo worker para Laravel Octane.' },
+};
 const LOGO = { apache: 'A', nginx: 'N', frankenphp: 'F', mysql: 'My', mariadb: 'Ma', postgres: 'Pg', mongodb: 'Mo', redis: 'R', mailpit: '✉', meilisearch: 'Me' };
 const SOON = {
-  web: [
-    { kind: 'frankenphp', name: 'FrankenPHP', desc: 'Servidor con su propio PHP; más adelante, modo worker para Laravel Octane.' },
-  ],
+  web: [],
   db: [
     { kind: 'postgres', name: 'PostgreSQL', desc: 'Base de datos · puerto 5432' },
     { kind: 'mongodb', name: 'MongoDB', desc: 'Base de datos · puerto 27017' },
@@ -137,12 +142,16 @@ function renderSites() {
   )));
 }
 
-// serverPicker lets a site choose Apache or Nginx (only when Nginx is installed).
+// serverPicker lets a site choose among Apache and the web servers that are installed.
 function serverPicker(site) {
-  const names = { apache: 'Apache ' + (state.apache || ''), nginx: 'Nginx ' + (state.nginx || '') };
-  if (!state.nginx && site.server !== 'nginx') return el('span', { class: 'svc-sub' }, names.apache);
+  const names = { apache: ('Apache ' + (state.apache || '')).trim() };
+  for (const [k, info] of Object.entries(SERVERS)) {
+    const v = info.version(state);
+    if (v || site.server === k) names[k] = (`${info.name} ${v || ''}` + (k === 'frankenphp' && state.frankenphp_php ? ` (PHP ${state.frankenphp_php})` : '')).trim();
+  }
+  if (Object.keys(names).length === 1) return el('span', { class: 'svc-sub' }, names.apache);
   const sel = el('select', { 'aria-label': 'Servidor de ' + site.host },
-    ...['apache', 'nginx'].map(k => el('option', { value: k, selected: site.server === k }, names[k].trim())));
+    ...Object.entries(names).map(([k, label]) => el('option', { value: k, selected: site.server === k }, label)));
   sel.addEventListener('change', () => act('POST', '/api/sites/server', { site: site.name, server: sel.value }));
   return sel;
 }
@@ -161,7 +170,7 @@ function renderServices() {
       el('button', { onclick: openDialog }, '＋ Añadir servicio')),
     phpBar(s),
     el('div', { class: 'group-title' }, 'Servidores web'),
-    el('div', { class: 'grid3' }, apacheCard(s), nginxCard(s), ...SOON.web.map(soonCard)),
+    el('div', { class: 'grid3' }, apacheCard(s), serverCard(s, 'nginx'), serverCard(s, 'frankenphp'), ...SOON.web.map(soonCard)),
     el('div', { class: 'group-title' }, 'Bases de datos'),
     ...dbs.map(dbCard),
     el('div', { class: 'grid3' }, ...SOON.db.map(soonCard)),
@@ -201,32 +210,35 @@ function apacheCard(s) {
     el('div', { class: 'svc-foot' }, 'Servidor de todos los sitios'));
 }
 
-// nginxGroup describes Nginx like a database group, so the install picker and job lines work alike.
-function nginxGroup(s) {
-  return { kind: 'nginx', name: 'Nginx', instances: s.nginx ? [{ series: s.nginx.split('.').slice(0, 2).join('.') }] : [] };
+// serverGroup describes a web server like a database group, so the install picker and job lines work alike.
+function serverGroup(s, kind) {
+  const v = SERVERS[kind].version(s);
+  return { kind, name: SERVERS[kind].name, instances: v ? [{ series: v.split('.').slice(0, 2).join('.') }] : [] };
 }
 
-function nginxCard(s) {
-  const g = nginxGroup(s);
-  const st = (s.services || []).find(x => x.name === 'nginx');
-  const users = (s.sites || []).filter(x => x.server === 'nginx').length;
-  const jobs = (s.jobs || []).filter(j => j.kind === 'nginx' && !ui.dismissed[j.id] && (!j.finished || j.error));
+function serverCard(s, kind) {
+  const info = SERVERS[kind];
+  const version = info.version(s);
+  const g = serverGroup(s, kind);
+  const st = (s.services || []).find(x => x.name === kind);
+  const users = (s.sites || []).filter(x => x.server === kind).length;
+  const jobs = (s.jobs || []).filter(j => j.kind === kind && !ui.dismissed[j.id] && (!j.finished || j.error));
   const toSites = el('a', { href: '#sitios', onclick: e => { e.preventDefault(); showTab('sitios'); } }, 'Elegirlo en un sitio →');
-  if (!s.nginx) {
+  if (!version) {
     return el('div', { class: 'svc dashed' },
-      el('div', { class: 'svc-head' }, logo('nginx'), el('div', {}, el('div', { class: 'svc-title' }, 'Nginx'), el('div', { class: 'svc-sub' }, 'sin instalar'))),
-      el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' }, 'Servidor web: cada sitio puede elegir Apache o Nginx.')),
-      ...jobs.map(j => jobLine(j, 'Nginx')),
+      el('div', { class: 'svc-head' }, logo(kind), el('div', {}, el('div', { class: 'svc-title' }, info.name), el('div', { class: 'svc-sub' }, 'sin instalar'))),
+      el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' }, info.desc)),
+      ...jobs.map(j => jobLine(j, info.name)),
       el('div', { class: 'svc-foot' }, ...installPicker(g)));
   }
   return el('div', { class: 'svc' },
-    el('div', { class: 'svc-head' }, logo('nginx'),
-      el('div', {}, el('div', { class: 'svc-title' }, 'Nginx'), el('div', { class: 'svc-sub' }, 'versión ' + s.nginx)),
+    el('div', { class: 'svc-head' }, logo(kind),
+      el('div', {}, el('div', { class: 'svc-title' }, info.name), el('div', { class: 'svc-sub' }, 'versión ' + version)),
       el('span', { class: 'spacer' }), statePill(st ? st.state : (users ? 'detenido' : 'sin sitios'))),
     el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' }, users
-      ? `Atiende ${users === 1 ? '1 sitio' : users + ' sitios'}, con el mismo PHP global.`
+      ? `Atiende ${users === 1 ? '1 sitio' : users + ' sitios'}, ${info.php(s)}.`
       : 'Ningún sitio lo usa todavía: arranca solo cuando un sitio lo elige en la pestaña Sitios.')),
-    ...jobs.map(j => jobLine(j, 'Nginx')),
+    ...jobs.map(j => jobLine(j, info.name)),
     el('div', { class: 'svc-foot' }, toSites));
 }
 
@@ -416,7 +428,7 @@ function closeDialog() {
 
 function renderDialog() {
   if (!state) return;
-  const groups = [nginxGroup(state), ...(state.databases || [])];
+  const groups = [serverGroup(state, 'nginx'), serverGroup(state, 'frankenphp'), ...(state.databases || [])];
   const tiles = groups.map(g => {
     const job = (state.jobs || []).find(j => j.kind === g.kind && !j.finished);
     const cat = ui.catalog[g.kind];
@@ -424,7 +436,7 @@ function renderDialog() {
     return el('div', { class: 'tile' + (job ? ' busy' : '') },
       el('div', { class: 'top' }, logo(g.kind),
         el('div', {}, el('div', { class: 'name' }, g.name, ' ', n ? el('span', { class: 'pill' }, n === 1 ? '1 instalada' : `${n} instaladas`) : null),
-          el('div', { class: 'desc' }, g.kind === 'nginx' ? 'Servidor web · por sitio' : 'Base de datos · compatible con MySQL'))),
+          el('div', { class: 'desc' }, { nginx: 'Servidor web · por sitio', frankenphp: 'Servidor web con su propio PHP · por sitio' }[g.kind] || 'Base de datos · compatible con MySQL'))),
       job ? jobLine(job, g.name) : el('div', { class: 'act' }, ...installPicker(g)),
       el('div', { class: 'src' }, cat && cat.length ? `Descarga de ${cat[0].source}` : ''));
   });

@@ -25,6 +25,8 @@ const (
 	Node     Component = "node"
 	Redis    Component = "redis"
 	Composer Component = "composer"
+
+	FrankenPHP Component = "frankenphp"
 )
 
 // Version is one installed (or referenced) copy of a component.
@@ -35,9 +37,10 @@ type Version struct {
 	Source     string    `json:"source"` // download, laragon, import
 	Arch       string    `json:"arch,omitempty"`
 	ThreadSafe *bool     `json:"thread_safe,omitempty"`
+	PHP        string    `json:"php,omitempty"` // PHP built into the program (FrankenPHP)
 }
 
-var componentNames = map[Component]string{PHP: "PHP", Apache: "Apache", MySQL: "MySQL", MariaDB: "MariaDB", Nginx: "Nginx", Node: "Node", Redis: "Redis", Composer: "Composer"}
+var componentNames = map[Component]string{PHP: "PHP", Apache: "Apache", MySQL: "MySQL", MariaDB: "MariaDB", Nginx: "Nginx", Node: "Node", Redis: "Redis", Composer: "Composer", FrankenPHP: "FrankenPHP"}
 
 // Name is the product name shown to the user, e.g. "MariaDB".
 func (c Component) Name() string {
@@ -60,6 +63,9 @@ func (v Version) Label() string {
 	}
 	if v.Arch != "" {
 		extra = append(extra, v.Arch)
+	}
+	if v.PHP != "" {
+		extra = append(extra, "PHP "+v.PHP)
 	}
 	s := name + " " + v.Version
 	if len(extra) > 0 {
