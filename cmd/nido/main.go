@@ -38,6 +38,8 @@ Uso:
 
   nido composer install             descarga o actualiza Composer
   nido shims                        regenera los atajos de shims\ (php, composer, node, npm, npx…)
+  nido shortcuts                    crea los accesos «Nido» del menú Inicio y del escritorio
+  nido autostart on|off             Nido arranca, o no, al entrar en Windows
 `
 
 func main() {
@@ -107,6 +109,14 @@ func run(ctx context.Context, args []string) error {
 		return cmdComposer(ctx, env, args[1:])
 	case "shims":
 		return refreshShims(env)
+	case "shortcuts", "accesos":
+		made, err := env.InstallShortcuts()
+		for _, lnk := range made {
+			fmt.Println("Acceso directo:", lnk)
+		}
+		return err
+	case "autostart":
+		return cmdAutostart(env, args[1:])
 	case "vcredist":
 		return cmdVCRedist(ctx, env, args[1:])
 	}
@@ -163,9 +173,49 @@ func cmdSetup(ctx context.Context, env *app.Env) error {
 	if err := refreshShims(env); err != nil {
 		return err
 	}
-	fmt.Println("\nListo. Para usar php, composer, node, npm y npx en cualquier terminal, añade a tu PATH:")
+	// Like any Windows program: «Nido» in the Start menu and on the desktop, and Nido starting when
+	// the user signs in (turned off from its tray or with 'nido autostart off').
+	if made, err := env.InstallShortcuts(); err != nil {
+		fmt.Println("No se pudieron crear los accesos directos:", err)
+	} else {
+		fmt.Println("Accesos directos «Nido»:", strings.Join(made, " · "))
+	}
+	if err := env.SetAutostart(true); err != nil {
+		fmt.Println("No se pudo hacer que Nido arranque con Windows:", err)
+	} else {
+		fmt.Println("Nido arrancará al entrar en Windows (desactívalo en su bandeja o con 'nido autostart off').")
+	}
+	fmt.Println("\nListo. Abre Nido desde el menú Inicio o el escritorio: arranca los servicios y abre su panel.")
+	fmt.Println("Para usar php, composer, node, npm y npx en cualquier terminal, añade a tu PATH:")
 	fmt.Println("  ", env.Home.Shims())
 	fmt.Println("  ", env.NPMPrefix(), " (paquetes globales de npm)")
+	return nil
+}
+
+// cmdAutostart turns Nido's start with Windows on or off, or says whether it is on.
+func cmdAutostart(env *app.Env, args []string) error {
+	if len(args) == 0 {
+		if env.Autostart() {
+			fmt.Println("Nido arranca al entrar en Windows")
+		} else {
+			fmt.Println("Nido no arranca solo al entrar en Windows")
+		}
+		return nil
+	}
+	switch strings.ToLower(args[0]) {
+	case "on", "si", "sí":
+		if err := env.SetAutostart(true); err != nil {
+			return err
+		}
+		fmt.Println("Nido arrancará al entrar en Windows, sin abrir el panel")
+	case "off", "no":
+		if err := env.SetAutostart(false); err != nil {
+			return err
+		}
+		fmt.Println("Nido ya no arrancará solo al entrar en Windows")
+	default:
+		return fmt.Errorf("uso: nido autostart on|off")
+	}
 	return nil
 }
 

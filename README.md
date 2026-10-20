@@ -136,9 +136,10 @@ Todo lo que Nido descarga o genera queda dentro de esa carpeta. Para usar otra c
 
 ```powershell
 C:\nido\nido.exe setup     # descarga PHP, Apache, MySQL 8.4 LTS, Node LTS (con npm y npx), Composer y la lista de CAs públicas
-C:\nido\nido.exe run       # arranca Nido con el icono en la bandeja
 C:\nido\nido.exe status    # servicios, sitios y avisos
 ```
+
+`nido setup` deja el acceso «Nido» en el menú Inicio y en el escritorio, con su logo: al abrirlo arrancan los servicios y se abre el panel (si Nido ya está corriendo, solo el panel). Nido arranca también al entrar en Windows, sin abrir nada: su icono queda junto al reloj (a veces bajo «^»). Se desactiva con «Iniciar con Windows» en el menú de ese icono o con `nido autostart off`. `nido run` lo arranca desde una terminal.
 
 Tus proyectos van en `C:\nido\www`: cada carpeta es un sitio, `C:\nido\www\tienda` es `https://tienda.test`. Puedes sumar otras carpetas de proyectos en `roots` de `C:\nido\config\nido.toml`.
 
@@ -156,13 +157,14 @@ Si otro programa ya usa los puertos 80, 443 o 3306 (otro entorno local, IIS…),
 2. `nido ca trust`: Windows te pide confirmar la CA local, solo para tu usuario. Así los sitios abren por HTTPS sin avisos.
 3. `nido hosts sync`: Windows pide permiso de administrador para escribir el archivo `hosts`.
 4. `nido path add` (opcional): `php`, `composer`, `node` y `npm` de Nido en cualquier terminal.
-5. `nido run` y abre `https://salud.localhost`: si todo está en verde, PHP, las bases de datos y tus sitios responden.
+5. Abre «Nido» desde el menú Inicio o el escritorio. Su pestaña «Salud» dice si PHP, las bases de datos y tus sitios responden.
 
 ## Comandos
 
 | Comando | Qué hace |
 |---|---|
 | `nido run [--foreground]` | Inicia Nido (bandeja), o en la consola actual con `--foreground` |
+| `nido shortcuts` · `nido autostart on\|off` | Accesos «Nido» del menú Inicio y del escritorio · arrancar, o no, al entrar en Windows |
 | `nido new tienda [--kit react\|vue\|svelte\|livewire] [--db sqlite\|mysql\|mariadb\|postgresql] [--pnpm\|--yarn]` | Proyecto Laravel nuevo en `https://tienda.test` |
 | `nido new blog --wordpress [--idioma es_ES] [--db mysql\|mariadb]` | WordPress en `https://blog.test`, con usuario admin y contraseña generada |
 | `nido new api --symfony [--webapp] [--db sqlite\|mysql\|mariadb\|postgresql]` | Symfony en `https://api.test`, con su `.env.local` |
@@ -182,6 +184,7 @@ Si otro programa ya usa los puertos 80, 443 o 3306 (otro entorno local, IIS…),
 | `nido service port mysql-8.4 3307` · `autostart mysql-8.4 on` | Su puerto y si arranca con «Iniciar todo» |
 | `nido site server tienda nginx` · `frankenphp` · `apache` | Servidor web de un sitio |
 | `nido site php tienda 7.2` · `global` | PHP propio para un proyecto antiguo, o vuelta al global |
+| `nido site node tienda 18` · `global` | Node propio del sitio (Vite, su frontend y `node`/`npm` en su carpeta), o vuelta al global |
 | `nido site proc tienda vite\|queue\|schedule\|reverb on\|off` | Procesos del proyecto: Vite con HTTPS, cola, tareas programadas y Reverb |
 | `nido site debug tienda on\|off` · `phpx` | Xdebug solo para ese sitio · PHP con Xdebug en la terminal |
 | `nido service install nginx latest` · `frankenphp 1.13` | Instala un servidor web desde el catálogo |

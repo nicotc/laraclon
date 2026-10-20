@@ -123,6 +123,19 @@ Step 'nido setup en un Windows sin nada: PHP, Apache, MySQL 8.4, Node LTS y Comp
     "$((($out -split "`n") | Where-Object { $_ -notmatch ' MB de ' } | Select-Object -Last 3) -join "`n")`n$list"
 }
 
+Step 'Accesos «Nido» en el menú Inicio y el escritorio, y arranque con Windows (nido setup)' {
+    $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'Nido.lnk'
+    $desk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Nido.lnk'
+    $sh = New-Object -ComObject WScript.Shell
+    $target = if (Test-Path $desk) { $sh.CreateShortcut($desk).TargetPath } else { '' }
+    $icon = if (Test-Path $desk) { $sh.CreateShortcut($desk).IconLocation } else { '' }
+    $run = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).Nido
+    if (-not (Test-Path $menu) -or $target -ne "$H\nidow.exe" -or $icon -notmatch 'nido\.ico' -or -not (Test-Path "$H\nido.ico") -or $run -ne """$H\nidow.exe"" --inicio") {
+        throw "menú Inicio: $(Test-Path $menu) · escritorio: $target ($icon) · al entrar en Windows: $run"
+    }
+    "menú Inicio y escritorio: Nido.lnk -> $target, con el logo ($icon)`nal entrar en Windows: $run`n$(Invoke-Tool $nido 'autostart' 30)"
+}
+
 Step 'PHP 8.4, 8.3 y 7.2 de windows.php.net (7.2 del archivo de versiones anteriores)' {
     $lines = foreach ($v in '8.4', '8.3', '7.2') {
         # The progress line ends with a carriage return, so "Instalado" may share its line.

@@ -42,13 +42,16 @@ func cmdRun(ctx context.Context, env *app.Env, args []string) error {
 		if _, err := os.Stat(exe); err != nil {
 			return fmt.Errorf("falta %s; usa 'nido run --foreground'", exe)
 		}
-		if err := startDetached(exe); err != nil {
+		// From the command line Nido starts quietly: its panel opens from the tray or the shortcut.
+		if err := startDetached(exe, app.QuietFlag); err != nil {
 			return err
 		}
 		for i := 0; i < 50; i++ {
 			time.Sleep(200 * time.Millisecond)
-			if _, err := app.Connect(env.Home.Root); err == nil {
-				fmt.Println("Nido iniciado (icono en la bandeja del sistema)")
+			if c, err := app.Connect(env.Home.Root); err == nil {
+				var st app.Status
+				c.Call("GET", "/api/status", nil, &st)
+				fmt.Println("Nido iniciado (icono en la bandeja del sistema). Panel:", st.PanelURL)
 				return nil
 			}
 		}
@@ -65,15 +68,15 @@ func cmdRun(ctx context.Context, env *app.Env, args []string) error {
 // startDetached launches the tray program so it outlives this console. Some terminals and IDEs
 // run commands inside a job object that kills children on exit; breaking away avoids that when
 // the job allows it.
-func startDetached(exe string) error {
+func startDetached(exe string, args ...string) error {
 	const createBreakawayFromJob = 0x01000000
 	flags := uint32(windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP)
-	cmd := exec.Command(exe)
+	cmd := exec.Command(exe, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags | createBreakawayFromJob}
 	if err := cmd.Start(); err == nil {
 		return cmd.Process.Release()
 	}
-	cmd = exec.Command(exe)
+	cmd = exec.Command(exe, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: flags}
 	if err := cmd.Start(); err != nil {
 		return err

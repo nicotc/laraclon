@@ -125,6 +125,9 @@ try {
     # After this computer restarts, the «Default Switch» hands out other addresses than the ones saved
     # in the checkpoint: the VM asks again, and the test only starts with Internet.
     $online = Invoke-Command -Session $s -ScriptBlock {
+        # A plain renew asks the old network's server, which no longer answers, and keeps the old
+        # address: releasing it first makes the VM ask the network the switch has now.
+        ipconfig /release | Out-Null
         ipconfig /renew | Out-Null
         Clear-DnsClientCache
         foreach ($i in 1..12) {
@@ -198,11 +201,57 @@ try {
         try { Copy-Item -FromSession $s -Path $item -Destination $results -Recurse -Force -ErrorAction Stop }
         catch { Write-Host "No se pudo traer $item ($($_.Exception.Message))" }
     }
-    Remove-PSSession $s
+
+    # As on a real computer: after restarting Windows, Nido starts by itself when the user signs in
+    # (the account signs in alone), quietly, and its services answer.
+    Write-Host 'Reiniciando Windows en la VM: Nido tiene que arrancar solo al entrar…'
+    $bootBefore = Invoke-Command -Session $s -ScriptBlock { (Get-CimInstance Win32_OperatingSystem).LastBootUpTime }
+    Invoke-Command -Session $s -ScriptBlock { Restart-Computer -Force } -ErrorAction SilentlyContinue
+    Remove-PSSession $s -ErrorAction SilentlyContinue
+    $rebooted = $false
+    $by = (Get-Date).AddMinutes(10)
+    while (-not $rebooted -and (Get-Date) -lt $by) {
+        Start-Sleep -Seconds 10
+        try {
+            $s = New-PSSession -VMName $Name -Credential $cred -ErrorAction Stop
+            $boot = Invoke-Command -Session $s -ErrorAction Stop -ScriptBlock { (Get-CimInstance Win32_OperatingSystem).LastBootUpTime }
+            if ($boot -ne $bootBefore) { $rebooted = $true } else { Remove-PSSession $s }
+        } catch {}
+    }
+    $after = 'la VM no volvió después de reiniciar'
+    if ($rebooted) {
+        $by = (Get-Date).AddMinutes(5)
+        do {
+            Start-Sleep -Seconds 10
+            $after = Invoke-Command -Session $s -ScriptBlock {
+                $w = Get-CimInstance Win32_Process -Filter "Name='nidow.exe'" | Select-Object -First 1
+                if (-not $w) { return 'Nido no arrancó' }
+                $st = (& C:\nido\nido.exe status 2>&1 | Out-String)
+                if ($st -notmatch 'Proxy HTTPS: en marcha') { return "Nido arrancó ($($w.CommandLine)) pero todavía no sirve: $st" }
+                "OK: Nido arrancó solo al entrar en Windows ($($w.CommandLine))`n$st"
+            }
+        } while ($after -notmatch '^OK' -and (Get-Date) -lt $by)
+    }
+    Write-Host "Tras reiniciar Windows: $after"
+    [IO.File]::WriteAllText((Join-Path $results 'reinicio.txt'), $after, (New-Object System.Text.UTF8Encoding $false))
+    if ($DejarEncendida -and $rebooted) {
+        # The person who looks at the VM finds the panel open, as after a double click on «Nido».
+        Invoke-Command -Session $s -ScriptBlock {
+            $action = New-ScheduledTaskAction -Execute 'C:\nido\nidow.exe'
+            $principal = New-ScheduledTaskPrincipal -UserId 'nido' -LogonType Interactive -RunLevel Limited
+            Register-ScheduledTask -TaskName 'nido-panel' -Action $action -Principal $principal -Force | Out-Null
+            Start-ScheduledTask -TaskName 'nido-panel'
+        } -ErrorAction SilentlyContinue
+    }
+    Remove-PSSession $s -ErrorAction SilentlyContinue
     Write-Host ('Memoria: la VM llegó a {0:N1} GB; a este equipo le quedaron como mínimo {1:N1} GB libres.' -f ($peakVm / 1GB), ($minFree / 1GB))
+} catch {
+    # Into progreso.log too: the transcript ends in finally, before PowerShell would print it.
+    Write-Host "ERROR: $($_.Exception.Message)"
+    throw
 } finally {
     if ($DejarEncendida) {
-        Write-Host "La VM sigue encendida con Nido arrancado, el proyecto Laravel y el panel en Edge: vmconnect.exe localhost $Name"
+        Write-Host "La VM sigue encendida, con Nido arrancado solo tras reiniciar Windows y su panel abierto: vmconnect.exe localhost $Name"
     } elseif ((Get-VM -Name $Name).State -ne 'Off') {
         # Every test starts from «limpia»: nothing to keep, and the memory goes back to this computer.
         Stop-VM -Name $Name -TurnOff -Force

@@ -26,10 +26,14 @@ func main() {
 		log.SetOutput(logf)
 	}
 
+	// Started when the user signs in to Windows or by 'nido run', Nido starts quietly; opened by the
+	// person (its shortcut, a double click), it also shows its panel.
+	quiet := len(os.Args) > 1 && (os.Args[1] == app.AutostartFlag || os.Args[1] == app.QuietFlag)
+
 	// A second start just opens the panel of the running instance.
 	if c, err := app.Connect(env.Home.Root); err == nil {
 		var st app.Status
-		if c.Call("GET", "/api/status", nil, &st) == nil {
+		if c.Call("GET", "/api/status", nil, &st) == nil && !quiet {
 			winx.OpenAppWindow(st.PanelURL)
 		}
 		return
@@ -40,7 +44,7 @@ func main() {
 		fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t := &tray{d: d}
+	t := &tray{d: d, env: env}
 	d.OnChange = t.requestRefresh
 
 	systray.Run(func() {
@@ -54,6 +58,9 @@ func main() {
 			}
 			systray.Quit()
 		}()
+		if !quiet {
+			go openPanelWhenReady(env)
+		}
 		go func() {
 			for range time.Tick(15 * time.Second) {
 				t.requestRefresh()
@@ -65,6 +72,22 @@ func main() {
 	})
 }
 
+// openPanelWhenReady opens the panel as soon as Nido answers: whoever opened Nido wants to see it,
+// and a tray icon alone is easy to miss (Windows often hides it behind «^»).
+func openPanelWhenReady(env *app.Env) {
+	for by := time.Now().Add(time.Minute); time.Now().Before(by); time.Sleep(500 * time.Millisecond) {
+		c, err := app.Connect(env.Home.Root)
+		if err != nil {
+			continue
+		}
+		var st app.Status
+		if c.Call("GET", "/api/status", nil, &st) == nil && st.PanelURL != "" {
+			winx.OpenAppWindow(st.PanelURL)
+			return
+		}
+	}
+}
+
 const (
 	siteSlots    = 40
 	phpSlots     = 16
@@ -74,7 +97,8 @@ const (
 // tray builds the menu once and afterwards only renames, checks, shows or hides items. Rebuilding
 // menus at run time is fragile with the Windows tray API, so lists use pre-allocated slots.
 type tray struct {
-	d *app.Daemon
+	d   *app.Daemon
+	env *app.Env
 
 	mu        sync.Mutex
 	pending   bool
@@ -168,6 +192,20 @@ func (t *tray) build() {
 		t.problems[i].Hide()
 	}
 	systray.AddSeparator()
+	// Nido starts with Windows (nido setup turns it on) until it is turned off here.
+	autostart := systray.AddMenuItemCheckbox("Iniciar con Windows", "Nido arranca al entrar en Windows, sin abrir el panel", t.env.Autostart())
+	onClick(autostart, func() {
+		on := !autostart.Checked()
+		if err := t.env.SetAutostart(on); err != nil {
+			log.Println("inicio con Windows:", err)
+			return
+		}
+		if on {
+			autostart.Check()
+		} else {
+			autostart.Uncheck()
+		}
+	})
 	onClick(systray.AddMenuItem("Salir", "Detiene todos los servicios"), func() { t.d.Shutdown() })
 	t.refresh()
 }
