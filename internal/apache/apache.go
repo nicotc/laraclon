@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 	"time"
 	"unsafe"
@@ -221,13 +222,18 @@ func WriteTo(o Options, conf string) error {
 
 func httpd(v versions.Version) string { return filepath.Join(v.Path, "bin", "httpd.exe") }
 
-// Test runs httpd -t so a broken configuration never replaces a working one.
+// Test runs httpd -t so a broken configuration never replaces a working one. Apache loads its
+// modules for it: on a first start an antivirus may look at each one, so it gets time.
 func Test(v versions.Version, conf string) error {
-	out, err := procutil.Output(30*time.Second, v.Path, httpd(v), "-t", "-f", conf)
-	if err != nil {
-		return fmt.Errorf("la configuración de Apache no es válida: %s", procutil.LastLines(out, 6))
+	out, err := procutil.Output(2*time.Minute, v.Path, httpd(v), "-t", "-f", conf)
+	switch {
+	case err == nil:
+		return nil
+	case strings.TrimSpace(out) == "":
+		// It printed nothing: it did not get to read the configuration (a DLL, the time limit…).
+		return fmt.Errorf("Apache no pudo comprobar su configuración: %v", err)
 	}
-	return nil
+	return fmt.Errorf("la configuración de Apache no es válida: %s", procutil.LastLines(out, 6))
 }
 
 // Spec describes the Apache service.

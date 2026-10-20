@@ -323,11 +323,16 @@ Step 'Edge abre https://demo.test sin aviso de certificado' {
 
 Step 'Cambio de PHP en caliente (8.4 -> 8.3 -> 8.4)' {
     $lines = @()
-    foreach ($v in '8.3', '8.4') {
-        Invoke-Tool $nido "php use $v" 120 | Out-Null
-        $j = (Invoke-Curl 'https://demo.test/') | ConvertFrom-Json
-        if (-not $j.php.StartsWith($v)) { throw "tras 'php use $v' la web responde PHP $($j.php)" }
-        $lines += "php use $v -> la web responde PHP $($j.php)"
+    try {
+        foreach ($v in '8.3', '8.4') {
+            Invoke-Tool $nido "php use $v" 120 | Out-Null
+            $j = (Invoke-Curl 'https://demo.test/') | ConvertFrom-Json
+            if (-not $j.php.StartsWith($v)) { throw "tras 'php use $v' la web responde PHP $($j.php)" }
+            $lines += "php use $v -> la web responde PHP $($j.php)"
+        }
+    } finally {
+        # The projects below need PHP 8.4 (Laravel asks for 8.4.1 or later): a failure here must not leave 8.3.
+        Invoke-Tool $nido 'php use 8.4' 120 | Out-Null
     }
     $lines -join "`n"
 }

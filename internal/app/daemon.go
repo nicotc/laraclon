@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -238,7 +239,7 @@ func (d *Daemon) StartAll() {
 	d.startDatabases()
 	d.cfgMu.Unlock()
 	d.setProblem("php", d.startPHP())
-	d.setProblem("apache", d.startApache())
+	d.setProblem("apache", d.startApacheRetrying())
 	d.setProblem("nginx", d.syncNginx())
 	d.setProblem("frankenphp", d.syncFrankenPHP())
 	d.setProblem("adminer", d.startAdminer(false))
@@ -431,6 +432,24 @@ func (d *Daemon) startApache() error {
 	spec := apache.Spec(opt, conf)
 	spec.Env = append(spec.Env, d.env.ChildPATH())
 	return d.sup.Start(spec)
+}
+
+// startApacheRetrying starts Apache, and tries twice more when it could not even check its
+// configuration: right after an install Windows may still be busy with its files. Every failure goes
+// to nido.log.
+func (d *Daemon) startApacheRetrying() error {
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		if err = d.startApache(); err == nil {
+			return nil
+		}
+		log.Printf("apache (intento %d de 3): %v", attempt, err)
+		if !strings.Contains(err.Error(), "no pudo comprobar") {
+			return err // a configuration error stays the same on the next try
+		}
+		time.Sleep(time.Duration(attempt) * 5 * time.Second)
+	}
+	return err
 }
 
 func (d *Daemon) startProxy() error {
