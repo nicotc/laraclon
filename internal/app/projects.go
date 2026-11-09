@@ -499,6 +499,10 @@ func (d *Daemon) prepareProject(ctx context.Context, dir, name, db string, phase
 	if err != nil {
 		return err
 	}
+	// The PHP the project's locked packages accept (installed and pinned to the site when needed).
+	if v, err = d.lockedPHP(ctx, dir, name, v, phase, log); err != nil {
+		return err
+	}
 	ini, err := php.WriteIni(d.env.Home, v, d.env.IniOptions())
 	if err != nil {
 		return err
