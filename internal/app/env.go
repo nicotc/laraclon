@@ -13,6 +13,7 @@ import (
 
 	"github.com/nicotc/laraclon/internal/ca"
 	"github.com/nicotc/laraclon/internal/config"
+	"github.com/nicotc/laraclon/internal/dumps"
 	"github.com/nicotc/laraclon/internal/install"
 	"github.com/nicotc/laraclon/internal/mongodb"
 	"github.com/nicotc/laraclon/internal/mysql"
@@ -163,7 +164,21 @@ func (e *Env) CABundle() string {
 
 // IniOptions are the managed php.ini values for this installation.
 func (e *Env) IniOptions() php.IniOptions {
-	return php.IniOptions{CABundle: e.CABundle(), SMTPPort: 1025, Extensions: e.Cfg.PHP.Extensions}
+	return php.IniOptions{CABundle: e.CABundle(), SMTPPort: 1025, Extensions: e.Cfg.PHP.Extensions, Prepend: e.DumpPrepend()}
+}
+
+// DumpPrepend writes the file that sends dump() and dd() to the panel and returns its path, or ""
+// when the capture is off. php.ini only names it once it is written: PHP refuses to run a script
+// whose auto_prepend_file is missing.
+func (e *Env) DumpPrepend() string {
+	if e.Cfg.Dumps.Off {
+		return ""
+	}
+	p := e.Home.Generated("dumps", "prepend.php")
+	if err := dumps.WritePrepend(p, !e.Cfg.Dumps.Quiet); err != nil {
+		return ""
+	}
+	return p
 }
 
 // EnsureComposerFor downloads Composer 2.2 LTS when a pinned PHP is too old for the current

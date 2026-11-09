@@ -20,6 +20,7 @@ import (
 	"github.com/nicotc/laraclon/internal/ca"
 	"github.com/nicotc/laraclon/internal/config"
 	"github.com/nicotc/laraclon/internal/dns"
+	"github.com/nicotc/laraclon/internal/dumps"
 	"github.com/nicotc/laraclon/internal/frankenphp"
 	"github.com/nicotc/laraclon/internal/hosts"
 	"github.com/nicotc/laraclon/internal/install"
@@ -90,6 +91,8 @@ type Daemon struct {
 	dnsRule         bool                   // Windows sends the local domain to it (cached)
 	dnsRuleAt       time.Time              // when dnsRule was read
 	shares          map[string]*shareState // public links by site name
+	dumps           *dumps.Store           // what dump() and dd() sent
+	dumpSrv         *dumps.Server          // receives them on 127.0.0.1:9912
 
 	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
 	cfgMu sync.Mutex
@@ -149,6 +152,7 @@ func NewDaemon(env *Env) (*Daemon, error) {
 		jobs:            jobList{jobs: map[string]*Job{}},
 		poolPorts:       pools,
 		poolPortVersion: map[int]string{},
+		dumps:           &dumps.Store{},
 	}
 	d.sup.OnChange = d.changed
 	return d, nil
@@ -190,6 +194,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	d.setProblem("dns", d.startDNS())
 	defer d.stopDNS()
+	d.setProblem("dumps", d.startDumps())
+	defer d.stopDumps()
 	d.StartAll()
 	if stop, err := sites.Watch(d.env.Cfg.Roots, func() {
 		if err := d.Rescan(); err != nil {

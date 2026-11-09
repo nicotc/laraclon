@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/nicotc/laraclon/internal/hosts"
@@ -299,6 +300,19 @@ func (d *Daemon) Handler() http.Handler {
 		return d.Status(), err
 	})
 	api("GET /api/shares", func(*http.Request) (any, error) { return d.Shares(), nil })
+	api("GET /api/dumps", func(r *http.Request) (any, error) {
+		since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+		return d.Dumps(since), nil
+	})
+	api("POST /api/dumps/clear", func(*http.Request) (any, error) { d.ClearDumps(); return d.Dumps(0), nil })
+	api("POST /api/dumps/settings", func(r *http.Request) (any, error) {
+		var req struct{ On, Page bool }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		err := d.SetDumps(req.On, req.Page)
+		return d.Dumps(0), err
+	})
 	api("POST /api/share", func(r *http.Request) (any, error) {
 		var req struct {
 			Site     string

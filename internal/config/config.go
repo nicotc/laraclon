@@ -24,6 +24,7 @@ type Config struct {
 	FrankenPHP FrankenPHP `toml:"frankenphp"`
 	Hosts      Hosts      `toml:"hosts"`
 	DNS        DNS        `toml:"dns"`
+	Dumps      Dumps      `toml:"dumps"`
 
 	// Services holds the databases by kind ("mysql", "mariadb").
 	Services map[string]Service `toml:"services,omitempty"`
@@ -167,6 +168,13 @@ type Hosts struct {
 // name resolution policy rule, which needs administrator rights once.
 type DNS struct {
 	Enabled bool `toml:"enabled"`
+}
+
+// Dumps controls the capture of dump() and dd() for the panel's «Dumps» tab: on unless Off, and
+// still shown in the page (or the terminal) unless Quiet.
+type Dumps struct {
+	Off   bool `toml:"off,omitempty"`
+	Quiet bool `toml:"quiet,omitempty"`
 }
 
 // SiteSettings are per-site overrides, keyed by the site name (the part before .test).

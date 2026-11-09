@@ -238,3 +238,11 @@ textarea.editor[readonly] { background: var(--bg); }
 .file-result.bad { background: var(--bad-soft); color: #82071e; border: 1px solid #ffcecb; }
 .file-result ul { margin: 6px 0 0; padding-left: 18px; color: var(--warn); white-space: normal; }
 td a.ext { font-size: 13px; }
+
+/* Dumps: one card per request, each dump in a monospace block. */
+.dump-group { margin-bottom: 12px; }
+.dump { border-top: 1px solid var(--line); padding: 8px 14px; }
+.dump-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.dump-text { margin: 0; max-height: 360px; overflow: auto; background: var(--bg); border-radius: 6px; padding: 8px 10px;
+  font: 12.5px/1.45 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+input[type=text] { font: inherit; font-size: 14px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--fg); }

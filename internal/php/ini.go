@@ -39,6 +39,8 @@ type IniOptions struct {
 	// Debug writes the php.ini of the version's debugging pool and of phpx: Xdebug loaded and waiting
 	// for the editor on 127.0.0.1:9003. It lives next to the normal one (<version>-debug).
 	Debug bool
+	// Prepend is loaded before every script (auto_prepend_file): Nido's capture of dump() and dd().
+	Prepend string
 }
 
 // DebugIniPath is where the php.ini with Xdebug of a version lives.
@@ -178,6 +180,9 @@ func WriteIni(home paths.Home, v versions.Version, opt IniOptions) (string, erro
 	if opt.SMTPPort > 0 {
 		set("SMTP", "127.0.0.1")
 		set("smtp_port", fmt.Sprint(opt.SMTPPort))
+	}
+	if opt.Prepend != "" {
+		set("auto_prepend_file", q(opt.Prepend))
 	}
 
 	if !opt.Builtin {

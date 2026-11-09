@@ -104,6 +104,75 @@ function showTab(tab) {
   if (tab === 'servicios') loadCatalogs();
   if (tab === 'php') { loadPHPCatalog(); loadExtensions(); loadNode(); loadPHPFiles(); }
   if (tab === 'salud') renderHealth();
+  if (tab === 'dumps') loadDumps(true);
+}
+
+// ---------- dumps ----------
+
+const EDITORS = {
+  vscode: ['VS Code', (f, l) => `vscode://file/${encodeURI(f.replace(/\\/g, '/'))}:${l}`],
+  cursor: ['Cursor', (f, l) => `cursor://file/${encodeURI(f.replace(/\\/g, '/'))}:${l}`],
+  phpstorm: ['PhpStorm', (f, l) => `phpstorm://open?file=${encodeURIComponent(f)}&line=${l}`],
+  zed: ['Zed', (f, l) => `zed://file/${encodeURI(f.replace(/\\/g, '/'))}:${l}`],
+};
+const editorPref = () => { try { return localStorage.getItem('nido-editor') || 'vscode'; } catch { return 'vscode'; } };
+
+// loadDumps asks for the dumps; with all, the whole list, otherwise only when something new arrived.
+async function loadDumps(all) {
+  try {
+    const since = all || !ui.dumps ? 0 : ui.dumps.last;
+    const v = await call('GET', '/api/dumps' + (since ? '?since=' + since : ''));
+    if (!since || v.groups.length) ui.dumps = v;
+    else Object.assign(ui.dumps, { on: v.on, page: v.page, running: v.running });
+    delete ui.dumpsError;
+  } catch (e) {
+    ui.dumpsError = e.message;
+  }
+  renderDumps();
+}
+
+function renderDumps() {
+  const view = document.getElementById('dumps-view');
+  const v = ui.dumps;
+  const count = v ? v.groups.reduce((n, g) => n + g.dumps.length, 0) : 0;
+  document.getElementById('count-dumps').textContent = count || '';
+  if (ui.tab !== 'dumps') return;
+  if (!v) {
+    fill(view, el('p', { class: 'muted' }, ui.dumpsError ? 'No se pudieron leer los dumps: ' + ui.dumpsError : 'Cargando…'));
+    return;
+  }
+  const settings = patch => act('POST', '/api/dumps/settings', { on: v.on, page: v.page, ...patch }).then(() => loadDumps(true));
+  const editor = el('select', { 'aria-label': 'Editor para abrir los archivos' }, ...Object.entries(EDITORS).map(([k, [name]]) =>
+    el('option', { value: k, selected: k === editorPref() }, 'Abrir en ' + name)));
+  editor.addEventListener('change', () => { try { localStorage.setItem('nido-editor', editor.value); } catch { } renderDumps(); });
+  const link = (file, line) => {
+    if (!file) return null;
+    const short = shortPath(file) + ':' + line;
+    return el('a', { href: EDITORS[editorPref()][1](file, line), title: file + ':' + line, class: 'mono' }, short);
+  };
+  const groups = v.groups.map(g => el('div', { class: 'svc dump-group' },
+    el('div', { class: 'svc-head' },
+      el('span', { class: 'pill' + (g.method === 'CLI' ? '' : ' ok') }, g.method || '?'),
+      el('div', {}, el('div', { class: 'svc-title mono' }, g.uri || '(sin dirección)'),
+        el('div', { class: 'svc-sub' }, [g.host, new Date(g.started).toLocaleTimeString(), g.dumps.length === 1 ? '1 dump' : g.dumps.length + ' dumps'].filter(Boolean).join(' · ')))),
+    ...g.dumps.map(dmp => el('div', { class: 'dump' },
+      el('div', { class: 'dump-head' },
+        dmp.kind === 'dd' ? el('span', { class: 'pill bad' }, 'dd') : null,
+        el('span', { class: 'svc-sub' }, dmp.type), el('span', { class: 'spacer' }), link(dmp.file, dmp.line)),
+      el('pre', { class: 'dump-text' }, dmp.text)))));
+  const status = !v.on ? 'Captura apagada: dump() y dd() solo salen en la página.'
+    : !v.running ? 'El receptor de dumps no está en marcha (¿otro programa usa el puerto 9912?).'
+      : 'dump() y dd() de los proyectos Laravel y Symfony llegan aquí, agrupados por petición y por comando.';
+  fill(view,
+    el('div', { class: 'toolbar' },
+      el('h2', {}, 'Dumps'),
+      el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: v.on, onchange: e => settings({ on: e.target.checked }) }), el('span', {}, 'Capturar')),
+      el('label', { class: 'check', title: 'Si lo quitas, dump() ya no ensucia la página: solo sale aquí' },
+        el('input', { type: 'checkbox', checked: v.page, disabled: !v.on, onchange: e => settings({ page: e.target.checked }) }), el('span', {}, 'Mostrar también en la página')),
+      el('span', { class: 'spacer' }), editor,
+      el('button', { class: 'small secondary', onclick: () => act('POST', '/api/dumps/clear').then(() => loadDumps(true)) }, 'Vaciar')),
+    el('p', { class: 'muted' }, status),
+    groups.length ? groups : el('div', { class: 'card' }, el('p', { class: 'muted' }, 'Todavía no hay dumps. Escribe dump($algo) en tu código y recarga la página.')));
 }
 
 // ---------- salud ----------
@@ -1743,11 +1812,14 @@ function schedule() {
   setTimeout(async () => { await refresh(); schedule(); }, busy ? 1000 : 5000);
 }
 
+// The «Dumps» tab asks for news every second while it is open (cheap: nothing new, nothing sent).
+setInterval(() => { if (ui.tab === 'dumps' && !document.hidden) loadDumps(false); }, 1000);
+
 const firstTab = location.hash.slice(1);
 // #nuevo opens «Nuevo proyecto» right away (the tray's «Nuevo proyecto…» links there) and
 // #sitio/<name> the sheet of a site.
 const firstSite = firstTab.startsWith('sitio/') ? decodeURIComponent(firstTab.slice('sitio/'.length)) : '';
-showTab(firstTab === 'nuevo' || firstSite ? 'sitios' : ['resumen', 'sitios', 'servicios', 'php', 'salud'].includes(firstTab) ? firstTab : 'resumen');
+showTab(firstTab === 'nuevo' || firstSite ? 'sitios' : ['resumen', 'sitios', 'servicios', 'php', 'dumps', 'salud'].includes(firstTab) ? firstTab : 'resumen');
 refresh().then(() => {
   if (firstTab === 'nuevo') openProjectDialog();
   if (firstSite) openSiteSheet(firstSite);
