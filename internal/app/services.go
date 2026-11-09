@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -296,12 +295,11 @@ func (d *Daemon) UninstallService(key string) error {
 	d.cfgMu.Lock()
 	defer d.cfgMu.Unlock()
 	d.sup.Stop(key)
-	binRoot := strings.ToLower(d.env.Home.Bin()) + `\`
 	for _, v := range d.env.Reg.List(kind) {
 		if versions.Series(kind, v.Version) != series {
 			continue
 		}
-		if v.Source == "download" && strings.HasPrefix(strings.ToLower(filepath.Clean(v.Path))+`\`, binRoot) {
+		if install.OwnedByNido(d.env.Home, v) {
 			if err := os.RemoveAll(v.Path); err != nil {
 				return fmt.Errorf("no se pudo borrar %s: %w", v.Path, err)
 			}
@@ -452,64 +450,91 @@ func (d *Daemon) startInstall(rel install.Release, use bool) (Job, error) {
 	if v, ok := d.env.Reg.Find(rel.Kind, rel.Version); ok && v.Version == rel.Version {
 		return Job{}, fmt.Errorf("%s ya está instalado", v.Label())
 	}
+	j, snap, ctx, running := d.newJob(string(rel.Kind), rel.Series, rel.Version, rel.Size)
+	if !running {
+		go d.runInstall(ctx, j, rel, use)
+	}
+	return snap, nil
+}
+
+// newJob registers a background job, or finds the one already running for the same kind and series
+// (running is then true and nothing new starts).
+func (d *Daemon) newJob(kind, series, version string, total int64) (j *Job, snap Job, ctx context.Context, running bool) {
 	d.jobs.mu.Lock()
 	defer d.jobs.mu.Unlock()
 	for _, j := range d.jobs.jobs {
-		if !j.Finished && j.Kind == string(rel.Kind) && j.Series == rel.Series {
-			return *j, nil
+		if !j.Finished && j.Kind == kind && j.Series == series {
+			return j, *j, nil, true
 		}
 	}
 	id := make([]byte, 6)
 	rand.Read(id)
 	ctx, cancel := context.WithCancel(context.Background())
-	j := &Job{ID: hex.EncodeToString(id), Kind: string(rel.Kind), Series: rel.Series, Version: rel.Version,
-		Phase: "preparando", Total: rel.Size, Started: time.Now(), cancel: cancel}
+	j = &Job{ID: hex.EncodeToString(id), Kind: kind, Series: series, Version: version,
+		Phase: "preparando", Total: total, Started: time.Now(), cancel: cancel}
 	d.jobs.jobs[j.ID] = j
-	go d.runInstall(ctx, j, rel, use)
-	return *j, nil
+	return j, *j, ctx, false
+}
+
+// jobProgress is the download progress callback of a job.
+func (d *Daemon) jobProgress(j *Job) func(done, total int64) {
+	return func(done, total int64) {
+		d.jobs.update(j, func(j *Job) {
+			j.Done = done
+			if total > 0 {
+				j.Total = total
+			}
+		})
+	}
 }
 
 func (d *Daemon) runInstall(ctx context.Context, j *Job, rel install.Release, use bool) {
 	defer j.cancel()
-	v, err := install.InstallRelease(ctx, d.env.Home, rel,
-		func(phase string) { d.jobs.update(j, func(j *Job) { j.Phase = phase }) },
-		func(done, total int64) {
-			d.jobs.update(j, func(j *Job) {
-				j.Done = done
-				if total > 0 {
-					j.Total = total
-				}
-			})
-		})
-	isDefault, nodeSwitched := false, false
+	phase := func(phase string) { d.jobs.update(j, func(j *Job) { j.Phase = phase }) }
+	v, err := install.InstallRelease(ctx, d.env.Home, rel, phase, d.jobProgress(j))
 	if err == nil {
-		d.cfgMu.Lock()
-		d.env.Reg.Add(v)
-		err = d.env.SaveRegistry()
-		// Saved before the job ends: 'nido service install' exits as soon as it sees the job finished.
-		if rel.Kind == versions.Apache {
-			d.env.Cfg.Apache.Version = v.Version
-		}
-		// A downloaded Node becomes the global one when asked to, or when the global one is not a
-		// Node Nido downloaded (none yet, or one found elsewhere).
-		if rel.Kind == versions.Node {
-			if cur, cerr := d.env.GlobalNode(); use || cerr != nil || cur.Source != "download" {
-				d.env.Cfg.Node.Version, nodeSwitched = v.Version, true
-			}
-		}
-		if err == nil && (d.env.SyncServices() || rel.Kind == versions.Apache || nodeSwitched) {
-			err = d.env.SaveConfig()
-		}
-		isDefault = d.env.Cfg.Service(string(rel.Kind)).Default == rel.Series
-		d.cfgMu.Unlock()
-		d.refreshShims()
+		err = d.finishInstall(rel, v, use, phase)
 	}
-	// What was installed starts before the job ends: 'nido service install' and the panel take the end
-	// of the job as «ready», and the next request must find it running.
-	if err == nil {
-		d.jobs.update(j, func(j *Job) { j.Phase = "poniéndolo en marcha" })
-		d.afterInstall(rel, v, isDefault, nodeSwitched)
+	d.endJob(j, err)
+}
+
+// finishInstall registers a version that is now in bin\ (downloaded or from a .zip) and puts it to
+// use, before the job ends: 'nido service install' and the panel take the end of the job as «ready»,
+// and the next request must find it running.
+func (d *Daemon) finishInstall(rel install.Release, v versions.Version, use bool, phase func(string)) error {
+	nodeSwitched := false
+	d.cfgMu.Lock()
+	d.env.Reg.Add(v)
+	err := d.env.SaveRegistry()
+	// Saved before the job ends: 'nido service install' exits as soon as it sees the job finished.
+	if rel.Kind == versions.Apache {
+		d.env.Cfg.Apache.Version = v.Version
 	}
+	// A downloaded Node becomes the global one when asked to, or when the global one is not a
+	// Node Nido downloaded (none yet, or one found elsewhere).
+	if rel.Kind == versions.Node {
+		if cur, cerr := d.env.GlobalNode(); use || cerr != nil || cur.Source != "download" {
+			d.env.Cfg.Node.Version, nodeSwitched = v.Version, true
+		}
+	}
+	if err == nil && (d.env.SyncServices() || rel.Kind == versions.Apache || nodeSwitched) {
+		err = d.env.SaveConfig()
+	}
+	isDefault := d.env.Cfg.Service(string(rel.Kind)).Default == rel.Series
+	d.cfgMu.Unlock()
+	if err != nil {
+		return err
+	}
+	d.refreshShims()
+	if phase != nil {
+		phase("poniéndolo en marcha")
+	}
+	d.afterInstall(rel, v, isDefault, nodeSwitched)
+	return nil
+}
+
+// endJob marks a job as finished, well or with its error.
+func (d *Daemon) endJob(j *Job, err error) {
 	d.jobs.update(j, func(j *Job) {
 		j.Finished, j.Ended = true, time.Now()
 		switch {

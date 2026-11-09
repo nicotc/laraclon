@@ -28,7 +28,10 @@ Uso:
   nido php list | remote            versiones de PHP instaladas | publicadas en windows.php.net
   nido php install <rama>           descarga PHP (por ejemplo 8.4)
   nido php use <versión>            cambia el PHP global
+  nido php uninstall <versión>      borra una versión que ni el PHP global ni ningún sitio usa
   nido php ext [versión]            extensiones de PHP; 'nido php ext on|off xdebug [versión]' las cambia
+  nido import <tipo> <archivo.zip>  instala un .zip propio: php, apache, nginx, frankenphp, mysql, mariadb,
+                                    postgresql, mongodb, redis, mailpit, meilisearch o node
 
   nido node list | remote           versiones de Node instaladas | publicadas en nodejs.org (con avisos)
   nido node install [lts|latest|24] descarga Node con npm y npx ('--use' lo hace global)
@@ -101,6 +104,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdVersions(env)
 	case "php":
 		return cmdPHP(ctx, env, args[1:])
+	case "import", "importar":
+		return cmdImport(env, args[1:])
 	case "apache":
 		return cmdApache(env, args[1:])
 	case "node":
@@ -295,15 +300,50 @@ func cmdPHP(ctx context.Context, env *app.Env, args []string) error {
 		}
 		return nil
 	case "remote":
-		branches, err := install.PHPBranches(ctx)
+		list, err := install.PHPCatalog(ctx)
 		if err != nil {
 			return err
 		}
-		for _, b := range branches {
-			fmt.Printf("  %-5s %s\n", b.Branch, b.Version)
+		for _, b := range list {
+			fmt.Printf("  %-5s %-9s %s\n", b.Branch, b.Version, b.Note)
 		}
-		fmt.Println("Las ramas anteriores (8.1, 8.0, 7.4… hasta 5.x) también se instalan, por ejemplo 'nido php install 7.2':")
-		fmt.Println("Nido baja su última versión del archivo de windows.php.net.")
+		fmt.Println("Instala cualquiera con 'nido php install <rama>'; las que no están en windows.php.net, con 'nido import php <archivo.zip>'.")
+		return nil
+	case "uninstall", "remove":
+		if len(args) < 2 {
+			return fmt.Errorf("uso: nido php uninstall <versión>, por ejemplo 8.1.34")
+		}
+		v, ok := env.Reg.Find(versions.PHP, args[1])
+		if !ok {
+			return fmt.Errorf("PHP %s no está instalado (mira 'nido php list')", args[1])
+		}
+		if c, err := app.Connect(env.Home.Root); err == nil {
+			if err := c.Call("POST", "/api/php/uninstall", map[string]string{"version": v.Version}, nil); err != nil {
+				return err
+			}
+		} else {
+			if g, err := env.GlobalPHP(); err == nil && g.Version == v.Version {
+				return fmt.Errorf("PHP %s es el PHP global: cambia a otro con 'nido php use' antes", v.Version)
+			}
+			for name, s := range env.Cfg.Sites {
+				if s.PHP != "" && (s.PHP == v.Version || strings.HasPrefix(v.Version, s.PHP+".")) {
+					return fmt.Errorf("el sitio %s usa PHP %s: cámbialo antes con 'nido site php %s global'", name, s.PHP, name)
+				}
+			}
+			if install.OwnedByNido(env.Home, v) {
+				if err := os.RemoveAll(v.Path); err != nil {
+					return err
+				}
+			}
+			env.Reg.Remove(versions.PHP, v.Version)
+			if err := env.SaveRegistry(); err != nil {
+				return err
+			}
+			if err := refreshShims(env); err != nil {
+				return err
+			}
+		}
+		fmt.Println("Desinstalado:", v.Label())
 		return nil
 	case "install":
 		if len(args) < 2 {
@@ -353,6 +393,53 @@ func cmdPHP(ctx context.Context, env *app.Env, args []string) error {
 		return refreshShims(env)
 	}
 	return fmt.Errorf("subcomando de php desconocido: %s", args[0])
+}
+
+// cmdImport installs a .zip of one's own: through the running Nido (which puts it to use at once) or,
+// with Nido closed, straight into bin\.
+func cmdImport(env *app.Env, args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("uso: nido import <tipo> <archivo.zip>, por ejemplo 'nido import php C:\\Descargas\\php-7.1.33-nts-Win32-VC14-x64.zip'")
+	}
+	kind := versions.Component(strings.ToLower(args[0]))
+	if !install.CanImport(kind) {
+		var names []string
+		for _, k := range install.Importable {
+			names = append(names, string(k))
+		}
+		return fmt.Errorf("tipo desconocido %q: usa %s", args[0], strings.Join(names, ", "))
+	}
+	file := args[1]
+	if _, err := os.Stat(file); err != nil {
+		return err
+	}
+	fmt.Printf("Instalando %s desde %s…\n", kind.Name(), file)
+	if c, err := app.Connect(env.Home.Root); err == nil {
+		var out map[string]string
+		if err := c.Upload("/api/upload?kind="+string(kind), file, &out); err != nil {
+			return err
+		}
+		fmt.Println("Instalado:", out["installed"], "en", out["path"])
+		return nil
+	}
+	taken := func(version string) bool {
+		v, ok := env.Reg.Find(kind, version)
+		return ok && v.Version == version
+	}
+	v, err := install.ImportZip(env.Home, kind, file, taken)
+	if err != nil {
+		return err
+	}
+	env.Reg.Add(v)
+	if kind == versions.PHP && env.Cfg.PHP.Version == "" {
+		env.Cfg.PHP.Version = v.Version
+	}
+	env.SyncServices()
+	if err := saveAll(env); err != nil {
+		return err
+	}
+	fmt.Println("Instalado:", v.Label(), "en", v.Path)
+	return refreshShims(env)
 }
 
 func cmdComposer(ctx context.Context, env *app.Env, args []string) error {

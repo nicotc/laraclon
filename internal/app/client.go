@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -41,8 +42,30 @@ func (c *Client) Call(method, path string, body, out any) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("X-Nido-Token", c.token)
 	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, out)
+}
+
+// Upload sends a file as the body of a request (a .zip to install, for example).
+func (c *Client) Upload(path, file string, out any) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	req, err := http.NewRequest("POST", c.base+path, f)
+	if err != nil {
+		return err
+	}
+	if st, err := f.Stat(); err == nil {
+		req.ContentLength = st.Size()
+	}
+	req.Header.Set("Content-Type", "application/zip")
+	return c.do(req, out)
+}
+
+func (c *Client) do(req *http.Request, out any) error {
+	req.Header.Set("X-Nido-Token", c.token)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err

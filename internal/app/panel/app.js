@@ -28,7 +28,11 @@ const SERVERS = {
     desc: 'Servidor con su propio PHP integrado; más adelante, modo worker para Laravel Octane.' },
 };
 const LOGO = { apache: 'A', nginx: 'N', frankenphp: 'F', mysql: 'My', mariadb: 'Ma', postgresql: 'Pg', mongodb: 'Mo', redis: 'R', mailpit: '✉', meilisearch: 'Me', adminer: 'Ad',
-  node: 'JS', pm: 'pm' };
+  node: 'JS', pm: 'pm', php: 'php', zip: '⇪' };
+// What a .zip of one's own can be installed as (install.Importable).
+const IMPORTABLE = ['php', 'apache', 'nginx', 'frankenphp', 'mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'node'];
+const KIND_NAME = { php: 'PHP', apache: 'Apache', nginx: 'Nginx', frankenphp: 'FrankenPHP', node: 'Node' };
+const kindName = k => KIND_NAME[k] || (KIND_INFO[k] || {}).name || k;
 // Jobs that change what the Node section shows.
 const NODE_KINDS = ['node', 'pnpm', 'yarn'];
 
@@ -98,7 +102,7 @@ function showTab(tab) {
   document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab; });
   history.replaceState(null, '', '#' + tab);
   if (tab === 'servicios') loadCatalogs();
-  if (tab === 'php') { loadExtensions(); loadNode(); loadPHPFiles(); }
+  if (tab === 'php') { loadPHPCatalog(); loadExtensions(); loadNode(); loadPHPFiles(); }
   if (tab === 'salud') renderHealth();
 }
 
@@ -191,6 +195,8 @@ function render() {
   if (ui.tab === 'php' && ui.nodeKey !== undefined && nodeKey !== ui.nodeKey) loadNode();
   ui.nodeKey = nodeKey;
   if (ui.tab === 'php') renderNode();
+  const phpView = document.getElementById('php-versions');
+  if (ui.tab === 'php' && !(phpView.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName))) renderPHPVersions();
   const extSel = document.getElementById('ext-version');
   if (document.activeElement !== extSel) {
     extSel.replaceChildren(...(s.php_versions || []).map(v => el('option', { value: v, selected: v === (ui.extVersion || s.php) },
@@ -742,6 +748,125 @@ async function loadCatalogs(refreshList) {
       ui.catalogError[kind] = e.message;
     }
     renderServices();
+    if (ui.dialog) renderDialog();
+  }
+}
+
+// ---------- versiones de PHP ----------
+
+const SOURCE_LABEL = { download: 'descargada', zip: 'desde un .zip', import: 'importada' };
+
+async function loadPHPCatalog(refreshList) {
+  if (!ui.phpCatalog || refreshList) {
+    try {
+      ui.phpCatalog = await call('GET', '/api/php/remote');
+      delete ui.phpCatalogError;
+    } catch (e) {
+      ui.phpCatalogError = e.message;
+    }
+  }
+  renderPHPVersions();
+}
+
+// renderPHPVersions lists the installed PHP versions (global, used by sites, removable), offers the
+// branches windows.php.net has and a .zip of one's own.
+function renderPHPVersions() {
+  const view = document.getElementById('php-versions');
+  if (!view || !state) return;
+  const s = state;
+  const installed = s.php_installed || [];
+  const jobs = (s.jobs || []).filter(j => j.kind === 'php' && !ui.dismissed[j.id] && (!j.finished || j.error));
+  const pinned = v => (s.sites || []).filter(x => x.php && x.php_version === v).length;
+  const rows = installed.map(v => {
+    const global = v.version === s.php;
+    const n = pinned(v.version);
+    const build = [v.thread_safe ? 'TS' : 'NTS', v.arch].filter(Boolean).join(' ');
+    const notes = [SOURCE_LABEL[v.source] || v.source, n ? (n === 1 ? 'la usa 1 sitio' : `la usan ${n} sitios`) : ''].filter(Boolean);
+    return el('tr', {},
+      el('td', {}, el('input', { type: 'radio', name: 'php-global', checked: global, title: 'PHP global',
+        onchange: () => act('POST', '/api/php', { version: v.version }) })),
+      el('td', {}, el('span', { class: 'ver' }, v.version), ' ', el('span', { class: 'svc-sub' }, build)),
+      el('td', { class: 'svc-sub' }, notes.join(' · ')),
+      el('td', { class: 'mono svc-sub', title: v.path }, shortPath(v.path)),
+      el('td', { class: 'right' }, global || n ? el('span', { class: 'svc-sub' }, global ? 'global' : 'en uso')
+        : el('button', { class: 'small danger', onclick: () => removePHP(v) }, 'Desinstalar')));
+  });
+  let picker;
+  if (!ui.phpCatalog) {
+    picker = [el('span', { class: 'svc-sub' }, ui.phpCatalogError ? 'No se pudo leer windows.php.net: ' + ui.phpCatalogError : 'Consultando windows.php.net…')];
+  } else {
+    const have = new Set(installed.map(v => v.version.split('.').slice(0, 2).join('.')));
+    const busy = new Set(jobs.filter(j => !j.finished).map(j => j.series));
+    const opts = ui.phpCatalog.filter(r => !installed.some(v => v.version === r.version) && !busy.has(r.branch));
+    if (!opts.length) {
+      picker = [el('span', { class: 'svc-sub' }, 'Ya tienes la última versión de cada rama')];
+    } else {
+      const sel = el('select', { 'aria-label': 'Rama de PHP' }, ...opts.map(r =>
+        el('option', { value: r.branch, selected: r.branch === ui.choice.php }, `PHP ${r.version} · ${r.note}${have.has(r.branch) ? ' · más nueva que la tuya' : ''}`)));
+      sel.addEventListener('change', () => { ui.choice.php = sel.value; });
+      const use = el('input', { type: 'checkbox' });
+      picker = [sel, el('label', { class: 'check' }, use, el('span', { class: 'svc-sub' }, 'usarla como global')),
+        el('button', { class: 'small', onclick: () => installPHP(sel.value, use.checked) }, 'Instalar')];
+    }
+  }
+  fill(view, el('div', { class: 'svc' },
+    installed.length
+      ? el('table', { class: 'rows' },
+        el('thead', {}, el('tr', {}, el('th', { style: 'width:70px' }, 'Global'), el('th', {}, 'Versión'), el('th', {}, ''), el('th', {}, 'Carpeta'), el('th', { style: 'width:120px' }))),
+        el('tbody', {}, ...rows))
+      : el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' }, 'Todavía no hay ningún PHP: instala uno abajo.')),
+    ...jobs.map(j => jobLine(j, 'PHP')),
+    el('div', { class: 'svc-foot' }, 'Instalar:', ...picker, el('span', { class: 'spacer' }),
+      el('button', { class: 'small secondary', onclick: () => loadPHPCatalog(true) }, 'Actualizar lista')),
+    el('div', { class: 'svc-foot' }, 'Otra versión o una compilación propia (php.exe y php-cgi.exe de 64 bits):', ...zipButton('php', 'Subir .zip de PHP'))));
+}
+
+async function installPHP(branch, use) {
+  if (!branch) return;
+  try {
+    await call('POST', '/api/php/install', { version: branch, use });
+    toast('Instalación de PHP ' + branch + ' en marcha');
+  } catch (e) {
+    alert(e.message);
+  }
+  await refresh();
+}
+
+function removePHP(v) {
+  const what = v.source === 'download' || v.source === 'zip' ? `Se borra su carpeta (${v.path}).` : 'Sus archivos no se tocan: solo se quita de Nido.';
+  if (confirm(`¿Desinstalar PHP ${v.version}? ${what}`)) act('POST', '/api/php/uninstall', { version: v.version });
+}
+
+// zipButton is a button that picks a .zip and installs it as kind (a name, or a function that returns
+// the one chosen in a list).
+function zipButton(kind, text) {
+  const input = el('input', { type: 'file', accept: '.zip,application/zip', hidden: true });
+  input.addEventListener('change', () => {
+    const file = input.files[0];
+    input.value = '';
+    if (file) uploadZip(typeof kind === 'function' ? kind() : kind, file);
+  });
+  return [input, el('button', { class: 'small secondary', disabled: !!ui.uploading, onclick: () => input.click() },
+    ui.uploading ? `Subiendo ${kindName(ui.uploading)}…` : text)];
+}
+
+async function uploadZip(kind, file) {
+  if (!/\.zip$/i.test(file.name)) { alert('Elige un archivo .zip'); return; }
+  ui.uploading = kind;
+  renderPHPVersions();
+  if (ui.dialog) renderDialog();
+  try {
+    const res = await fetch('/api/upload?kind=' + encodeURIComponent(kind), {
+      method: 'POST', headers: { 'X-Nido-Token': token, 'Content-Type': 'application/zip' }, body: file });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    toast('Instalado: ' + data.installed);
+  } catch (e) {
+    alert(`No se pudo instalar ${file.name}: ${e.message}`);
+  } finally {
+    delete ui.uploading;
+    await refresh();
+    renderPHPVersions();
     if (ui.dialog) renderDialog();
   }
 }
@@ -1496,7 +1621,15 @@ function renderDialog() {
   const soon = all.filter(g => !isAvailable(g)).map(g => el('div', { class: 'tile soon' },
     el('div', { class: 'top' }, logo(g.kind), el('div', {}, el('div', { class: 'name' }, KIND_INFO[g.kind].name, ' ', el('span', { class: 'pill' }, 'próximamente')),
       el('div', { class: 'desc' }, KIND_INFO[g.kind].desc)))));
-  document.getElementById('dialog-body').replaceChildren(...tiles, ...soon);
+  // Any of them (or PHP, or Node) from a .zip of one's own.
+  const zipKind = el('select', { 'aria-label': 'Instalar el .zip como' }, ...IMPORTABLE.map(k =>
+    el('option', { value: k, selected: k === (ui.zipKind || 'php') }, kindName(k))));
+  zipKind.addEventListener('change', () => { ui.zipKind = zipKind.value; });
+  const zipTile = el('div', { class: 'tile' },
+    el('div', { class: 'top' }, logo('zip'), el('div', {}, el('div', { class: 'name' }, 'Desde un .zip tuyo'),
+      el('div', { class: 'desc' }, 'Una versión que el catálogo no tiene o una compilación propia: Nido la arranca para comprobarla antes de instalarla.'))),
+    el('div', { class: 'act' }, zipKind, ...zipButton(() => zipKind.value, 'Elegir .zip…')));
+  document.getElementById('dialog-body').replaceChildren(...tiles, zipTile, ...soon);
 }
 
 // ---------- arranque ----------
