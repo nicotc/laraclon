@@ -52,6 +52,15 @@ func main() {
 		systray.SetTooltip("Nido")
 		systray.SetOnTapped(func() { winx.OpenAppWindow(d.PanelURL()) })
 		t.build()
+		// Windows 11 hides a new icon under «^»: Nido's goes next to the clock, ready to open the
+		// panel. Windows lists the icon a moment after it first appears.
+		go func() {
+			if exe, err := os.Executable(); err == nil {
+				for i := 0; i < 10 && !winx.PromoteTrayIcon(exe); i++ {
+					time.Sleep(2 * time.Second)
+				}
+			}
+		}()
 		go func() {
 			if err := d.Run(ctx); err != nil {
 				log.Println("Nido:", err)

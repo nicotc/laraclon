@@ -26,7 +26,18 @@ const (
 	statusDLLNotFound        = 0xC0000135
 	statusEntryPointNotFound = 0xC0000139
 	statusInvalidImageFormat = 0xC000007B
+	// Smart App Control or another application control policy refused the program or one of its DLLs.
+	statusIntegrityPolicyViolation = 0xC0E90002
 )
+
+// AppControlHint explains a program blocked by Windows' application control.
+const AppControlHint = "Windows lo bloqueó (Control inteligente de aplicaciones): no tiene firma digital. Desactívalo en Seguridad de Windows → Control de aplicaciones y navegador para usarlo"
+
+// IsAppControlBlock reports whether an error is Windows refusing to run an unsigned program.
+func IsAppControlBlock(err error) bool {
+	return err != nil && (strings.Contains(err.Error(), "Control de aplicaciones") || strings.Contains(err.Error(), "Application Control") ||
+		strings.Contains(strings.ToLower(err.Error()), "0xc0e90002"))
+}
 
 // ExitHint explains Windows loader failures hidden behind odd exit codes, or returns "".
 func ExitHint(code int) string {
@@ -37,6 +48,8 @@ func ExitHint(code int) string {
 		return "una de sus DLL es más vieja de lo que necesita; si es el runtime de Visual C++, actualízalo con 'nido vcredist install'"
 	case statusInvalidImageFormat:
 		return "el programa o una de sus DLL es de otra arquitectura (32/64 bits) o está dañado"
+	case statusIntegrityPolicyViolation:
+		return AppControlHint
 	}
 	return ""
 }
@@ -61,6 +74,9 @@ func OutputEnv(timeout time.Duration, dir string, env []string, exe string, args
 	cmd.Stderr = &out
 	err := cmd.Run()
 	text := strings.TrimSpace(out.String())
+	if IsAppControlBlock(err) {
+		return text, fmt.Errorf("%s: %s", exe, AppControlHint)
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return text, fmt.Errorf("%s tardó más de %s", exe, timeout)
 	}

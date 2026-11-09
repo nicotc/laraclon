@@ -65,6 +65,9 @@ Filename: "{app}\nido.exe"; Parameters: "admin-setup"; StatusMsg: "Preparando Wi
 ; Como el usuario que instala: lo suyo vive en {app} y en su perfil.
 Filename: "{app}\nido.exe"; Parameters: "setup"; StatusMsg: "Descargando PHP, Apache, MySQL, Node y Composer…"; Flags: runasoriginaluser waituntilterminated; Tasks: download
 Filename: "{app}\nido.exe"; Parameters: "path add"; Flags: runasoriginaluser runhidden waituntilterminated; Tasks: path
+; Siempre: accesos «Nido» y arranque con Windows (con él, los servicios arrancan solos al entrar).
+Filename: "{app}\nido.exe"; Parameters: "shortcuts"; Flags: runasoriginaluser runhidden waituntilterminated
+Filename: "{app}\nido.exe"; Parameters: "autostart on"; Flags: runasoriginaluser runhidden waituntilterminated
 Filename: "{app}\nidow.exe"; Description: "Abrir Nido"; Flags: runasoriginaluser nowait postinstall skipifsilent
 
 [UninstallRun]

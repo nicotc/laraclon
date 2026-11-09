@@ -173,44 +173,41 @@ func cmdSetup(ctx context.Context, env *app.Env) error {
 		fmt.Println("\nRuntime de Visual C++ instalado:", vcredist.Version())
 	}
 	// Nido brings everything from the official sources: PHP (windows.php.net), Apache (Apache
-	// Lounge), MySQL (cdn.mysql.com), Node (nodejs.org) and Composer (getcomposer.org).
-	if len(env.Reg.List(versions.PHP)) == 0 {
-		if err := cmdPHP(ctx, env, []string{"install", "latest"}); err != nil {
-			return err
+	// Lounge), MySQL (cdn.mysql.com), Node (nodejs.org) and Composer (getcomposer.org). A step that
+	// fails (no internet, a program Windows blocks) does not stop the others: the panel offers it again.
+	var failed []string
+	try := func(what string, err error) {
+		if err != nil {
+			fmt.Printf("\n! %s: %v\n", what, err)
+			failed = append(failed, what)
 		}
 	}
+	if len(env.Reg.List(versions.PHP)) == 0 {
+		try("PHP", cmdPHP(ctx, env, []string{"install", "latest"}))
+	}
 	if len(env.Reg.List(versions.Apache)) == 0 {
-		if err := cmdApache(env, []string{"install"}); err != nil {
-			return err
-		}
+		try("Apache", cmdApache(env, []string{"install"}))
 	}
 	// A database server ready from the start, like any local stack: MySQL's long-term support series.
 	if len(env.Reg.List(versions.MySQL)) == 0 && len(env.Reg.List(versions.MariaDB)) == 0 {
-		if err := cmdServices(env, []string{"install", "mysql", "8.4"}); err != nil {
-			return err
-		}
+		try("MySQL", cmdServices(env, []string{"install", "mysql", "8.4"}))
 	}
 	if len(env.Reg.List(versions.Node)) == 0 || !installedFromDownload(env, versions.Node) {
-		if err := cmdNode(ctx, env, []string{"install", "lts"}); err != nil {
-			return err
-		}
+		try("Node", cmdNode(ctx, env, []string{"install", "lts"}))
 	}
-	if err := cmdComposer(ctx, env, []string{"install"}); err != nil {
-		return err
-	}
+	try("Composer", cmdComposer(ctx, env, []string{"install"}))
 	if !install.HaveCABundle(env.Home) {
 		fmt.Println("Descargando la lista de autoridades públicas (curl.se) para PHP y Composer…")
-		if err := install.InstallCABundle(ctx, env.Home); err != nil {
-			return err
-		}
+		try("lista de CAs públicas", install.InstallCABundle(ctx, env.Home))
 	}
 	// The local CA may already exist (the Node step creates it): PHP's bundle gets the public list.
-	if err := env.RefreshCABundleFile(); err != nil {
-		return err
-	}
-	if err := refreshShims(env); err != nil {
-		return err
-	}
+	try("certificados de PHP", env.RefreshCABundleFile())
+	try("atajos", refreshShims(env))
+	defer func() {
+		if len(failed) > 0 {
+			fmt.Printf("\nNo se pudo: %s. Reinténtalo desde el panel o con 'nido setup'.\n", strings.Join(failed, ", "))
+		}
+	}()
 	// Like any Windows program: «Nido» in the Start menu and on the desktop, and Nido starting when
 	// the user signs in (turned off from its tray or with 'nido autostart off').
 	if made, err := env.InstallShortcuts(); err != nil {

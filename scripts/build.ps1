@@ -18,17 +18,18 @@ Set-Location $root
 $dist = Join-Path $root "dist"
 New-Item -ItemType Directory -Force $dist | Out-Null
 
-$ldflags = "-s -w -X github.com/nicotc/laraclon/internal/app.Version=$Version"
+# Sin -s -w ni -trimpath: Smart App Control bloqueó los binarios reducidos y dejó pasar los normales.
+$ldflags = "-X github.com/nicotc/laraclon/internal/app.Version=$Version"
 foreach ($a in $Arch) {
     $out = Join-Path $dist $a
     New-Item -ItemType Directory -Force $out | Out-Null
     $env:GOOS = "windows"; $env:GOARCH = $a; $env:CGO_ENABLED = "0"
     Write-Host "Compilando Nido $Version para windows/$a..."
-    go build -trimpath -ldflags $ldflags -o "$out\nido.exe" ./cmd/nido
+    go build -ldflags $ldflags -o "$out\nido.exe" ./cmd/nido
     if ($LASTEXITCODE) { throw "go build nido ($a)" }
-    go build -trimpath -ldflags $ldflags -o "$out\nido-shim.exe" ./cmd/nido-shim
+    go build -ldflags $ldflags -o "$out\nido-shim.exe" ./cmd/nido-shim
     if ($LASTEXITCODE) { throw "go build nido-shim ($a)" }
-    go build -trimpath -ldflags "$ldflags -H=windowsgui" -o "$out\nidow.exe" ./cmd/nidow
+    go build -ldflags "$ldflags -H=windowsgui" -o "$out\nidow.exe" ./cmd/nidow
     if ($LASTEXITCODE) { throw "go build nidow ($a)" }
     Copy-Item README.md, LICENSE $out
     $zip = Join-Path $dist "Nido-$Version-windows-$a.zip"
