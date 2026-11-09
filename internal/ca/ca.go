@@ -274,6 +274,26 @@ func (a *Authority) Trust() error {
 	return nil
 }
 
+// TrustMachine adds the CA to the computer's trusted roots (every user, no confirmation dialog). It
+// needs administrator rights: the installer does it once.
+func (a *Authority) TrustMachine() error {
+	return certutil("-addstore", "-f", "Root", a.CertPath())
+}
+
+// UntrustMachine removes the CA from the computer's trusted roots (the uninstaller, as administrator).
+func (a *Authority) UntrustMachine() error {
+	return certutil("-delstore", "Root", strings.ToLower(a.cert.SerialNumber.Text(16)))
+}
+
+func certutil(args ...string) error {
+	cmd := exec.Command("certutil", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("certutil: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // Untrust removes the CA from the current user's trusted roots.
 func (a *Authority) Untrust() error {
 	serial := strings.ToLower(a.cert.SerialNumber.Text(16))

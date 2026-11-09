@@ -151,6 +151,10 @@ func run(ctx context.Context, args []string) error {
 		return err
 	case "autostart":
 		return cmdAutostart(env, args[1:])
+	case "admin-setup":
+		return cmdAdminSetup(ctx, env)
+	case "admin-cleanup":
+		return cmdAdminCleanup(env)
 	case "vcredist":
 		return cmdVCRedist(ctx, env, args[1:])
 	}

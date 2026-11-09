@@ -1,0 +1,41 @@
+name: Release
+
+# Al subir una etiqueta v0.4.0: tests, binarios para amd64 y arm64, sus instaladores y una release
+# de GitHub con todo adjunto.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: go test
+        run: go test -count=1 ./...
+      - name: Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Compilar e instaladores
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          ./scripts/build.ps1 -Version $version -Arch amd64,arm64 -Installer
+      - name: Sumas SHA-256
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -File -Include *.zip,*.exe -Recurse -Depth 0 |
+            ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } |
+            Set-Content -Encoding ascii dist/SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/Nido-Setup-*.exe
+            dist/SHA256SUMS.txt

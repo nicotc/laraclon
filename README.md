@@ -116,6 +116,16 @@
 - **Nada más:** Nido descarga solo PHP, Apache, MySQL, Node, Composer y Git, de sus fuentes oficiales y comprobados. `nido setup` deja listos la última versión de PHP y de Apache, MySQL 8.4 LTS, Node LTS y Composer. Git (MinGit) se descarga la primera vez que clonas un proyecto, si el equipo no tiene.
 - **Otras bases de datos y servicios** (MariaDB, PostgreSQL, MongoDB, Redis, Mailpit, Meilisearch): se instalan desde el panel o con `nido service install`.
 
+## Instalar
+
+Descarga `Nido-Setup-<versión>-amd64.exe` (o `-arm64`) de las [releases](https://github.com/nicotc/laraclon/releases). El instalador pide permiso de administrador **una sola vez** y deja hecho lo que antes pedía permiso por separado:
+
+- instala el runtime de Visual C++ de Microsoft si falta,
+- hace que Windows confíe en la CA local de Nido para todo el equipo (sin diálogo de confirmación),
+- activa el DNS comodín de `*.test`, así que el archivo `hosts` ya no hace falta.
+
+Después, como tu usuario, descarga PHP, Apache, MySQL, Node y Composer y, si lo eliges, añade las carpetas de Nido al PATH. Va en `C:\nido` y el desinstalador deshace la CA y la regla de DNS, pero conserva `data\` y `www\`.
+
 ## Compilar
 
 ```powershell
@@ -124,6 +134,8 @@ go build -o C:\nido\nido.exe ./cmd/nido
 go build -o C:\nido\nido-shim.exe ./cmd/nido-shim
 go build -ldflags "-H=windowsgui" -o C:\nido\nidow.exe ./cmd/nidow
 ```
+
+`scripts\build.ps1 -Version 0.4.0 -Arch amd64,arm64 -Installer` compila para las dos arquitecturas, hace un `.zip` por cada una y, con Inno Setup 6, su instalador en `dist\`. GitHub Actions corre los tests en cada push (`.github/workflows/ci.yml`) y, al subir una etiqueta `v*`, publica la release con los binarios, los instaladores y `SHA256SUMS.txt`.
 
 Los tres ejecutables van juntos en la carpeta de instalación, que no debe tener espacios en la ruta:
 - `nido.exe`: la línea de comandos.
@@ -153,11 +165,14 @@ Si otro programa ya usa los puertos 80, 443 o 3306 (otro entorno local, IIS…),
 
 ## Dejarlo listo en tu equipo
 
+Con el instalador no hace falta nada de esto. A mano:
+
 1. `nido setup`: descarga todo lo necesario (unos minutos la primera vez).
-2. `nido ca trust`: Windows te pide confirmar la CA local, solo para tu usuario. Así los sitios abren por HTTPS sin avisos.
-3. `nido hosts sync`: Windows pide permiso de administrador para escribir el archivo `hosts`.
-4. `nido path add` (opcional): `php`, `composer`, `node` y `npm` de Nido en cualquier terminal.
-5. Abre «Nido» desde el menú Inicio o el escritorio. Su pestaña «Salud» dice si PHP, las bases de datos y tus sitios responden.
+2. Desde una terminal de administrador, `nido admin-setup`: Visual C++, CA de confianza y DNS comodín, todo a la vez y sin más avisos. Si prefieres hacerlo paso a paso, usa `nido ca trust` (solo tu usuario) y `nido dns on` o `nido hosts sync`; cada uno pide su permiso.
+3. `nido path add` (opcional): `php`, `composer`, `node`, `npm`, `git` y los comandos de `composer global` en cualquier terminal. También desde «PHP y Node» en el panel.
+4. Abre «Nido» desde el menú Inicio o el escritorio. Su pestaña «Salud» dice si PHP, las bases de datos y tus sitios responden.
+
+> **Smart App Control.** Si Windows tiene activado «Control inteligente de aplicaciones», bloquea los programas sin firma digital, entre ellos `php.exe` de windows.php.net. El panel muestra el error «Una directiva de Control de aplicaciones bloqueó este archivo». Nido no puede saltárselo: hay que desactivarlo en Seguridad de Windows → Control de aplicaciones y navegador.
 
 ## Comandos
 
@@ -191,7 +206,17 @@ Si otro programa ya usa los puertos 80, 443 o 3306 (otro entorno local, IIS…),
 | `nido service install adminer latest` | Adminer en `https://db.localhost` |
 | `nido ca status` · `trust` · `untrust` | CA local para HTTPS |
 | `nido hosts status` · `sync` | Bloque gestionado del archivo `hosts` |
-| `nido path add` · `remove` | Atajos de Nido en el PATH de tu usuario |
+| `nido path status` · `add` · `remove` | Carpetas de Nido en el PATH de tu usuario (atajos, npm global, `composer global`, MinGit) |
+| `nido php remote` · `uninstall 8.1.34` | Todas las ramas de windows.php.net (mantenidas y archivadas) · borrar una versión que nadie usa |
+| `nido import php\|apache\|mysql\|… archivo.zip` | Instala un `.zip` propio; Nido lo arranca para comprobar versión y arquitectura (también desde el panel) |
+| `nido git install` | MinGit si el equipo no tiene Git |
+| `nido dns status` · `on` · `off` | DNS comodín: todo `*.test`, también `api.tienda.test`, sin tocar `hosts` |
+| `nido share tienda [--horas 8] [--clave X]` · `--stop` · `list` | Enlace público temporal `https://….trycloudflare.com` (cloudflared, sin cuenta) |
+| `nido worktree add tienda feature/pagos [--bd compartida\|copia\|nueva]` · `list` · `remove` | Worktree de Git en `https://feature-pagos.tienda.test`, con su `.env`, `APP_KEY` y base de datos |
+| `nido mcp` · `mcp install [--client claude\|cursor\|vscode\|windsurf\|codex]` | Servidor MCP para editores con IA: sitios, servicios, logs, dumps, worktrees |
+| `nido admin-setup` · `admin-cleanup` | Lo que necesita administrador, de una vez (lo usan el instalador y el desinstalador) |
+
+**Dumps.** Con un proyecto Laravel o Symfony, `dump()` y `dd()` llegan también a la pestaña «Dumps» del panel, agrupados por petición o comando, con el archivo y la línea (se abren en VS Code, Cursor, PhpStorm o Zed). `[dumps] off = true` en `nido.toml` apaga la captura y `quiet = true` la deja solo en el panel.
 
 `NIDO_APACHE_LOGLEVEL="warn proxy_fcgi:trace8"` hace que Apache registre las variables que envía a PHP (útil para diagnosticar).
 
@@ -336,9 +361,10 @@ En un Windows limpio (Windows Sandbox), con los puertos 80 y 443, pasan los 26 p
   - Apache de Apache Lounge en varias versiones; PHP fijado por sitio para proyectos antiguos (como PHP va por FastCGI, no hace falta un Apache viejo para un PHP viejo); extensiones de PHP con casillas; Adminer en `https://db.localhost`.
 - **Fase 3 (en marcha):**
   - Hecho: proyectos Laravel nuevos con sus starter kits, WordPress, Symfony, desde Git y desde plantillas propias, «Preparar» para proyectos existentes, `.env` automático, procesos del proyecto (Vite con HTTPS, cola, tareas y Reverb), Xdebug por sitio, y Node al día con pnpm y yarn.
-  - Falta: compartir con ngrok.
-  - Nombre e identidad propios (Nido), salud del entorno, progreso visible de los trabajos largos, proyecto nuevo con su entorno elegido, ficha de cada sitio con sus archivos de configuración y Node por sitio.
-- **Fase 4:** DNS comodín para `*.sitio.test`, modo worker de FrankenPHP, actualizador y firma de código.
+  - También: nombre e identidad propios (Nido), salud del entorno, progreso visible de los trabajos largos, proyecto nuevo con su entorno elegido, ficha de cada sitio con sus archivos de configuración y Node por sitio.
+- **Fase 4 (en marcha):**
+  - Hecho: DNS comodín de `*.test`, enlaces públicos (`nido share`, con Cloudflare en lugar de ngrok), pestaña «Dumps», worktrees de Git, servidor MCP, PHP (todas las ramas) y `.zip` propios desde el panel, Composer, Git y PATH desde el panel, instalador con un solo permiso de administrador, y releases para amd64 y arm64.
+  - Falta: modo worker de FrankenPHP (Octane), actualizador y firma de código (con ella, Smart App Control dejaría pasar `nido.exe`; `php.exe` sigue dependiendo de windows.php.net).
 
 ## Licencia
 
