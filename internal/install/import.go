@@ -46,7 +46,8 @@ func ImportZip(home paths.Home, kind versions.Component, zipPath string, taken f
 	}
 	v, err := versions.Detect(kind, tmp)
 	if err != nil {
-		return versions.Version{}, fmt.Errorf("el .zip no contiene %s para Windows: %w", kind.Name(), err)
+		// The temporary folder means nothing to the user: the zip is what they chose.
+		return versions.Version{}, fmt.Errorf("el .zip no contiene %s para Windows: %s", kind.Name(), strings.ReplaceAll(err.Error(), " en "+tmp, " en el .zip"))
 	}
 	if v.Arch == "x86" {
 		return versions.Version{}, fmt.Errorf("%s es de 32 bits: Nido necesita la versión de 64 bits (x64)", v.Label())

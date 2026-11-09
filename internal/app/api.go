@@ -300,6 +300,21 @@ func (d *Daemon) Handler() http.Handler {
 		return d.Status(), err
 	})
 	api("GET /api/shares", func(*http.Request) (any, error) { return d.Shares(), nil })
+	api("GET /api/tools", func(*http.Request) (any, error) { return d.Tools(), nil })
+	api("POST /api/tools/install", func(r *http.Request) (any, error) {
+		var req struct{ Name string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return d.InstallTool(req.Name)
+	})
+	api("POST /api/env/path", func(r *http.Request) (any, error) {
+		var req struct{ On bool }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return d.env.SetUserPath(req.On)
+	})
 	api("GET /api/worktrees", func(r *http.Request) (any, error) { return d.Worktrees(r.URL.Query().Get("site")), nil })
 	api("POST /api/worktrees", func(r *http.Request) (any, error) {
 		var req struct{ Site, Branch, DB string }

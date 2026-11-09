@@ -3,6 +3,7 @@ package install
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/nicotc/laraclon/internal/download"
 	"github.com/nicotc/laraclon/internal/versions"
@@ -30,7 +31,9 @@ func PHPCatalog(ctx context.Context) ([]PHPRelease, error) {
 			continue
 		}
 		seen[b.Branch] = true
-		out = append(out, PHPRelease{Branch: b.Branch, Version: b.Version, Note: "mantenida"})
+		// A rebuilt release is published as "8.5.12-1"; php.exe still says 8.5.12.
+		version, _, _ := strings.Cut(b.Version, "-")
+		out = append(out, PHPRelease{Branch: b.Branch, Version: version, Note: "mantenida"})
 	}
 	if listing, err := download.Text(ctx, phpArchives); err == nil {
 		for _, branch := range archivedBranches(listing) {

@@ -72,6 +72,7 @@ func installArchivedPHP(ctx context.Context, home paths.Home, branch string, pro
 	}
 	v, err := versions.DetectPHP(dest)
 	if err != nil {
+		os.RemoveAll(dest)
 		return versions.Version{}, err
 	}
 	if v.Version != version {

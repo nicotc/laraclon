@@ -3,6 +3,7 @@ package install
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -106,6 +107,7 @@ func InstallPHP(ctx context.Context, home paths.Home, want string, progress down
 	}
 	v, err := versions.DetectPHP(dest)
 	if err != nil {
+		os.RemoveAll(dest) // a PHP that cannot run is not left half installed
 		return versions.Version{}, err
 	}
 	v.Source = "download"

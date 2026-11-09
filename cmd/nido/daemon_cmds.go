@@ -15,7 +15,6 @@ import (
 	"github.com/nicotc/laraclon/internal/ca"
 	"github.com/nicotc/laraclon/internal/hosts"
 	"github.com/nicotc/laraclon/internal/sites"
-	"github.com/nicotc/laraclon/internal/winx"
 )
 
 const daemonUsage = `
@@ -27,7 +26,7 @@ const daemonUsage = `
 
   nido ca status | trust | untrust  CA local para HTTPS (trust pide confirmación a Windows)
   nido hosts status | sync          archivo hosts (sync pide permiso de administrador)
-  nido path add | remove            añade o quita shims\ del PATH de tu usuario
+  nido path status | add | remove   carpetas de Nido en el PATH de tu usuario (php, composer, node, git…)
 `
 
 // cmdRun starts the daemon: in the background with the tray icon (nidow.exe), or in this console.
@@ -281,23 +280,33 @@ func cmdHosts(env *app.Env, args []string) error {
 }
 
 func cmdPath(env *app.Env, args []string) error {
-	if len(args) == 0 || (args[0] != "add" && args[0] != "remove") {
-		return fmt.Errorf("uso: nido path add | remove")
+	if len(args) == 0 {
+		args = []string{"status"}
 	}
-	dirs := []string{env.Home.Shims(), env.NPMPrefix()}
-	if args[0] == "add" {
-		if err := winx.AddToUserPath(dirs...); err != nil {
-			return err
-		}
+	var list []app.PathEntry
+	var err error
+	switch args[0] {
+	case "status":
+		list = env.PathEntries()
+		fmt.Println("Carpetas de Nido en el PATH de tu usuario:")
+	case "add":
+		list, err = env.SetUserPath(true)
 		fmt.Println("Añadido al PATH de tu usuario (abre una terminal nueva para usarlo):")
-	} else {
-		if err := winx.RemoveFromUserPath(dirs...); err != nil {
-			return err
-		}
+	case "remove":
+		list, err = env.SetUserPath(false)
 		fmt.Println("Quitado del PATH de tu usuario:")
+	default:
+		return fmt.Errorf("uso: nido path status | add | remove")
 	}
-	for _, d := range dirs {
-		fmt.Println("  ", d)
+	if err != nil {
+		return err
+	}
+	for _, p := range list {
+		mark := "  "
+		if p.InPath {
+			mark = "✓ "
+		}
+		fmt.Printf("  %s%-48s %s\n", mark, p.Dir, p.Label)
 	}
 	return nil
 }

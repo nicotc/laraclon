@@ -28,7 +28,7 @@ const SERVERS = {
     desc: 'Servidor con su propio PHP integrado; más adelante, modo worker para Laravel Octane.' },
 };
 const LOGO = { apache: 'A', nginx: 'N', frankenphp: 'F', mysql: 'My', mariadb: 'Ma', postgresql: 'Pg', mongodb: 'Mo', redis: 'R', mailpit: '✉', meilisearch: 'Me', adminer: 'Ad',
-  node: 'JS', pm: 'pm', php: 'php', zip: '⇪' };
+  node: 'JS', pm: 'pm', php: 'php', zip: '⇪', composer: 'C', git: 'G' };
 // What a .zip of one's own can be installed as (install.Importable).
 const IMPORTABLE = ['php', 'apache', 'nginx', 'frankenphp', 'mysql', 'mariadb', 'postgresql', 'mongodb', 'redis', 'mailpit', 'meilisearch', 'node'];
 const KIND_NAME = { php: 'PHP', apache: 'Apache', nginx: 'Nginx', frankenphp: 'FrankenPHP', node: 'Node' };
@@ -102,7 +102,7 @@ function showTab(tab) {
   document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab; });
   history.replaceState(null, '', '#' + tab);
   if (tab === 'servicios') loadCatalogs();
-  if (tab === 'php') { loadPHPCatalog(); loadExtensions(); loadNode(); loadPHPFiles(); }
+  if (tab === 'php') { loadPHPCatalog(); loadTools(); loadExtensions(); loadNode(); loadPHPFiles(); }
   if (tab === 'salud') renderHealth();
   if (tab === 'dumps') loadDumps(true);
 }
@@ -267,6 +267,11 @@ function render() {
   if (ui.tab === 'php') renderNode();
   const phpView = document.getElementById('php-versions');
   if (ui.tab === 'php' && !(phpView.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName))) renderPHPVersions();
+  // Composer and Git are read again once their install ends.
+  const toolsKey = (s.jobs || []).filter(j => ['composer', 'git'].includes(j.kind) && !j.finished).map(j => j.id).join();
+  if (ui.tab === 'php' && ui.toolsKey && toolsKey !== ui.toolsKey) loadTools();
+  ui.toolsKey = toolsKey;
+  if (ui.tab === 'php') renderTools();
   const extSel = document.getElementById('ext-version');
   if (document.activeElement !== extSel) {
     extSel.replaceChildren(...(s.php_versions || []).map(v => el('option', { value: v, selected: v === (ui.extVersion || s.php) },
@@ -894,6 +899,67 @@ function renderPHPVersions() {
     el('div', { class: 'svc-foot' }, 'Instalar:', ...picker, el('span', { class: 'spacer' }),
       el('button', { class: 'small secondary', onclick: () => loadPHPCatalog(true) }, 'Actualizar lista')),
     el('div', { class: 'svc-foot' }, 'Otra versión o una compilación propia (php.exe y php-cgi.exe de 64 bits):', ...zipButton('php', 'Subir .zip de PHP'))));
+}
+
+// ---------- Composer, Git y PATH ----------
+
+async function loadTools() {
+  try {
+    ui.tools = await call('GET', '/api/tools');
+    delete ui.toolsError;
+  } catch (e) {
+    ui.toolsError = e.message;
+  }
+  renderTools();
+}
+
+function renderTools() {
+  const view = document.getElementById('tools-view');
+  if (!view || !state) return;
+  const t = ui.tools;
+  if (!t) {
+    fill(view, el('p', { class: 'muted' }, ui.toolsError ? 'No se pudo leer: ' + ui.toolsError : 'Cargando…'));
+    return;
+  }
+  const jobOf = kind => (state.jobs || []).find(j => j.kind === kind && !ui.dismissed[j.id] && (!j.finished || j.error));
+  const toolCard = (kind, name, info, desc, button) => {
+    const job = jobOf(kind);
+    return el('div', { class: 'svc' + (info.installed ? '' : ' dashed') },
+      el('div', { class: 'svc-head' }, logo(kind),
+        el('div', {}, el('div', { class: 'svc-title' }, name),
+          el('div', { class: 'svc-sub' }, info.installed ? `versión ${info.version || '?'} · ${info.source === 'nido' ? 'de Nido' : 'del sistema'}` : 'sin instalar'))),
+      el('div', { class: 'svc-body' }, el('div', { class: 'svc-sub' }, desc),
+        info.path ? el('div', { class: 'svc-sub mono', title: info.path }, shortPath(info.path)) : null),
+      job ? jobLine(job, name) : null,
+      el('div', { class: 'svc-foot' }, button));
+  };
+  const install = (kind, text) => el('button', { class: 'small', disabled: !!jobOf(kind),
+    onclick: async () => {
+      try { await call('POST', '/api/tools/install', { name: kind }); toast(text + ' en marcha'); } catch (e) { alert(e.message); }
+      await refresh();
+    } }, text);
+  const missing = t.path.filter(p => !p.in_path).length;
+  const pathCard = el('div', { class: 'svc' },
+    el('div', { class: 'svc-head' }, logo('pm'),
+      el('div', {}, el('div', { class: 'svc-title' }, 'PATH de tu usuario'),
+        el('div', { class: 'svc-sub' }, missing ? `faltan ${missing} de ${t.path.length} carpetas` : 'todas las carpetas de Nido están'))),
+    el('table', { class: 'rows' }, el('tbody', {}, ...t.path.map(p => el('tr', {},
+      el('td', { style: 'width:28px' }, p.in_path ? '✓' : '—'),
+      el('td', { class: 'mono svc-sub' }, p.dir),
+      el('td', { class: 'svc-sub' }, p.label))))),
+    el('div', { class: 'svc-foot' },
+      el('span', { class: 'svc-sub' }, 'Las terminales que abras después lo ven; las abiertas, no.'),
+      el('span', { class: 'spacer' }),
+      el('button', { class: 'small' + (missing ? '' : ' secondary'), onclick: async () => {
+        try { ui.tools.path = await call('POST', '/api/env/path', { on: missing > 0 }); toast(missing ? 'PATH actualizado: abre una terminal nueva' : 'Carpetas de Nido quitadas del PATH'); } catch (e) { alert(e.message); }
+        renderTools();
+      } }, missing ? 'Añadir al PATH' : 'Quitar del PATH')));
+  fill(view, el('div', { class: 'grid2' },
+    toolCard('composer', 'Composer', t.composer, 'Paquetes de PHP; el atajo composer usa el PHP de cada proyecto (2.2 LTS para PHP antiguos).',
+      install('composer', t.composer.installed ? 'Actualizar Composer' : 'Instalar Composer')),
+    toolCard('git', 'Git', t.git, t.git.source === 'sistema' ? 'Nido usa el Git que ya tienes instalado.' : 'MinGit, la versión portátil oficial de Git para Windows.',
+      t.git.source === 'sistema' ? el('span', { class: 'svc-sub' }, 'Instalado aparte de Nido') : install('git', t.git.installed ? 'Actualizar Git' : 'Instalar Git'))),
+    pathCard);
 }
 
 async function installPHP(branch, use) {

@@ -41,6 +41,7 @@ Uso:
   nido node install pnpm|yarn       instala o actualiza pnpm o yarn ('nido node uninstall pnpm' lo quita)
 
   nido composer install             descarga o actualiza Composer
+  nido git install                  descarga MinGit si este equipo no tiene Git
   nido shims                        regenera los atajos de shims\ (php, composer, node, npm, npx…)
   nido shortcuts                    crea los accesos «Nido» del menú Inicio y del escritorio
   nido autostart on|off             Nido arranca, o no, al entrar en Windows
@@ -128,6 +129,18 @@ func run(ctx context.Context, args []string) error {
 		return cmdNode(ctx, env, args[1:])
 	case "composer":
 		return cmdComposer(ctx, env, args[1:])
+	case "git":
+		if len(args) < 2 || args[1] != "install" {
+			return fmt.Errorf("uso: nido git install")
+		}
+		fmt.Println("Descargando MinGit (Git para Windows, comprobado con su SHA-256)…")
+		p, err := install.InstallGit(ctx, env.Home, printProgress())
+		fmt.Println()
+		if err != nil {
+			return err
+		}
+		fmt.Println("Git en", p, "· añádelo a cualquier terminal con 'nido path add'")
+		return nil
 	case "shims":
 		return refreshShims(env)
 	case "shortcuts", "accesos":

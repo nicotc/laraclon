@@ -93,6 +93,8 @@ type Daemon struct {
 	shares          map[string]*shareState // public links by site name
 	dumps           *dumps.Store           // what dump() and dd() sent
 	dumpSrv         *dumps.Server          // receives them on 127.0.0.1:9912
+	tools           *ToolsView             // Composer and Git, read a minute ago at most
+	toolsAt         time.Time
 
 	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
 	cfgMu sync.Mutex

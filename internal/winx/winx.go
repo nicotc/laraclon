@@ -60,6 +60,30 @@ func RemoveFromUserPath(dirs ...string) error {
 	})
 }
 
+// UserPathHas reports, for each dir, whether the current user's PATH lists it.
+func UserPathHas(dirs ...string) []bool {
+	out := make([]bool, len(dirs))
+	k, err := registry.OpenKey(registry.CURRENT_USER, envKey, registry.QUERY_VALUE)
+	if err != nil {
+		return out
+	}
+	defer k.Close()
+	cur, _, _ := k.GetStringValue("Path")
+	var parts []string
+	for _, p := range strings.Split(cur, ";") {
+		if p = strings.TrimSpace(p); p != "" {
+			if expanded, err := registry.ExpandString(p); err == nil {
+				p = expanded
+			}
+			parts = append(parts, p)
+		}
+	}
+	for i, d := range dirs {
+		out[i] = containsFold(parts, d)
+	}
+	return out
+}
+
 func containsFold(list []string, s string) bool {
 	for _, x := range list {
 		if strings.EqualFold(strings.TrimRight(x, `\`), strings.TrimRight(s, `\`)) {
