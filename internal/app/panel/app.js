@@ -179,6 +179,7 @@ function render() {
   health.hidden = !s.health_url;
   health.onclick = e => { e.preventDefault(); showTab('salud'); };
   renderHealthDot(s.health);
+  renderDNS(s);
   if (ui.tab === 'salud') renderHealth();
   document.querySelectorAll('.php-select').forEach(sel => {
     if (document.activeElement === sel) return;
@@ -232,8 +233,11 @@ function renderAlerts(s) {
       'Confiar en la CA', () => act('POST', '/api/ca/trust')));
   }
   if (s.hosts_missing && s.hosts_missing.length) {
-    alerts.append(alertBox(`${s.hosts_missing.length} sitio(s) no están en el archivo hosts (por ejemplo ${s.hosts_missing[0]}).`,
-      'Actualizar hosts (pide permiso)', () => act('POST', '/api/hosts/sync')));
+    const box = alertBox(`${s.hosts_missing.length} sitio(s) no están en el archivo hosts (por ejemplo ${s.hosts_missing[0]}).`,
+      'Actualizar hosts (pide permiso)', () => act('POST', '/api/hosts/sync'));
+    box.append(el('button', { class: 'secondary', title: 'Todo .test, con subdominios, sin volver a tocar hosts',
+      onclick: () => act('POST', '/api/dns', { on: true }) }, 'O activar el DNS comodín'));
+    alerts.append(box);
   }
   const rt = s.runtime || {};
   if (rt.missing) {
@@ -328,6 +332,7 @@ function renderSites() {
     el('td', {}, el('a', { href: '#sitio/' + x.name, title: 'Ficha del sitio: entorno y archivos de configuración',
       onclick: e => { e.preventDefault(); openSiteSheet(x.name); } }, x.host), ' ',
       el('a', { href: x.url, target: '_blank', class: 'ext', title: 'Abrir ' + x.url }, '↗'), ' ',
+      x.share ? el('a', { href: x.share.url, target: '_blank', class: 'ext', title: 'Compartido en ' + x.share.url }, '🌐') : null, x.share ? ' ' : null,
       el('button', { class: 'ghost', title: 'Guardar como plantilla para proyectos nuevos', onclick: () => saveTemplate(x) }, '⧉')),
     el('td', {}, x.kind),
     el('td', {}, serverPicker(x)),
@@ -1377,8 +1382,8 @@ function renderSiteSheet() {
   const sheet = ui.sheet;
   if (!sheet || ui.edit || !state) return;
   const body = document.getElementById('site-body');
-  // Not redrawn while a version is being chosen.
-  if (body.contains(document.activeElement) && document.activeElement.tagName === 'SELECT') return;
+  // Not redrawn while a version is being chosen or a share password typed.
+  if (body.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName)) return;
   const site = (state.sites || []).find(s => s.name === sheet.site);
   document.getElementById('site-title').textContent = site ? site.host : sheet.site;
   if (!site) {
@@ -1401,6 +1406,7 @@ function renderSiteSheet() {
         el('span', { class: 'k' }, 'Carpeta'), el('code', {}, site.folder),
         el('span', { class: 'k' }, 'Carpeta pública'), el('code', {}, site.doc_root),
         el('span', { class: 'k' }, 'Puerto interno'), el('span', {}, String(site.port)))),
+    shareBox(site),
     db ? el('div', { class: 'box' }, el('h4', {}, 'Base de datos'),
       el('div', { class: 'sheet-db' }, el('code', {}, db.bd), el('span', { class: 'health-state ' + db.estado }, HEALTH_STATE[db.estado] || db.estado),
         el('span', { class: 'muted' }, db.detalle))) : null,
@@ -1408,6 +1414,69 @@ function renderSiteSheet() {
     el('p', { class: 'muted' }, 'Nido revisa cada cambio con el programa que lo lee antes de aplicarlo, y guarda la versión anterior para deshacerlo.'),
     sheet.error ? el('div', { class: 'file-result bad' }, sheet.error) : null,
     sheet.files ? el('div', { class: 'file-list' }, ...sheet.files.map(f => fileRow(f, 'sheet'))) : el('p', { class: 'muted' }, 'Cargando…'));
+}
+
+// shareBox opens or shows the site's temporary public link (a Cloudflare quick tunnel).
+function shareBox(site) {
+  const sh = site.share;
+  if (sh) {
+    const until = new Date(sh.expires).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return el('div', { class: 'box' }, el('h4', {}, 'Compartido en internet'),
+      el('div', { class: 'sheet-db' },
+        el('a', { href: sh.url, target: '_blank' }, sh.url + ' ↗'),
+        el('button', { class: 'small secondary', onclick: () => copyText(sh.url) }, 'Copiar'),
+        el('span', { class: 'muted' }, `hasta las ${until}${sh.password ? ' · con clave' : ''}`),
+        el('span', { class: 'spacer' }),
+        el('button', { class: 'small danger', onclick: () => shareSite(site, false) }, 'Dejar de compartir')));
+  }
+  const busy = ui.sharing === site.name;
+  const hours = el('select', { 'aria-label': 'Duración del enlace' }, ...[1, 2, 4, 8, 24].map(h =>
+    el('option', { value: h, selected: h === 8 }, h === 1 ? '1 hora' : h + ' horas')));
+  const pw = el('input', { type: 'text', placeholder: 'clave (opcional)', autocomplete: 'off', 'aria-label': 'Clave del enlace' });
+  return el('div', { class: 'box' }, el('h4', {}, 'Compartir en internet'),
+    el('p', { class: 'muted' }, 'Un enlace https://….trycloudflare.com temporal para enseñar el sitio. Sin cuenta: Nido abre un túnel rápido de Cloudflare (descarga cloudflared la primera vez). Si el sitio usa Vite, compila antes el frontend.'),
+    el('div', { class: 'row' }, hours, pw,
+      el('button', { class: 'small', disabled: busy, onclick: () => shareSite(site, true, Number(hours.value), pw.value) }, busy ? 'Abriendo el enlace…' : 'Compartir')));
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Copiado: ' + text);
+  } catch {
+    prompt('Copia el enlace:', text);
+  }
+}
+
+async function shareSite(site, on, hours, password) {
+  ui.sharing = site.name;
+  renderSiteSheet();
+  try {
+    const out = await call('POST', '/api/share', { site: site.name, on, hours, password });
+    if (on && out.url) await copyText(out.url);
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    delete ui.sharing;
+    await refresh();
+    renderSiteSheet();
+  }
+}
+
+// renderDNS shows how .test names reach this computer: the hosts file, or Nido's wildcard DNS.
+function renderDNS(s) {
+  const d = s.dns || {};
+  const tld = '.' + (s.tld || 'test');
+  const on = d.enabled && d.running && d.rule;
+  document.getElementById('dns-state').textContent = on ? 'DNS comodín' : d.enabled ? 'DNS a medias' : 'archivo hosts';
+  document.getElementById('dns-note').textContent = on
+    ? `Cualquier nombre ${tld} (también api.tienda${tld}) llega a este equipo, sin tocar hosts.`
+    : d.enabled ? (!d.running ? 'El DNS de Nido no responde en 127.0.0.1:53: ¿otro programa usa el puerto 53?' : `Windows todavía no le manda ${tld}: actívalo otra vez y acepta el permiso.`)
+      : `Cada sitio necesita su línea en hosts. Con el DNS comodín sirven también los subdominios.`;
+  const btn = document.getElementById('dns-toggle');
+  btn.textContent = on ? 'Desactivar' : 'Activar DNS comodín (pide permiso)';
+  btn.className = 'small' + (on ? ' secondary' : '');
+  btn.onclick = () => act('POST', '/api/dns', { on: !on });
 }
 
 // nodeMatches tells whether a Node version satisfies what a project asks for ("18" takes any 18.x).

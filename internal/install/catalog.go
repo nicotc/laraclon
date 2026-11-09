@@ -52,7 +52,7 @@ type Extra struct {
 // Installable lists what the catalog can install.
 var Installable = []versions.Component{versions.MySQL, versions.MariaDB, versions.PostgreSQL, versions.MongoDB,
 	versions.Redis, versions.Mailpit, versions.Meilisearch, versions.Apache, versions.Nginx, versions.FrankenPHP,
-	versions.Adminer}
+	versions.Adminer, versions.Cloudflared}
 
 const catalogTTL = 6 * time.Hour
 
@@ -104,6 +104,11 @@ func Catalog(ctx context.Context, home paths.Home, kind versions.Component, refr
 		list, err = githubCatalog(ctx, adminerReleasesURL, versions.Adminer, "github.com/vrana/adminer", adminerAsset)
 		for i := range list {
 			list[i].Binary = "adminer.php"
+		}
+	case versions.Cloudflared:
+		list, err = githubCatalog(ctx, cloudflaredReleasesURL, versions.Cloudflared, "github.com/cloudflare/cloudflared", tagAsset("cloudflared-windows-amd64.exe"))
+		for i := range list {
+			list[i].Binary = "cloudflared.exe"
 		}
 	default:
 		return nil, fmt.Errorf("%s no se puede instalar desde el catálogo", kind.Name())
@@ -659,6 +664,8 @@ const (
 	meiliReleasesURL   = "https://api.github.com/repos/meilisearch/meilisearch/releases?per_page=30"
 	// Adminer is one PHP file; the release has it with every database driver and language.
 	adminerReleasesURL = "https://api.github.com/repos/vrana/adminer/releases?per_page=10"
+	// Cloudflare's tunnel client, for the public links of 'nido share' (one .exe per release).
+	cloudflaredReleasesURL = "https://api.github.com/repos/cloudflare/cloudflared/releases?per_page=10"
 )
 
 // adminerAsset matches "adminer-6.1.2.php" in the release tagged v6.1.2.

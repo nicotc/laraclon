@@ -32,6 +32,8 @@ const (
 	Mailpit     Component = "mailpit"
 	Meilisearch Component = "meilisearch"
 	Adminer     Component = "adminer"
+	// Cloudflared opens the temporary public links of 'nido share' (Cloudflare's quick tunnels).
+	Cloudflared Component = "cloudflared"
 )
 
 // Version is one installed (or referenced) copy of a component.
@@ -48,7 +50,7 @@ type Version struct {
 var componentNames = map[Component]string{
 	PHP: "PHP", Apache: "Apache", MySQL: "MySQL", MariaDB: "MariaDB", Nginx: "Nginx", Node: "Node", Redis: "Redis",
 	Composer: "Composer", FrankenPHP: "FrankenPHP", PostgreSQL: "PostgreSQL", MongoDB: "MongoDB", Mailpit: "Mailpit",
-	Meilisearch: "Meilisearch", Adminer: "Adminer",
+	Meilisearch: "Meilisearch", Adminer: "Adminer", Cloudflared: "cloudflared",
 }
 
 // Name is the product name shown to the user, e.g. "MariaDB".

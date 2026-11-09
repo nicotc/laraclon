@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nicotc/laraclon/internal/app"
+	"github.com/nicotc/laraclon/internal/dns"
 	"github.com/nicotc/laraclon/internal/download"
 	"github.com/nicotc/laraclon/internal/hosts"
 	"github.com/nicotc/laraclon/internal/install"
@@ -56,7 +57,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		fmt.Print(usage + newUsage + apacheUsage + daemonUsage + siteUsage + serviceUsage)
+		fmt.Print(usage + newUsage + apacheUsage + daemonUsage + netUsage + siteUsage + serviceUsage)
 		return nil
 	}
 	// The elevated helper only rewrites Nido's block in the hosts file; it touches nothing else.
@@ -65,6 +66,13 @@ func run(ctx context.Context, args []string) error {
 			return fmt.Errorf("uso interno: nido hosts-apply <archivo>")
 		}
 		return hosts.Apply(args[1])
+	}
+	// So does this one with the name resolution rule of the local domain.
+	if args[0] == "dns-apply" {
+		if len(args) != 3 || (args[1] != "on" && args[1] != "off") {
+			return fmt.Errorf("uso interno: nido dns-apply on|off <dominio>")
+		}
+		return dns.Apply(args[2], args[1] == "on")
 	}
 	env, err := app.Open()
 	if err != nil {
@@ -106,6 +114,10 @@ func run(ctx context.Context, args []string) error {
 		return cmdPHP(ctx, env, args[1:])
 	case "import", "importar":
 		return cmdImport(env, args[1:])
+	case "dns":
+		return cmdDNS(env, args[1:])
+	case "share", "compartir":
+		return cmdShare(env, args[1:])
 	case "apache":
 		return cmdApache(env, args[1:])
 	case "node":

@@ -4,6 +4,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/subtle"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -34,6 +35,9 @@ type Route struct {
 	// server): each request opens its own. Reusing one that the backend already closed fails, and
 	// Go only retries the idempotent requests, so a POST (Adminer's login) got a 502.
 	OneShot bool
+	// Password, when set, asks for it (HTTP basic authentication, any user name) before forwarding:
+	// the public links of 'nido share --clave'.
+	Password string
 }
 
 // Table maps host names to routes. "*.site.test" matches through the parent site.
@@ -242,6 +246,15 @@ func fromThisComputer(r *http.Request) bool {
 }
 
 func (s *Server) forward(w http.ResponseWriter, r *http.Request, route Route) {
+	if route.Password != "" {
+		_, pw, ok := r.BasicAuth()
+		if !ok || subtle.ConstantTimeCompare([]byte(pw), []byte(route.Password)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Nido", charset="UTF-8"`)
+			http.Error(w, "Este enlace de Nido pide la clave que te pasó quien lo compartió.", http.StatusUnauthorized)
+			return
+		}
+		r.Header.Del("Authorization") // the site never sees Nido's password
+	}
 	key := route.Backend.String()
 	rp, ok := s.proxies.Load(key)
 	if !ok {

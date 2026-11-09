@@ -19,6 +19,7 @@ import (
 	"github.com/nicotc/laraclon/internal/apache"
 	"github.com/nicotc/laraclon/internal/ca"
 	"github.com/nicotc/laraclon/internal/config"
+	"github.com/nicotc/laraclon/internal/dns"
 	"github.com/nicotc/laraclon/internal/frankenphp"
 	"github.com/nicotc/laraclon/internal/hosts"
 	"github.com/nicotc/laraclon/internal/install"
@@ -85,6 +86,10 @@ type Daemon struct {
 	poolPorts       *poolStore     // ports of the pinned versions
 	poolPortVersion map[int]string // pool each pinned pool port runs ("php-7-2-0", "php-8-4-16-debug")
 	nodeNews        []install.NodeUpdate
+	dnsSrv          *dns.Server            // the wildcard DNS of the local domain (nil when off)
+	dnsRule         bool                   // Windows sends the local domain to it (cached)
+	dnsRuleAt       time.Time              // when dnsRule was read
+	shares          map[string]*shareState // public links by site name
 
 	// cfgMu serialises changes to the service settings (panel, tray and installs run concurrently).
 	cfgMu sync.Mutex
@@ -183,6 +188,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	defer os.Remove(d.env.Home.Run("control.json"))
 
+	d.setProblem("dns", d.startDNS())
+	defer d.stopDNS()
 	d.StartAll()
 	if stop, err := sites.Watch(d.env.Cfg.Roots, func() {
 		if err := d.Rescan(); err != nil {
@@ -254,6 +261,7 @@ func (d *Daemon) StopAll() {
 	d.mu.Lock()
 	d.servicesOn = false
 	d.mu.Unlock()
+	d.stopAllShares()
 	d.stopAllProcesses()
 	d.sup.Stop(adminerService)
 	d.sup.Stop(saludService)

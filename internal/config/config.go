@@ -23,6 +23,7 @@ type Config struct {
 	Nginx      Nginx      `toml:"nginx"`
 	FrankenPHP FrankenPHP `toml:"frankenphp"`
 	Hosts      Hosts      `toml:"hosts"`
+	DNS        DNS        `toml:"dns"`
 
 	// Services holds the databases by kind ("mysql", "mariadb").
 	Services map[string]Service `toml:"services,omitempty"`
@@ -159,6 +160,13 @@ func (c *Config) SetService(kind string, s Service) {
 // Hosts controls the managed block in the Windows hosts file.
 type Hosts struct {
 	Manage bool `toml:"manage"`
+}
+
+// DNS is Nido's own DNS server for the local domain: with it on, every name under .test (subdomains
+// too) reaches this computer without lines in the hosts file. Windows sends it those names through a
+// name resolution policy rule, which needs administrator rights once.
+type DNS struct {
+	Enabled bool `toml:"enabled"`
 }
 
 // SiteSettings are per-site overrides, keyed by the site name (the part before .test).

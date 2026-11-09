@@ -26,6 +26,7 @@ var panelPage = template.Must(template.ParseFS(panelFiles, "panel/index.html"))
 // Status is what the panel, the tray and `nido status` show.
 type Status struct {
 	Home           string               `json:"home"`
+	TLD            string               `json:"tld"` // the local domain, "test"
 	Roots          []string             `json:"roots"` // project folders, where new projects go
 	PHP            string               `json:"php"`
 	PHPVersions    []string             `json:"php_versions"`
@@ -55,6 +56,7 @@ type Status struct {
 	Runtime        RuntimeStatus        `json:"runtime"` // Microsoft's Visual C++ runtime
 	CACert         string               `json:"ca_cert"`
 	HostsMissing   []string             `json:"hosts_missing"`
+	DNS            DNSStatus            `json:"dns"` // the wildcard DNS of the local domain
 	Services       []supervisor.Status  `json:"services"`
 	Sites          []SiteStatus         `json:"sites"`
 	Warnings       []sites.Warning      `json:"warnings"`
@@ -66,12 +68,13 @@ type SiteStatus struct {
 	sites.Site
 	URL       string          `json:"url"`
 	Processes []ProcessStatus `json:"processes,omitempty"`
+	Share     *Share          `json:"share,omitempty"` // its public link, while open
 }
 
 // Status collects the current state.
 func (d *Daemon) Status() Status {
 	st := Status{
-		Home: d.env.Home.Root, Roots: d.env.Cfg.Roots, PanelURL: d.PanelURL(),
+		Home: d.env.Home.Root, TLD: d.env.Cfg.TLD, Roots: d.env.Cfg.Roots, PanelURL: d.PanelURL(),
 		HTTPPort: d.env.Cfg.Proxy.HTTPPort, HTTPSPort: d.env.Cfg.Proxy.HTTPSPort,
 		CATrusted: d.CATrusted(), CACert: d.ca.CertPath(),
 		Services: d.sup.Statuses(), Jobs: d.Jobs(), Runtime: d.runtimeStatus(),
@@ -120,7 +123,7 @@ func (d *Daemon) Status() Status {
 	list := append([]sites.Site(nil), d.sites...)
 	d.mu.Unlock()
 	for _, s := range list {
-		st.Sites = append(st.Sites, SiteStatus{Site: s, URL: d.SiteURL(s), Processes: d.processStatuses(s)})
+		st.Sites = append(st.Sites, SiteStatus{Site: s, URL: d.SiteURL(s), Processes: d.processStatuses(s), Share: d.shareOf(s.Name)})
 	}
 	d.mu.Lock()
 	st.Warnings = append(st.Warnings, d.warnings...)
@@ -130,7 +133,9 @@ func (d *Daemon) Status() Status {
 	}
 	d.mu.Unlock()
 	st.Databases = d.dbGroups(st.Problems)
-	if content, err := os.ReadFile(hosts.Path()); err == nil {
+	// With the wildcard DNS answering, the hosts file needs no line per site.
+	st.DNS = d.DNSStatus()
+	if content, err := os.ReadFile(hosts.Path()); err == nil && !(st.DNS.Enabled && st.DNS.Running && st.DNS.Rule) {
 		st.HostsMissing = hosts.Missing(string(content), d.hostNames())
 	}
 	// The panel reads every list as an array: on a fresh install an empty one must not travel as
@@ -285,6 +290,30 @@ func (d *Daemon) Handler() http.Handler {
 		return d.Status(), err
 	})
 	api("POST /api/hosts/sync", func(*http.Request) (any, error) { return d.Status(), d.SyncHosts() })
+	api("POST /api/dns", func(r *http.Request) (any, error) {
+		var req struct{ On bool }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		err := d.SetDNS(req.On)
+		return d.Status(), err
+	})
+	api("GET /api/shares", func(*http.Request) (any, error) { return d.Shares(), nil })
+	api("POST /api/share", func(r *http.Request) (any, error) {
+		var req struct {
+			Site     string
+			On       bool
+			Hours    int
+			Password string
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		if !req.On {
+			return map[string]bool{"ok": true}, d.StopShare(req.Site)
+		}
+		return d.ShareSite(req.Site, req.Hours, req.Password)
+	})
 	api("POST /api/ca/trust", func(*http.Request) (any, error) { return d.Status(), d.TrustCA() })
 	api("POST /api/shutdown", func(*http.Request) (any, error) { go d.Shutdown(); return map[string]bool{"ok": true}, nil })
 

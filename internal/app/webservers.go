@@ -98,6 +98,15 @@ func (d *Daemon) routes(list []sites.Site) map[string]proxy.Route {
 			routes[reverbHost(s)] = rr
 		}
 	}
+	// The public names of the shared sites lead to the site, behind their password if they have one.
+	d.mu.Lock()
+	for _, sh := range d.shares {
+		if r, ok := routes[sh.siteHost]; ok {
+			r.Password = sh.password
+			routes[sh.host] = r
+		}
+	}
+	d.mu.Unlock()
 	if r, ok := d.adminerRoute(); ok {
 		routes[adminerHost] = r
 	}

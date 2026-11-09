@@ -36,6 +36,7 @@ var programs = map[Component][]string{
 	Mailpit:     {"mailpit.exe"},
 	Meilisearch: {"meilisearch.exe"},
 	Adminer:     {"adminer.php"},
+	Cloudflared: {"cloudflared.exe"},
 }
 
 // Program is the main executable of a component inside its folder ("" when it is not there).
@@ -289,6 +290,25 @@ func DetectAdminer(dir string) (Version, error) {
 	return Version{Component: Adminer, Version: string(m[1]), Path: dir}, nil
 }
 
+var cloudflaredRe = regexp.MustCompile(`cloudflared version (\d+\.\d+\.\d+)`)
+
+// DetectCloudflared reads "cloudflared --version" ("cloudflared version 2026.10.0 (built …)").
+func DetectCloudflared(dir string) (Version, error) {
+	exe := Program(Cloudflared, dir)
+	if exe == "" {
+		return Version{}, fmt.Errorf("no hay cloudflared.exe en %s", dir)
+	}
+	out, err := procutil.Output(probeTimeout, dir, exe, "--version")
+	if err != nil {
+		return Version{}, err
+	}
+	m := cloudflaredRe.FindStringSubmatch(out)
+	if m == nil {
+		return Version{}, fmt.Errorf("versión de cloudflared no reconocida: %q", out)
+	}
+	return Version{Component: Cloudflared, Version: m[1], Path: dir, Arch: "x64"}, nil
+}
+
 // Detect dispatches on the component kind.
 func Detect(c Component, dir string) (Version, error) {
 	switch c {
@@ -316,6 +336,8 @@ func Detect(c Component, dir string) (Version, error) {
 		return DetectMeilisearch(dir)
 	case Adminer:
 		return DetectAdminer(dir)
+	case Cloudflared:
+		return DetectCloudflared(dir)
 	}
 	return Version{}, fmt.Errorf("componente desconocido: %s", c)
 }
