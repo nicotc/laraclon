@@ -57,7 +57,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		fmt.Print(usage + newUsage + apacheUsage + daemonUsage + netUsage + siteUsage + serviceUsage)
+		fmt.Print(usage + newUsage + apacheUsage + daemonUsage + netUsage + worktreeUsage + mcpUsage + siteUsage + serviceUsage)
 		return nil
 	}
 	// The elevated helper only rewrites Nido's block in the hosts file; it touches nothing else.
@@ -118,6 +118,10 @@ func run(ctx context.Context, args []string) error {
 		return cmdDNS(env, args[1:])
 	case "share", "compartir":
 		return cmdShare(env, args[1:])
+	case "worktree", "worktrees":
+		return cmdWorktree(env, args[1:])
+	case "mcp":
+		return cmdMCP(env, args[1:])
 	case "apache":
 		return cmdApache(env, args[1:])
 	case "node":

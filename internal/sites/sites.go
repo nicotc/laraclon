@@ -44,6 +44,10 @@ type Site struct {
 	// "frontend" (the build Laravel's @vite reads). «Preparar» takes care of them.
 	Missing []string `json:"missing,omitempty"`
 	Port    int      `json:"port"` // internal port on its web server
+	// Worktree is the site a git worktree comes from ("" for the sites in the project roots); Branch
+	// is its branch.
+	Worktree string `json:"worktree,omitempty"`
+	Branch   string `json:"branch,omitempty"`
 
 	// Filled in by Nido when it plans the PHP pools.
 	PHPVersion string `json:"php_version,omitempty"` // the PHP that serves the site
@@ -281,8 +285,66 @@ func Scan(cfg config.Config) ([]Site, []Warning) {
 			})
 		}
 	}
+	out, warns = appendWorktrees(cfg, out, warns)
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, warns
+}
+
+// appendWorktrees adds the git worktrees of the sites: <name>.<tld>, with the settings of the site they
+// come from unless they have their own.
+func appendWorktrees(cfg config.Config, list []Site, warns []Warning) ([]Site, []Warning) {
+	parents := map[string]Site{}
+	for _, s := range list {
+		parents[s.Name] = s
+	}
+	names := make([]string, 0, len(cfg.Worktrees))
+	for n := range cfg.Worktrees {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		wt := cfg.Worktrees[name]
+		parent, ok := parents[wt.Site]
+		if !ok {
+			continue // the site is gone or ignored: so is its worktree
+		}
+		if st, err := os.Stat(wt.Folder); err != nil || !st.IsDir() {
+			warns = append(warns, Warning{Folder: wt.Folder, Reason: fmt.Sprintf("el worktree de %s (rama %s) ya no existe: quítalo con 'nido worktree remove %s'", parent.Host, wt.Branch, name)})
+			continue
+		}
+		own, base := cfg.Sites[name], cfg.Sites[wt.Site]
+		pick := func(a, b string) string {
+			if a != "" {
+				return a
+			}
+			return b
+		}
+		public := pick(own.PublicDir, base.PublicDir)
+		docRoot, kind := detect(wt.Folder, public)
+		server := cfg.ServerFor(name)
+		if own.Server == "" {
+			server = parent.Server
+		}
+		list = append(list, Site{
+			Name:     name,
+			Host:     name + "." + cfg.TLD,
+			Folder:   wt.Folder,
+			DocRoot:  docRoot,
+			Kind:     kind,
+			HTTPS:    parent.HTTPS,
+			Server:   server,
+			PHP:      pick(own.PHP, base.PHP),
+			Node:     pick(own.Node, base.Node),
+			NodeWant: NodeWanted(wt.Folder),
+			Vite:     hasVite(wt.Folder),
+			Reverb:   kind == "laravel" && hasReverb(wt.Folder),
+			Debug:    own.Debug,
+			Missing:  Missing(wt.Folder, kind),
+			Worktree: wt.Site,
+			Branch:   wt.Branch,
+		})
+	}
+	return list, warns
 }
 
 // PortStore keeps each site's internal port stable across restarts (state\site-ports.json).

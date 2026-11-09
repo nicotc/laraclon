@@ -300,6 +300,22 @@ func (d *Daemon) Handler() http.Handler {
 		return d.Status(), err
 	})
 	api("GET /api/shares", func(*http.Request) (any, error) { return d.Shares(), nil })
+	api("GET /api/worktrees", func(r *http.Request) (any, error) { return d.Worktrees(r.URL.Query().Get("site")), nil })
+	api("POST /api/worktrees", func(r *http.Request) (any, error) {
+		var req struct{ Site, Branch, DB string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		return d.AddWorktree(req.Site, req.Branch, req.DB)
+	})
+	api("POST /api/worktrees/remove", func(r *http.Request) (any, error) {
+		var req struct{ Name string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			return nil, err
+		}
+		note, err := d.RemoveWorktree(req.Name)
+		return map[string]string{"note": note}, err
+	})
 	api("GET /api/dumps", func(r *http.Request) (any, error) {
 		since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 		return d.Dumps(since), nil

@@ -402,6 +402,7 @@ function renderSites() {
       onclick: e => { e.preventDefault(); openSiteSheet(x.name); } }, x.host), ' ',
       el('a', { href: x.url, target: '_blank', class: 'ext', title: 'Abrir ' + x.url }, '↗'), ' ',
       x.share ? el('a', { href: x.share.url, target: '_blank', class: 'ext', title: 'Compartido en ' + x.share.url }, '🌐') : null, x.share ? ' ' : null,
+      x.worktree ? el('span', { class: 'pill', title: `Worktree de ${x.worktree} en la rama ${x.branch}` }, '⑂ ' + x.branch) : null, x.worktree ? ' ' : null,
       el('button', { class: 'ghost', title: 'Guardar como plantilla para proyectos nuevos', onclick: () => saveTemplate(x) }, '⧉')),
     el('td', {}, x.kind),
     el('td', {}, serverPicker(x)),
@@ -1476,6 +1477,7 @@ function renderSiteSheet() {
         el('span', { class: 'k' }, 'Carpeta pública'), el('code', {}, site.doc_root),
         el('span', { class: 'k' }, 'Puerto interno'), el('span', {}, String(site.port)))),
     shareBox(site),
+    worktreeBox(site),
     db ? el('div', { class: 'box' }, el('h4', {}, 'Base de datos'),
       el('div', { class: 'sheet-db' }, el('code', {}, db.bd), el('span', { class: 'health-state ' + db.estado }, HEALTH_STATE[db.estado] || db.estado),
         el('span', { class: 'muted' }, db.detalle))) : null,
@@ -1506,6 +1508,56 @@ function shareBox(site) {
     el('p', { class: 'muted' }, 'Un enlace https://….trycloudflare.com temporal para enseñar el sitio. Sin cuenta: Nido abre un túnel rápido de Cloudflare (descarga cloudflared la primera vez). Si el sitio usa Vite, compila antes el frontend.'),
     el('div', { class: 'row' }, hours, pw,
       el('button', { class: 'small', disabled: busy, onclick: () => shareSite(site, true, Number(hours.value), pw.value) }, busy ? 'Abriendo el enlace…' : 'Compartir')));
+}
+
+const WT_DB = [['compartida', 'Compartir su base de datos'], ['copia', 'Copia de su base de datos'], ['nueva', 'Base de datos nueva y migrada']];
+
+// worktreeBox lists a site's git worktrees (each at <branch>.<site>.test) and creates new ones.
+function worktreeBox(site) {
+  if (site.worktree) {
+    return el('div', { class: 'box' }, el('h4', {}, 'Worktree'),
+      el('div', { class: 'sheet-db' },
+        el('span', {}, 'Rama ', el('b', { class: 'mono' }, site.branch), ` de ${site.worktree}.${state.tld || 'test'}`),
+        el('span', { class: 'spacer' }),
+        el('button', { class: 'small danger', onclick: () => removeWorktree(site.name) }, 'Quitar worktree')));
+  }
+  const list = (state.sites || []).filter(x => x.worktree === site.name);
+  const branch = el('input', { type: 'text', placeholder: 'rama, p. ej. feature/pagos', autocomplete: 'off', 'aria-label': 'Rama del worktree' });
+  const db = el('select', { 'aria-label': 'Base de datos del worktree' }, ...options(WT_DB, 'compartida'));
+  return el('div', { class: 'box' }, el('h4', {}, 'Worktrees de Git'),
+    list.length ? el('div', { class: 'file-list' }, ...list.map(w => el('div', { class: 'file-row' },
+      el('a', { href: w.url, target: '_blank' }, w.host + ' ↗'), el('span', { class: 'svc-sub mono' }, w.branch),
+      el('span', { class: 'spacer' }),
+      el('button', { class: 'small secondary', onclick: () => openSiteSheet(w.name) }, 'Ficha'),
+      el('button', { class: 'small danger', onclick: () => removeWorktree(w.name) }, 'Quitar'))))
+      : el('p', { class: 'muted' }, 'Cada rama en su carpeta y en su dirección (rama.' + site.host + '), con su .env, su APP_KEY y su frontend.'),
+    el('div', { class: 'row' }, branch, db,
+      el('button', { class: 'small', onclick: () => addWorktree(site, branch.value, db.value) }, 'Crear worktree')));
+}
+
+async function addWorktree(site, branch, db) {
+  if (!branch.trim()) { alert('Escribe el nombre de la rama'); return; }
+  try {
+    await call('POST', '/api/worktrees', { site: site.name, branch: branch.trim(), db });
+    toast('Creando el worktree de ' + branch.trim() + ': lo sigues en «Sitios»');
+    closeSiteDialog();
+    showTab('sitios');
+  } catch (e) {
+    alert(e.message);
+  }
+  await refresh();
+}
+
+async function removeWorktree(name) {
+  if (!confirm(`¿Quitar el worktree ${name}? Se borra su carpeta (los cambios sin commit se pierden); su base de datos propia, si tiene, se conserva.`)) return;
+  try {
+    const out = await call('POST', '/api/worktrees/remove', { name });
+    toast(out.note || 'Worktree quitado');
+    if (ui.sheet && ui.sheet.site === name) closeSiteDialog();
+  } catch (e) {
+    alert(e.message);
+  }
+  await refresh();
 }
 
 async function copyText(text) {

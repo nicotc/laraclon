@@ -34,6 +34,18 @@ type Config struct {
 	MySQL *LegacyMySQL `toml:"mysql,omitempty"`
 
 	Sites map[string]SiteSettings `toml:"sites,omitempty"`
+
+	// Worktrees are the git worktrees Nido serves as <branch>.<site>.test, keyed by that name without
+	// the domain ("feature-x.tienda").
+	Worktrees map[string]Worktree `toml:"worktrees,omitempty"`
+}
+
+// Worktree is a git worktree of a site, in a folder of its own outside the project roots.
+type Worktree struct {
+	Site   string `toml:"site"`   // the site it comes from ("tienda")
+	Branch string `toml:"branch"` // its branch ("feature/x")
+	Folder string `toml:"folder"`
+	DB     string `toml:"db,omitempty"` // a database made for it (copy or new), "" when it shares the site's
 }
 
 // Proxy is the front HTTPS proxy that owns the public ports for every site.

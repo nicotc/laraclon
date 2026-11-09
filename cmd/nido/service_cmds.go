@@ -203,11 +203,37 @@ func sourceOf(list []install.Release) string {
 	return "sin versiones"
 }
 
+// waitJob waits quietly until a job ends and returns it as it finished (for 'nido mcp', whose
+// stdout belongs to the protocol).
+func waitJob(ops serviceOps, j app.Job) (app.Job, error) {
+	for {
+		list, err := ops.jobs()
+		if err != nil {
+			return j, err
+		}
+		found := false
+		for _, cur := range list {
+			if cur.ID == j.ID {
+				found = true
+				if cur.Finished {
+					return cur, nil
+				}
+			}
+		}
+		if !found {
+			return j, fmt.Errorf("el trabajo %s ya no está en la lista de Nido", j.ID)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
 // followJob prints the progress of an installation or a new project until it ends.
 func followJob(ops serviceOps, j app.Job) error {
 	tool := j.Kind == "pnpm" || j.Kind == "yarn"
 	if j.Kind == "project" && j.Version == "preparar" {
 		fmt.Printf("Preparando %s…\n", j.Series)
+	} else if j.Kind == "project" && j.Version == "worktree" {
+		fmt.Printf("Creando el worktree %s…\n", j.Series)
 	} else if j.Kind == "project" && j.Version == "Reverb" {
 		fmt.Printf("Compilando el frontend de %s con la dirección de Reverb…\n", j.Series)
 	} else if j.Kind == "project" {

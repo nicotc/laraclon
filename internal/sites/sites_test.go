@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/nicotc/laraclon/internal/config"
 )
 
 func TestMissingListsWhatAClonedProjectLacks(t *testing.T) {
@@ -132,5 +134,35 @@ func TestNodeWantedReadsNvmrcAndNodeVersion(t *testing.T) {
 		if got := NodeWanted(dir); got != want {
 			t.Errorf("NodeWanted(.nvmrc=%q, .node-version=%q) = %q, quiero %q", files[0], files[1], got, want)
 		}
+	}
+}
+
+func TestWorktreesAreServedAsBranchDotSite(t *testing.T) {
+	root, wt := t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(root, "tienda", "public"), 0o755)
+	os.WriteFile(filepath.Join(root, "tienda", "artisan"), nil, 0o644)
+	os.MkdirAll(filepath.Join(wt, "public"), 0o755)
+	os.WriteFile(filepath.Join(wt, "artisan"), nil, 0o644)
+	cfg := config.Defaults()
+	cfg.Roots = []string{root}
+	cfg.Sites = map[string]config.SiteSettings{"tienda": {Server: config.ServerNginx, PHP: "8.3"}}
+	cfg.Worktrees = map[string]config.Worktree{
+		"feature-pagos.tienda": {Site: "tienda", Branch: "feature/pagos", Folder: wt},
+		"vieja.tienda":         {Site: "tienda", Branch: "vieja", Folder: filepath.Join(wt, "no-existe")},
+		"x.otro":               {Site: "otro", Branch: "x", Folder: wt},
+	}
+	list, warns := Scan(cfg)
+	if len(list) != 2 {
+		t.Fatalf("sites: %+v", list)
+	}
+	w := list[0]
+	if w.Name != "feature-pagos.tienda" || w.Host != "feature-pagos.tienda.test" || w.Worktree != "tienda" || w.Branch != "feature/pagos" {
+		t.Fatalf("worktree: %+v", w)
+	}
+	if w.Server != config.ServerNginx || w.PHP != "8.3" || w.Kind != "laravel" || w.DocRoot != filepath.Join(wt, "public") {
+		t.Errorf("the worktree takes the site's settings: %+v", w)
+	}
+	if len(warns) != 1 || warns[0].Folder != filepath.Join(wt, "no-existe") {
+		t.Errorf("warns: %+v", warns)
 	}
 }
